@@ -1,0 +1,149 @@
+/*
+ * Design tokens only — no layout/structure rules live here.
+ * Reskin the whole dashboard by editing the values below (or by loading a second
+ * stylesheet after this one that redefines the same variable names on :root).
+ * See INTEGRATION.md → "Theming" for what each token controls.
+ *
+ * This is Ben's own working palette (navy + a single teal accent, kept deliberately
+ * restrained), not a Poolean brand mandate — swap it freely to match the live site.
+ */
+
+:root {
+  /* Surfaces */
+  --bg: #f2f6f5;
+  --panel-bg: #ffffff;
+  --border: #d7e2e0;
+  --surface-muted: #e7f1ef;
+  --surface-muted-hover: #d9ece8;
+  --surface-tint: #f8fbfa;
+  --surface-hover: #eef6f4;
+  --disabled-bg: #dbe4e0;
+
+  /* Text */
+  --text: #0f211d;
+  --muted: #5c7570;
+
+  /* Brand + semantic colors — one accent hue (teal) used everywhere, not split across two */
+  --primary: #0e8f86;
+  --primary-dark: #0b6f68;
+  --primary-light: #e2f3f1;
+  --accent: #0e8f86;
+  --accent-light: #e2f3f1;
+  --danger: #b8382d;
+  --danger-light: #fbe6e3;
+  --success: #1f7f4f;
+  --success-light: #e5f4ea;
+  --warning: #a3620f;
+  --warning-light: #fbeedc;
+
+  /* Decorative background glow (behind the whole page) */
+  --glow-1: #e2f3f1;
+  --glow-2: #eef4e9;
+
+  /* Player-profile role tags (Players tab) — one hue per role so a roster scan reads by color,
+     not just label text. role-player deliberately stays neutral (the --surface-tint/--muted
+     pairing everything else on the page already uses) since it's the "nothing stands out"
+     catch-all, not a real specialization. */
+  --tag-scorer-bg: #fde6d0;
+  --tag-scorer-text: #9a5412;
+  --tag-defender-bg: #dbe9fb;
+  --tag-defender-text: #1f5599;
+  --tag-physical-bg: #ede2fb;
+  --tag-physical-text: #6b3fa0;
+  --tag-playmaker-bg: #ddf3df;
+  --tag-playmaker-text: #257a3e;
+
+  /* Shape + elevation — generous continuous-looking radius and soft, diffuse shadows (the iOS
+     card language: cards read as floating slightly above the background, not flat bordered
+     boxes) — badges/pills stay full-round regardless of this token, see .badge in style.css */
+  --radius: 18px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 1px 2px rgba(15, 33, 29, 0.04), 0 4px 14px rgba(15, 33, 29, 0.06);
+  --shadow-md: 0 4px 10px rgba(15, 33, 29, 0.06), 0 12px 28px rgba(15, 33, 29, 0.10);
+
+  /* Translucent panel-bg for the sticky header's frosted-glass look (backdrop-filter blur) */
+  --header-bg-translucent: rgba(255, 255, 255, 0.72);
+
+  /* Typography — one grotesk family for both display and body (weight carries the
+     hierarchy), a monospace face reserved for tabular stat numbers */
+  --font-body: "Archivo", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Archivo", var(--font-body);
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+/* Dark mode: system preference by default, overridden by the header toggle (data-theme) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1d29;
+    --panel-bg: #122a3a;
+    --border: #1e3a4a;
+    --surface-muted: #16303f;
+    --surface-muted-hover: #1c3a4b;
+    --surface-tint: #102633;
+    --surface-hover: #142e3d;
+    --disabled-bg: #1c3644;
+    --text: #eaf3f2;
+    --muted: #7f9aa8;
+    --primary: #33cbc0;
+    --primary-dark: #7fe0d6;
+    --primary-light: #123645;
+    --accent: #33cbc0;
+    --accent-light: #123645;
+    --danger: #f2726b;
+    --danger-light: #3a1a17;
+    --success: #4fd97f;
+    --success-light: #123322;
+    --warning: #f2a33c;
+    --warning-light: #3a2412;
+    --glow-1: rgba(51, 203, 192, 0.07);
+    --glow-2: rgba(51, 203, 192, 0.04);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.16), 0 4px 14px rgba(0, 0, 0, 0.22);
+    --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.22), 0 12px 28px rgba(0, 0, 0, 0.32);
+    --header-bg-translucent: rgba(12, 29, 41, 0.72);
+    --tag-scorer-bg: #3a2712;
+    --tag-scorer-text: #f2ad5c;
+    --tag-defender-bg: #16283f;
+    --tag-defender-text: #7fb4f2;
+    --tag-physical-bg: #2a1f3f;
+    --tag-physical-text: #c9a3f2;
+    --tag-playmaker-bg: #14301c;
+    --tag-playmaker-text: #6fdb8a;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0c1d29;
+  --panel-bg: #122a3a;
+  --border: #1e3a4a;
+  --surface-muted: #16303f;
+  --surface-muted-hover: #1c3a4b;
+  --surface-tint: #102633;
+  --surface-hover: #142e3d;
+  --disabled-bg: #1c3644;
+  --text: #eaf3f2;
+  --muted: #7f9aa8;
+  --primary: #33cbc0;
+  --primary-dark: #7fe0d6;
+  --primary-light: #123645;
+  --accent: #33cbc0;
+  --accent-light: #123645;
+  --danger: #f2726b;
+  --danger-light: #3a1a17;
+  --success: #4fd97f;
+  --success-light: #123322;
+  --warning: #f2a33c;
+  --warning-light: #3a2412;
+  --glow-1: rgba(51, 203, 192, 0.07);
+  --glow-2: rgba(51, 203, 192, 0.04);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.16), 0 4px 14px rgba(0, 0, 0, 0.22);
+  --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.22), 0 12px 28px rgba(0, 0, 0, 0.32);
+  --header-bg-translucent: rgba(12, 29, 41, 0.72);
+  --tag-scorer-bg: #3a2712;
+  --tag-scorer-text: #f2ad5c;
+  --tag-defender-bg: #16283f;
+  --tag-defender-text: #7fb4f2;
+  --tag-physical-bg: #2a1f3f;
+  --tag-physical-text: #c9a3f2;
+  --tag-playmaker-bg: #14301c;
+  --tag-playmaker-text: #6fdb8a;
+}

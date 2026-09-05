@@ -1,0 +1,95 @@
+/* Friends viewer — hides every editing/data-entry control, leaves everything else (Leaderboard,
+   Player Detail, game videos, every read-only table) untouched. Implemented as pure CSS
+   display:none rather than removing markup from index.html, since app.js's top-level init code
+   calls document.getElementById(id).addEventListener(...) unguarded for many of these same
+   elements — deleting one from the HTML would throw on load and break the whole script, not just
+   the one control. Keeping every element in the DOM (just visually hidden) means this file can
+   stay a pure additive overlay on an unmodified copy of the real app, easy to re-sync later.
+
+   :has() is required below and is supported in all current evergreen browsers (Chrome/Edge/Safari
+   111+, Firefox 121+) — acceptable here since this build is only ever opened by hand, not
+   depended on for anything that needs older-browser support. */
+
+/* Top-level nav: only Games and Leaderboard are reachable. Stat Entry stays exactly as it already
+   behaves — hidden until a friend clicks into a specific game, then shown for that one game. */
+.tab-btn[data-tab="players"],
+.tab-btn[data-tab="export"] {
+  display: none !important;
+}
+
+/* Games tab: RSVP planning and game creation are pure editing tools with nothing to view, so
+   they're hidden. Balance Teams stays — it's a genuinely fun "what would a fair matchup look
+   like" tool on its own, and since this whole app is client-side with no server, anything a
+   friend generates or even saves via "Use These Teams" only ever touches their own browser's
+   local copy (which resets to this baked snapshot on their next reload anyway) — it can never
+   reach Ben's real data or any other friend's copy. */
+.panel:has(#rsvpDateInput),
+.panel:has(#addGameForm) {
+  display: none !important;
+}
+
+/* Balance Teams' own "Use These Teams → Create Game" button reads its date from #gameDateInput,
+   which lives in the now-hidden Create Game panel — with no UI to set that date, every game it
+   created would silently come out dateless. Hiding just this one button keeps the actual
+   balancing tool (generate splits, see the average Two-Way/20 and chemistry notes, preview
+   matchups) fully intact without that broken downstream step. */
+.balance-use-btn {
+  display: none !important;
+}
+
+/* Balance Teams' own "Load from Who's Coming?" row (a date picker + "Use These RSVPs" button)
+   only makes sense alongside the Who's Coming panel it pulls from — with that panel hidden and
+   no way to save a new RSVP, it can only ever read "No RSVPs saved yet," a dead end with nothing
+   to explain it. Hiding the whole row (not just the button) removes that confusion; the plain
+   attendee picker right below it still does the same job by hand. */
+.balance-controls:has(#balanceRsvpDateSelect) {
+  display: none !important;
+}
+
+/* Each game card's own "Delete" button — the only direct <button> child of .game-card (its other
+   content lives inside a plain <div>), so this selector can't accidentally catch anything else. */
+.game-card > .icon-btn {
+  display: none !important;
+}
+
+/* Stat Entry: keep the video and every plain display table (Game Stats, Shot Log, Other Events,
+   Defensive Matchups, Highlight/Lowlight Reel) — hide only the interactive tagging UI. .stat-pane
+   is one clean container for the whole box-score-with-inline-logging-buttons area, so hiding it
+   is a single rule rather than chasing individual buttons through several levels of dynamically
+   generated markup. The video pane then takes the full row instead of leaving an empty grid
+   column where the stat pane used to sit. */
+.stat-pane {
+  display: none !important;
+}
+.tagging-area {
+  grid-template-columns: 1fr !important;
+}
+.panel:has(#masterVideoSelect),
+.panel:has(#markHighlightBtn),
+.panel:has(#rosterAssignment) {
+  display: none !important;
+}
+#addMatchupForm {
+  display: none !important;
+}
+
+/* Shot Log, Other Events, and Defensive Matchups each append two extra trailing columns beyond
+   their sortable ones: a "Jump to this moment in the video" button (harmless, keep) and, in the
+   very last column, an Edit and/or Remove button (Shot Log combines both into one cell; the other
+   two are Remove-only). Hiding the last header/body cell in each table removes those in one shot
+   without needing to chase individual button classes through dynamically generated rows. */
+#scoringLogHeaderRow th:last-child, #scoringLogBody td:last-child,
+#otherEventsHeaderRow th:last-child, #otherEventsBody td:last-child,
+#matchupTableHeaderRow th:last-child, #matchupTableBody td:last-child,
+#reelHeaderRow th:last-child, #reelTableBody td:last-child {
+  display: none !important;
+}
+
+/* The per-game Highlight/Lowlight Reel table is the one exception to "action buttons live in
+   their own trailing column" — its Start/End/Player/Note cells are themselves live, editable
+   inputs (not a button next to a plain value), so hiding a whole column would hide real data, not
+   just an edit control. pointer-events:none blocks interaction while leaving the current value
+   fully visible and readable, same end result as everywhere else in this file. */
+#reelTableBody input, #reelTableBody select {
+  pointer-events: none;
+}
