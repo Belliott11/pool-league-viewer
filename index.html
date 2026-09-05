@@ -20,6 +20,38 @@
 </script>
 </head>
 <body>
+<div id="pinGateOverlay" style="position:fixed;inset:0;z-index:99999;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;">
+  <form id="pinGateForm" style="display:flex;flex-direction:column;gap:14px;align-items:center;max-width:280px;width:100%;">
+    <h2 style="margin:0;font-family:var(--font-display);color:var(--text);">Pool League Stat Tracker</h2>
+    <p style="margin:0;color:var(--muted);font-size:0.9rem;text-align:center;">Enter the PIN to view.</p>
+    <input type="password" id="pinGateInput" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" style="width:100%;text-align:center;font-size:1.4rem;letter-spacing:0.3em;">
+    <button type="submit" style="width:100%;">Unlock</button>
+    <p id="pinGateError" hidden style="margin:0;color:var(--danger, #e5484d);font-size:0.85rem;">Wrong PIN — try again.</p>
+  </form>
+</div>
+<script>
+  // Client-side-only gate — a real deterrent for a link getting casually forwarded or browsed,
+  // not real security: this repo has to be public for GitHub Pages to work at all, so the raw
+  // data file is directly viewable on github.com by anyone who goes looking regardless of this.
+  (function () {
+    var PIN = "6969";
+    var KEY = "poolLeagueViewerPinOk";
+    var overlay = document.getElementById("pinGateOverlay");
+    if (localStorage.getItem(KEY) === "1") { overlay.remove(); return; }
+    document.getElementById("pinGateForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var input = document.getElementById("pinGateInput");
+      if (input.value === PIN) {
+        localStorage.setItem(KEY, "1");
+        overlay.remove();
+      } else {
+        document.getElementById("pinGateError").hidden = false;
+        input.value = "";
+        input.focus();
+      }
+    });
+  })();
+</script>
 <header class="app-header">
   <div class="header-inner">
     <div class="header-top-row">
