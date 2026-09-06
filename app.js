@@ -3683,8 +3683,10 @@ document.getElementById("reelChronoBtn").addEventListener("click", () => {
 // library, matching everything else in this tool. The real cost of that: it runs in real time (a
 // 5-minute combined reel takes about 5 minutes to produce), and the tab has to stay open and the
 // video actually playing — browsers throttle or drop captureStream() frames on a backgrounded
-// tab. Output is .webm, MediaRecorder's one broadly-supported container; there's no in-browser
-// path to .mp4 without the ffmpeg.wasm dependency this tool deliberately doesn't carry.
+// tab. Output is .mp4 where the browser's MediaRecorder supports recording directly to it
+// (recent Chrome/Edge), falling back to .webm otherwise (see pickRecorderMimeType()) — no
+// transcoding step, no ffmpeg.wasm dependency, just recording straight to whichever container
+// the browser will actually produce.
 // { cancelled, cancelPromise } while an export is running; null otherwise. cancelPromise is
 // racED against every step below (seeking, playing, waiting for a clip to end) so Cancel can
 // actually break out of a stuck step, not just get checked between steps — a plain boolean flag
@@ -3706,9 +3708,24 @@ function updateReelExportButton(game) {
   btn.disabled = !!reelExportState || !currentVideoEl || !game || reelClipsChronological(game).length === 0;
 }
 
+// MP4 first, WebM as a fallback for browsers that don't support recording directly to MP4 (older
+// Chrome/Edge, most non-Chromium browsers) — MediaRecorder support for `video/mp4` output is
+// newer and less universal than `video/webm`, so this has to stay a real fallback chain, not a
+// hard switch. `pickRecorderExtension()` mirrors this list so a downloaded file's name always
+// matches whichever container actually got recorded.
 function pickRecorderMimeType() {
-  const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+  const candidates = [
+    "video/mp4;codecs=avc1,mp4a.40.2",
+    "video/mp4;codecs=avc1",
+    "video/mp4",
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm"
+  ];
   return candidates.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+}
+function pickRecorderExtension(mimeType) {
+  return mimeType.startsWith("video/mp4") ? "mp4" : "webm";
 }
 
 // Resolves once the video has actually reached `time`, not just once currentTime is set —
@@ -3877,7 +3894,7 @@ async function exportReelVideo(game) {
     statusEl.textContent = stoppedEarly || "Recording produced no data — try again.";
   } else {
     const blob = new Blob(chunks, { type: mimeType });
-    download(`${game.date || "game"}-highlights.webm`, blob, mimeType);
+    download(`${game.date || "game"}-highlights.${pickRecorderExtension(mimeType)}`, blob, mimeType);
     const clipWord = clips.length === 1 ? "clip" : "clips";
     statusEl.textContent = stoppedEarly
       ? `${stoppedEarly} Downloaded what was recorded before that.`
@@ -6662,7 +6679,7 @@ async function exportLeagueVideo() {
     statusEl.textContent = (stoppedEarly || "Recording produced no data — try again.") + skipNote;
   } else {
     const blob = new Blob(chunks, { type: mimeType });
-    download("league-highlights.webm", blob, mimeType);
+    download(`league-highlights.${pickRecorderExtension(mimeType)}`, blob, mimeType);
     statusEl.textContent = stoppedEarly
       ? `${stoppedEarly} Downloaded what was recorded before that.${skipNote}`
       : `Done — ${done} clip${done === 1 ? "" : "s"} combined and downloaded.${skipNote}`;
