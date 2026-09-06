@@ -6441,11 +6441,6 @@ async function exportLeagueVideo() {
   previewWrap.hidden = false;
   video.muted = false;
 
-  const stream = video.captureStream ? video.captureStream() : video.mozCaptureStream();
-  const recorder = new MediaRecorder(stream, { mimeType });
-  const chunks = [];
-  recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-
   let resolveCancel;
   const cancelPromise = new Promise(resolve => { resolveCancel = resolve; });
   leagueExportState = { cancelled: false, resolveCancel };
@@ -6474,15 +6469,35 @@ async function exportLeagueVideo() {
   let done = 0;
   let currentSrc = null;
   let stoppedEarly = null;
+  const chunks = [];
 
-  // Started paused so only actual clip playback — not the seeking/loading between clips or
-  // between games — ends up in the recording. pause()/resume() (not stop-and-restart) keeps it
-  // one continuous MediaRecorder session.
-  recorder.start();
-  recorder.pause();
+  // captureStream() has to happen once this element actually has a real frame to capture — call
+  // it while `video` still has no src at all (as it does right here, since this element only ever
+  // exists for exports and nothing else ever sets its src) and on Chrome the captured stream just
+  // stays black for the entire recording, regardless of every later src swap. So the very first
+  // clip's source loads BEFORE captureStream()/the MediaRecorder get created, not after — every
+  // other src swap later in the loop below is fine, since the stream's already bound to a real,
+  // already-playing video by then.
+  let recorder = null;
+  if (totalClips > 0 && !leagueExportState.cancelled) {
+    const first = queue[0];
+    statusEl.textContent = `Loading video for ${formatDateDisplay(first.game.date)}…`;
+    const firstLoadOutcome = await raceCancel(loadVideoSrc(video, first.src), cancelPromise);
+    if (firstLoadOutcome !== "cancelled") {
+      currentSrc = first.src;
+      const stream = video.captureStream ? video.captureStream() : video.mozCaptureStream();
+      recorder = new MediaRecorder(stream, { mimeType });
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      // Started paused so only actual clip playback — not the seeking/loading between clips or
+      // between games — ends up in the recording. pause()/resume() (not stop-and-restart) keeps
+      // it one continuous MediaRecorder session.
+      recorder.start();
+      recorder.pause();
+    }
+  }
   try {
     for (const { game, clip, src } of queue) {
-      if (leagueExportState.cancelled) break;
+      if (leagueExportState.cancelled || !recorder) break;
 
       if (src !== currentSrc) {
         statusEl.textContent = `Loading video for ${formatDateDisplay(game.date)}…`;
@@ -6517,8 +6532,10 @@ async function exportLeagueVideo() {
       if (waitOutcome === "cancelled") break;
     }
   } finally {
-    recorder.stop();
-    await new Promise(resolve => { recorder.onstop = resolve; });
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+      await new Promise(resolve => { recorder.onstop = resolve; });
+    }
     video.pause();
     video.removeAttribute("src");
     video.load();
