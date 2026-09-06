@@ -1515,6 +1515,22 @@ button:disabled {
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 10px;
 }
+/* Awards vs. Stats sits in a .panel-row next to Power Ranking vs. Performance, and the two are
+   naturally very different lengths (an expandable award list vs. a per-night table) — the panel
+   box itself already stretches to match its taller neighbor (align-items:stretch on .panel-row),
+   but that alone just left blank space below a short award grid, or an overflowing one for a
+   long one. Making this specific panel a flex column, with the grid as the one flexible/scrolling
+   child, means the grid always fills exactly the stretched height and scrolls internally instead
+   — so this panel is never taller OR shorter than its neighbor, whichever that happens to be. */
+.panel:has(> #awardsVsStats) {
+  display: flex;
+  flex-direction: column;
+}
+.panel:has(> #awardsVsStats) #awardsVsStats {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
 .award-row {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
