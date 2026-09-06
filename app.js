@@ -3712,35 +3712,72 @@ function pickRecorderMimeType() {
 }
 
 // Resolves once the video has actually reached `time`, not just once currentTime is set —
-// seeking on a real (especially large local-file) video is asynchronous.
-function waitForSeek(video, time) {
+// seeking on a real (especially large local-file) video is asynchronous. Resolves "done" or,
+// past `timeoutMs` with no "seeked" event at all (a real stall — a bad/out-of-range timestamp,
+// a decoder hiccup, whatever the cause), "timeout" — this used to have no timeout at all, which
+// left the whole export silently stuck on one clip forever with no way out except Cancel (which,
+// from the outside, looks identical to it just being slow — there's no way to tell "still working"
+// from "will never finish" without one).
+function waitForSeek(video, time, timeoutMs = 15000) {
   return new Promise(resolve => {
-    if (Math.abs(video.currentTime - time) < 0.05) { resolve(); return; }
-    const onSeeked = () => { video.removeEventListener("seeked", onSeeked); resolve(); };
+    if (Math.abs(video.currentTime - time) < 0.05) { resolve("done"); return; }
+    let settled = false;
+    const onSeeked = () => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener("seeked", onSeeked);
+      clearTimeout(timeout);
+      resolve("done");
+    };
     video.addEventListener("seeked", onSeeked);
     video.currentTime = time;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener("seeked", onSeeked);
+      resolve("timeout");
+    }, timeoutMs);
   });
 }
 
 // Polls on a plain interval rather than requestAnimationFrame — rAF callbacks are suspended
 // entirely (not just throttled) on a page that isn't actually visible, which would hang this
-// forever if the tab gets backgrounded mid-export instead of just running late.
-function waitUntilTime(video, endTime) {
+// forever if the tab gets backgrounded mid-export instead of just running late. `timeoutMs`
+// guards the same "silently stuck forever" failure mode as waitForSeek above — real-time
+// clip playback stalling (a buffering pause, a decode stall, `ended` never firing) used to hang
+// the whole export on whatever clip it happened to, with the status line frozen and no way to
+// tell that from it just taking a while. The caller sizes `timeoutMs` to the clip's own expected
+// length plus real headroom, not a flat constant, so a normal slow clip doesn't trip a timeout
+// meant for a genuinely stuck one.
+function waitUntilTime(video, endTime, timeoutMs = 30000) {
   return new Promise(resolve => {
+    let settled = false;
     const interval = setInterval(() => {
+      if (settled) return;
       if (video.currentTime >= endTime || video.ended) {
+        settled = true;
         clearInterval(interval);
-        resolve();
+        clearTimeout(timeout);
+        resolve("done");
       }
     }, 50);
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      clearInterval(interval);
+      resolve("timeout");
+    }, timeoutMs);
   });
 }
 
 // Wraps a promise so a cancel click can interrupt it even mid-flight — a video.play() call that
 // never settles (blocked autoplay policy, a stalled/buffering source, whatever the cause)
-// otherwise leaves the whole export stuck with no way out except reloading the page.
+// otherwise leaves the whole export stuck with no way out except reloading the page. Passes the
+// wrapped promise's own resolved value through unchanged (not flattened to a fixed "done") so a
+// caller can tell "finished normally" apart from "timed out" for promises — like waitForSeek/
+// waitUntilTime — that resolve with one or the other instead of always succeeding.
 function raceCancel(promise, cancelPromise) {
-  return Promise.race([promise.then(() => "done"), cancelPromise.then(() => "cancelled")]);
+  return Promise.race([promise, cancelPromise.then(() => "cancelled")]);
 }
 
 async function exportReelVideo(game) {
@@ -3788,6 +3825,10 @@ async function exportReelVideo(game) {
 
       const seekOutcome = await raceCancel(waitForSeek(video, clips[i].start), cancelPromise);
       if (seekOutcome === "cancelled") break;
+      if (seekOutcome === "timeout") {
+        stoppedEarly = `Clip ${i + 1} of ${clips.length} never finished seeking — stopped there.`;
+        break;
+      }
 
       recorder.resume();
       const playPromise = video.play().catch(() => {}); // a rejected play() still resolves this race with "done" via .catch, handled by the timeout below if it never settles at all
@@ -3803,10 +3844,19 @@ async function exportReelVideo(game) {
         break;
       }
 
-      const waitOutcome = await raceCancel(waitUntilTime(video, clips[i].end), cancelPromise);
+      // Timeout sized to this clip's own remaining length plus real headroom (3x it, floor
+      // 15s) rather than a flat constant — a clip that's simply longer than most shouldn't trip
+      // a timeout meant to catch actual stalls, but a genuinely stuck clip still gets caught
+      // instead of hanging the whole export forever with the status line frozen.
+      const remaining = Math.max(0, clips[i].end - video.currentTime);
+      const waitOutcome = await raceCancel(waitUntilTime(video, clips[i].end, Math.max(15000, remaining * 3000)), cancelPromise);
       video.pause();
       recorder.pause();
       if (waitOutcome === "cancelled") break;
+      if (waitOutcome === "timeout") {
+        stoppedEarly = `Clip ${i + 1} of ${clips.length} stalled partway through — stopped there.`;
+        break;
+      }
     }
   } finally {
     recorder.stop();
@@ -6511,6 +6561,10 @@ async function exportLeagueVideo() {
 
       const seekOutcome = await raceCancel(waitForSeek(video, clip.start), cancelPromise);
       if (seekOutcome === "cancelled") break;
+      if (seekOutcome === "timeout") {
+        stoppedEarly = `Clip ${done} of ${totalClips} never finished seeking — stopped there.`;
+        break;
+      }
 
       recorder.resume();
       const playPromise = video.play().catch(() => {});
@@ -6526,10 +6580,16 @@ async function exportLeagueVideo() {
         break;
       }
 
-      const waitOutcome = await raceCancel(waitUntilTime(video, clip.end), cancelPromise);
+      // Same per-clip-sized timeout as the per-game export above, not a flat constant.
+      const remaining = Math.max(0, clip.end - video.currentTime);
+      const waitOutcome = await raceCancel(waitUntilTime(video, clip.end, Math.max(15000, remaining * 3000)), cancelPromise);
       video.pause();
       recorder.pause();
       if (waitOutcome === "cancelled") break;
+      if (waitOutcome === "timeout") {
+        stoppedEarly = `Clip ${done} of ${totalClips} stalled partway through — stopped there.`;
+        break;
+      }
     }
   } finally {
     if (recorder && recorder.state !== "inactive") {
