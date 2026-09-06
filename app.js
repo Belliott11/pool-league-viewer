@@ -6460,18 +6460,34 @@ async function getGameVideoSrcForExport(game) {
 
 // Resolves once `video.src` has actually loaded enough to seek/play — needed since this swaps
 // src on one persistent element rather than creating a new one per game.
-function loadVideoSrc(video, src) {
-  return new Promise((resolve, reject) => {
+// Resolves "done", "error" (a real <video error> event — a corrupt file, an unsupported codec,
+// whatever the cause), or, past `timeoutMs` with neither ever firing, "timeout" — this used to
+// have no timeout at all and rejected on error rather than resolving, so a swap that silently
+// never settled (this exact video element already has a live captureStream() attached to it,
+// mid-recording, when its src changes — not a normal video-loading situation) hung the whole
+// export forever, and a genuine load error threw an unhandled rejection past this function's own
+// try/finally, leaving the export state stuck non-null and every future export attempt a no-op
+// with no visible error at all.
+function loadVideoSrc(video, src, timeoutMs = 20000) {
+  return new Promise(resolve => {
+    let settled = false;
     function cleanup() {
       video.removeEventListener("loadedmetadata", onReady);
       video.removeEventListener("error", onError);
+      clearTimeout(timeout);
     }
-    function onReady() { cleanup(); resolve(); }
-    function onError() { cleanup(); reject(new Error("video load error")); }
+    function onReady() { if (settled) return; settled = true; cleanup(); resolve("done"); }
+    function onError() { if (settled) return; settled = true; cleanup(); resolve("error"); }
     video.addEventListener("loadedmetadata", onReady, { once: true });
     video.addEventListener("error", onError, { once: true });
     video.src = src;
     video.load();
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve("timeout");
+    }, timeoutMs);
   });
 }
 
@@ -6528,21 +6544,29 @@ async function exportLeagueVideo() {
   // clip's source loads BEFORE captureStream()/the MediaRecorder get created, not after — every
   // other src swap later in the loop below is fine, since the stream's already bound to a real,
   // already-playing video by then.
+  // Started paused so only actual clip playback — not the seeking/loading between clips or
+  // between games — ends up in the recording. pause()/resume() (not stop-and-restart) keeps it
+  // one continuous MediaRecorder session — normally. Pulled into its own function since a src
+  // swap can force rebuilding this mid-export too (see the try/catch around .resume() below).
+  function createLeagueRecorder() {
+    const stream = video.captureStream ? video.captureStream() : video.mozCaptureStream();
+    const r = new MediaRecorder(stream, { mimeType });
+    r.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+    r.start();
+    r.pause();
+    return r;
+  }
+
   let recorder = null;
   if (totalClips > 0 && !leagueExportState.cancelled) {
     const first = queue[0];
     statusEl.textContent = `Loading video for ${formatDateDisplay(first.game.date)}…`;
     const firstLoadOutcome = await raceCancel(loadVideoSrc(video, first.src), cancelPromise);
-    if (firstLoadOutcome !== "cancelled") {
+    if (firstLoadOutcome === "error" || firstLoadOutcome === "timeout") {
+      stoppedEarly = `Couldn't load the video for ${formatDateDisplay(first.game.date)} — stopped there.`;
+    } else if (firstLoadOutcome !== "cancelled") {
       currentSrc = first.src;
-      const stream = video.captureStream ? video.captureStream() : video.mozCaptureStream();
-      recorder = new MediaRecorder(stream, { mimeType });
-      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-      // Started paused so only actual clip playback — not the seeking/loading between clips or
-      // between games — ends up in the recording. pause()/resume() (not stop-and-restart) keeps
-      // it one continuous MediaRecorder session.
-      recorder.start();
-      recorder.pause();
+      recorder = createLeagueRecorder();
     }
   }
   try {
@@ -6553,6 +6577,10 @@ async function exportLeagueVideo() {
         statusEl.textContent = `Loading video for ${formatDateDisplay(game.date)}…`;
         const loadOutcome = await raceCancel(loadVideoSrc(video, src), cancelPromise);
         if (loadOutcome === "cancelled") break;
+        if (loadOutcome !== "done") {
+          stoppedEarly = `Couldn't load the video for ${formatDateDisplay(game.date)} — stopped there.`;
+          break;
+        }
         currentSrc = src;
       }
 
@@ -6566,7 +6594,25 @@ async function exportLeagueVideo() {
         break;
       }
 
-      recorder.resume();
+      // Real bug found by testing: a video src swap can end the MediaRecorder's captured track
+      // out from under it — Chrome auto-stops a MediaRecorder once its source track ends, per
+      // spec — and exactly when that transition actually lands isn't reliably predictable ahead
+      // of time (checking `recorder.state` right after the swap succeeds was too early; the
+      // recorder was still "paused" then and only flipped to "inactive" some time after). Calling
+      // `.resume()` on an inactive recorder throws, which used to propagate straight out of this
+      // whole function, skipping every bit of cleanup below and leaving `leagueExportState` stuck
+      // non-null forever (every future export attempt silently no-ops from then on) — from the
+      // outside this looked exactly like a permanent freeze on whichever clip happened to be the
+      // first one needing a source swap. Catching the failure right here, at the one place it can
+      // actually happen, and rebuilding fresh bound to the now-current video, sidesteps needing to
+      // predict the timing at all — the new recorder keeps pushing into the same `chunks` array,
+      // so the segments concatenate into one downloadable blob at the end.
+      try {
+        recorder.resume();
+      } catch (e) {
+        recorder = createLeagueRecorder();
+        recorder.resume();
+      }
       const playPromise = video.play().catch(() => {});
       const playOutcome = await Promise.race([
         playPromise.then(() => "played"),
