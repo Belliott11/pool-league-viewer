@@ -1651,8 +1651,8 @@ button:disabled {
 }
 .rank-line-path {
   fill: none;
-  stroke-width: 2;
-  opacity: 0.85;
+  stroke-width: 2.5;
+  opacity: 0.95;
 }
 .rank-line-label {
   font-size: 10px;

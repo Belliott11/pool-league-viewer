@@ -4756,7 +4756,12 @@ function renderTwoWayRankChart() {
     wrap.innerHTML = '<p class="empty-state">No games logged yet.</p>';
     return;
   }
-  const W = 680, H = 360, PAD_L = 32, PAD_R = 96, PAD_T = 16, PAD_B = 34;
+  // H bumped up from an earlier 360 — this chart lives paired in a .panel-row (half-width) next
+  // to League Shot Heatmap, and at that squeezed width the old H rendered genuinely tiny (an SVG
+  // with width:100% scales its height to match its own viewBox aspect ratio, so a wide, short
+  // viewBox stays short no matter how little width it actually gets). Taller viewBox, same W,
+  // means more vertical room between rank rows too — a real readability win, not just a size one.
+  const W = 680, H = 520, PAD_L = 32, PAD_R = 96, PAD_T = 16, PAD_B = 34;
   const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
   const maxRank = Math.max(1, ...playerIds.flatMap(pid => series[pid].map(p => p.rank)));
   const xScale = i => dates.length === 1 ? PAD_L + plotW / 2 : PAD_L + (i / (dates.length - 1)) * plotW;
@@ -4779,8 +4784,13 @@ function renderTwoWayRankChart() {
       </g>
     `).join("");
     const last = points[points.length - 1];
-    const labelSvg = `<text x="${xScale(dateIndex[last.date]) + 12}" y="${yScale(last.rank)}" dominant-baseline="central" class="rank-line-label" style="fill:hsl(${hue}, 55%, 42%)">${escapeHtml(player.name)}</text>`;
-    return `<path d="${pathD}" style="stroke:hsl(${hue}, 55%, 42%)" class="rank-line-path" />${dotsSvg}${labelSvg}`;
+    // Lighter/more saturated than the 55%/42% used for avatars and the quadrant-scatter dots
+    // elsewhere — those sit on colored circles with a contrasting ring, but a thin line has to
+    // read against the raw dark panel background on its own, and 42% lightness is genuinely hard
+    // to see for the blue/purple end of the hue wheel specifically, which sits close in tone to
+    // this app's own dark navy background.
+    const labelSvg = `<text x="${xScale(dateIndex[last.date]) + 12}" y="${yScale(last.rank)}" dominant-baseline="central" class="rank-line-label" style="fill:hsl(${hue}, 70%, 62%)">${escapeHtml(player.name)}</text>`;
+    return `<path d="${pathD}" style="stroke:hsl(${hue}, 70%, 62%)" class="rank-line-path" />${dotsSvg}${labelSvg}`;
   }).join("");
 
   const labelEvery = Math.max(1, Math.ceil(dates.length / 6));
