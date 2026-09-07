@@ -85,6 +85,15 @@
   display: none !important;
 }
 
+/* League Export's "Combine All Clips Into One Video" tool is a live, in-browser recorder that
+   only works against locally loaded video files Ben has on his own machine — friends have no such
+   files to combine, and the same result already ships pre-baked as the Season Highlight Reel
+   panel above. Hidden (the whole row plus its explanatory hint below it) rather than left
+   disabled and confusing. */
+.reel-export-row {
+  display: none !important;
+}
+
 /* The per-game Highlight/Lowlight Reel table is the one exception to "action buttons live in
    their own trailing column" — its Start/End/Player/Note cells are themselves live, editable
    inputs (not a button next to a plain value), so hiding a whole column would hide real data, not
@@ -92,4 +101,15 @@
    fully visible and readable, same end result as everywhere else in this file. */
 #reelTableBody input, #reelTableBody select {
   pointer-events: none;
+}
+
+/* A panel whose only real content is a ".empty-state" placeholder (every "No X logged yet" /
+   "Not enough games yet" message across this app uses that one class, rendered in place of the
+   real table/list once app.js finds nothing to show) has nothing for a friend to look at — on
+   Ben's own copy that same message is a useful prompt telling him to go add data, but here it's
+   just a dead panel. :has() re-evaluates live as app.js swaps content in and out, so a panel that
+   currently has real rows rendered stays visible and one that's empty right now hides, with no
+   need to special-case every feature individually. */
+.panel:has(.empty-state) {
+  display: none !important;
 }

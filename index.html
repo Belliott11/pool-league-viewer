@@ -299,19 +299,23 @@
     <div class="panel">
       <h2>Shot Log</h2>
       <p class="hint">Every shot attempt, make or miss, with who (if anyone) was contesting it and — for makes — who assisted it. Click +1/+2/+3 (make) or the MISS buttons on a player above to log one. Each entry auto-captures the video's playback position when you logged it, so <strong>Jump</strong> takes you right back to it (needs a local video file or direct link loaded, not a YouTube embed). Click any column header to sort by it — <button type="button" class="secondary-btn" id="scoringLogChronoBtn">↺ Chronological</button> puts it back the way it opened.</p>
-      <table class="matchup-table">
-        <thead><tr id="scoringLogHeaderRow"></tr></thead>
-        <tbody id="scoringLogBody"></tbody>
-      </table>
+      <div class="table-scroll">
+        <table class="matchup-table">
+          <thead><tr id="scoringLogHeaderRow"></tr></thead>
+          <tbody id="scoringLogBody"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="panel">
       <h2>Other Events</h2>
       <p class="hint">Every turnover, steal, and foul, tagged with the one opponent involved where noted. Click the TOV/STL/PF +1 buttons on a player above to log one. Click any column header to sort by it — <button type="button" class="secondary-btn" id="otherEventsChronoBtn">↺ Chronological</button> puts it back the way it opened.</p>
-      <table class="matchup-table">
-        <thead><tr id="otherEventsHeaderRow"></tr></thead>
-        <tbody id="otherEventsBody"></tbody>
-      </table>
+      <div class="table-scroll">
+        <table class="matchup-table">
+          <thead><tr id="otherEventsHeaderRow"></tr></thead>
+          <tbody id="otherEventsBody"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="panel">
@@ -324,10 +328,12 @@
         <input type="text" id="matchupNoteInput" placeholder="Note (e.g. Q1, 2nd half)">
         <button type="submit">Add Matchup</button>
       </form>
-      <table class="matchup-table">
-        <thead><tr id="matchupTableHeaderRow"></tr></thead>
-        <tbody id="matchupTableBody"></tbody>
-      </table>
+      <div class="table-scroll">
+        <table class="matchup-table">
+          <thead><tr id="matchupTableHeaderRow"></tr></thead>
+          <tbody id="matchupTableBody"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="panel">
@@ -615,10 +621,6 @@
         <button type="button" class="secondary-btn" id="exportLeagueVideoBtn" disabled>🎬 Combine All Clips Into One Video</button>
         <button type="button" class="secondary-btn" id="cancelLeagueExportBtn" hidden>Cancel</button>
         <p class="hint" id="leagueExportStatus" style="margin:0"></p>
-      </div>
-      <p class="hint" style="margin:6px 0 0">Same real-time, in-browser recording as the per-game version in Stat Entry, extended across every game — combines in chronological order (oldest game first), loading each game's video in turn. A game with a YouTube-embedded or otherwise non-direct video link can't be captured this way and is skipped, with a note in the final summary. This can genuinely take a while for a full season's worth of clips — the tab needs to stay open and foregrounded the whole time.</p>
-      <div id="leagueExportPreviewWrap" hidden>
-        <video id="leagueExportVideo" class="league-export-preview" muted playsinline></video>
       </div>
     </div>
   </div>

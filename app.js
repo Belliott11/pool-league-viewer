@@ -312,6 +312,50 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => showTab(btn.dataset.tab));
 });
 
+// iOS-style swipe navigation on touch devices: swipe left/right to move between the visible top
+// tabs, or (while inside Stat Entry, which isn't one of those top tabs — it's opened per-game)
+// swipe right to leave the game the same way the Back to Games button does. Reads touchstart/
+// touchend only and never calls preventDefault, so it rides alongside normal vertical scrolling
+// instead of fighting it. A swipe that starts inside a table's own horizontal scroll strip, on a
+// video (native scrubbing), or on any form control is left alone entirely — those already own
+// horizontal drag gestures of their own.
+(function () {
+  let touchStartX = null, touchStartY = null, touchStartTarget = null;
+  const MIN_SWIPE = 60;
+  const MAX_OFF_AXIS = 60;
+  document.addEventListener("touchstart", e => {
+    if (e.touches.length !== 1) { touchStartX = null; return; }
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchStartTarget = e.target;
+  }, { passive: true });
+  document.addEventListener("touchend", e => {
+    if (touchStartX === null) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStartX;
+    const dy = touch.clientY - touchStartY;
+    const startTarget = touchStartTarget;
+    touchStartX = null;
+    if (Math.abs(dx) < MIN_SWIPE || Math.abs(dy) > MAX_OFF_AXIS) return;
+    if (startTarget && startTarget.closest && startTarget.closest(".table-scroll, video, input, select, textarea, button, a")) return;
+
+    const activePanel = document.querySelector(".tab-panel.active");
+    if (activePanel && activePanel.id === "tab-stats") {
+      if (dx > 0) {
+        const backBtn = document.getElementById("backToGamesBtn");
+        if (backBtn) backBtn.click();
+      }
+      return;
+    }
+
+    const visibleTabs = Array.from(document.querySelectorAll(".tab-btn")).filter(b => b.offsetParent !== null);
+    const idx = visibleTabs.indexOf(document.querySelector(".tab-btn.active"));
+    if (idx === -1) return;
+    if (dx < 0 && idx < visibleTabs.length - 1) showTab(visibleTabs[idx + 1].dataset.tab);
+    else if (dx > 0 && idx > 0) showTab(visibleTabs[idx - 1].dataset.tab);
+  }, { passive: true });
+})();
+
 // Collapsible sidebar (Games/Leaderboard tabs) — collapsed state persists per sidebar (keyed by
 // its wrapper id) across reloads, same toggle-remembers-itself pattern as everything else in this
 // file. The toggle strip (.sidebar-toggle-btn) stays visible either way, collapsed or not, so it's
