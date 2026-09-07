@@ -1614,6 +1614,14 @@ button:disabled {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
+/* A grid item's default min-width is auto, not 0 — meaning it refuses to shrink below its own
+   content's intrinsic width no matter how narrow the grid column actually is. Combined with
+   .award-standings-name's white-space:nowrap below (a name plus a date, e.g. "Michael T — Wed,
+   Jul 29"), that intrinsic width was often wider than half the panel on a phone, so this column
+   pushed past its grid track and leaked out of the panel instead of ever actually wrapping. */
+.award-standings-col {
+  min-width: 0;
+}
 .award-standings-heading {
   margin: 0 0 6px;
   font-family: var(--font-display);
@@ -1638,7 +1646,6 @@ button:disabled {
 }
 .award-standings-name {
   font-weight: 600;
-  white-space: nowrap;
 }
 
 .power-ranking-night {

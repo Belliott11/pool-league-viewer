@@ -312,9 +312,14 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => showTab(btn.dataset.tab));
 });
 
+// A back-target for each drill-in panel that sits outside the top tab strip (Stat Entry is
+// opened per-game from Games, Player Detail is opened per-player from Leaderboard) — swiping
+// right anywhere in one of these acts like tapping its own Back button.
+const SWIPE_BACK_TARGETS = { "tab-stats": "backToGamesBtn", "tab-player": "backToLeaderboardBtn" };
+
 // iOS-style swipe navigation on touch devices: swipe left/right to move between the visible top
-// tabs, or (while inside Stat Entry, which isn't one of those top tabs — it's opened per-game)
-// swipe right to leave the game the same way the Back to Games button does. Reads touchstart/
+// tabs, or (while inside a drill-in panel like Stat Entry or Player Detail, neither of which is
+// one of those top tabs) swipe right to leave it the same way its own Back button does. Reads touchstart/
 // touchend only and never calls preventDefault, so it rides alongside normal vertical scrolling
 // instead of fighting it. A swipe that starts inside a table's own horizontal scroll strip, on a
 // video (native scrubbing), or on any form control is left alone entirely — those already own
@@ -340,9 +345,10 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     if (startTarget && startTarget.closest && startTarget.closest(".table-scroll, video, input, select, textarea, button, a")) return;
 
     const activePanel = document.querySelector(".tab-panel.active");
-    if (activePanel && activePanel.id === "tab-stats") {
+    const backBtnId = activePanel && SWIPE_BACK_TARGETS[activePanel.id];
+    if (backBtnId) {
       if (dx > 0) {
-        const backBtn = document.getElementById("backToGamesBtn");
+        const backBtn = document.getElementById(backBtnId);
         if (backBtn) backBtn.click();
       }
       return;
@@ -1768,10 +1774,12 @@ function renderMatchupPreviewTable(teamA, teamB) {
     return `<tr><td>${escapeHtml(scorer)}</td><td>${escapeHtml(defender)}</td><td>${r.fgm}/${r.fga}</td><td>${pct(r.fgm, r.fga)}%</td></tr>`;
   }).join("");
   return `
-    <table class="matchup-table balance-preview-table">
-      <thead><tr><th>Scorer</th><th>Defender</th><th>FG</th><th>FG%</th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="matchup-table balance-preview-table">
+        <thead><tr><th>Scorer</th><th>Defender</th><th>FG</th><th>FG%</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
   `;
 }
 
@@ -4188,10 +4196,12 @@ function renderConsistencyStandings() {
     <td>${r.gp}</td>
   </tr>`).join("");
   wrap.innerHTML = `
-    <table class="matchup-table">
-      <thead><tr><th>#</th><th>Player</th><th>Two-Way Std Dev</th><th>Two-Way/20</th><th>GP</th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="matchup-table">
+        <thead><tr><th>#</th><th>Player</th><th>Two-Way Std Dev</th><th>Two-Way/20</th><th>GP</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
   `;
   wrap.querySelectorAll(".consistency-player-btn").forEach(btn => {
     btn.addEventListener("click", () => openPlayerDetail(btn.dataset.playerId));
@@ -4674,10 +4684,12 @@ function renderPowerRankingVsPerformance() {
     `).join("");
     section.innerHTML = `
       <h4>${escapeHtml(formatDateDisplay(party.date))}</h4>
-      <table class="matchup-table">
-        <thead><tr><th>Power Rank</th><th>Player</th><th>Power %</th><th>Two-Way/20 That Night</th></tr></thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
+      <div class="table-scroll">
+        <table class="matchup-table">
+          <thead><tr><th>Power Rank</th><th>Player</th><th>Power %</th><th>Two-Way/20 That Night</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
     `;
     wrap.appendChild(section);
   });
@@ -5569,10 +5581,12 @@ function renderSeasonHistoryPanel(playerId) {
     <td>${r.twoWayPer20.toFixed(1)}</td>
   </tr>`).join("");
   wrap.innerHTML = `
-    <table class="matchup-table">
-      <thead><tr><th>Season</th><th>GP</th><th>Record</th><th>Off Rating/20</th><th>Def Rating/20</th><th>Two-Way/20</th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="matchup-table">
+        <thead><tr><th>Season</th><th>GP</th><th>Record</th><th>Off Rating/20</th><th>Def Rating/20</th><th>Two-Way/20</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
   `;
 }
 
@@ -5654,10 +5668,12 @@ function renderLeagueSeasonStandings() {
     <td>${r.twoWayPer20.toFixed(1)}</td>
   </tr>`).join("");
   wrap.innerHTML = `
-    <table class="matchup-table">
-      <thead><tr><th>#</th><th>Player</th><th>GP</th><th>Record</th><th>Off Rating/20</th><th>Def Rating/20</th><th>Two-Way/20</th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="matchup-table">
+        <thead><tr><th>#</th><th>Player</th><th>GP</th><th>Record</th><th>Off Rating/20</th><th>Def Rating/20</th><th>Two-Way/20</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
   `;
   wrap.querySelectorAll(".league-season-player-btn").forEach(btn => {
     btn.addEventListener("click", () => openPlayerDetail(btn.dataset.playerId));
@@ -5971,10 +5987,12 @@ function renderAssistedByPanel(playerId) {
     : assisters.map(a => `<tr><td>${escapeHtml(a.player.name)}</td><td>${a.assists}</td><td>${a.offRatingPer20 !== null ? a.offRatingPer20.toFixed(1) : "—"}</td></tr>`).join("");
   wrap.innerHTML = `
     <p class="hint" style="margin:0 0 10px">${assistedFgm} of ${fgm} makes were assisted (${formatPct(assistedPct)})${qualityNote}.</p>
-    <table class="matchup-table">
-      <thead><tr><th>Teammate</th><th>Assists</th><th>Their Off Rating/20</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="matchup-table">
+        <thead><tr><th>Teammate</th><th>Assists</th><th>Their Off Rating/20</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
   `;
 }
 
@@ -6331,10 +6349,12 @@ function renderPlayerComparison() {
   }).join("");
 
   wrap.innerHTML = `
-    <table class="matchup-table compare-table">
-      <thead><tr><th></th><th>${escapeHtml(row1.player.name)}</th><th>${escapeHtml(row2.player.name)}</th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="matchup-table compare-table">
+        <thead><tr><th></th><th>${escapeHtml(row1.player.name)}</th><th>${escapeHtml(row2.player.name)}</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
   `;
 }
 document.getElementById("comparePlayer1Select").addEventListener("change", renderPlayerComparison);
