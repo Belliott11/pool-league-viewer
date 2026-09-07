@@ -1565,6 +1565,66 @@ function teamWinRateAdjustment(team, winRateMap) {
   return { value: count > 0 ? sum / count : 0, minGp };
 }
 
+// ---------- Balance Teams: win probability model ----------
+// A small, honestly-scoped machine learning model: retrained on every render straight from this
+// browser's own logged games, never anything hardcoded or pre-fit. Single feature — the gap
+// between the two rosters' average quality (computeBalanceQualityMap()'s twoWayPer20-based
+// numbers, the same "quality" Balance Teams already ranks candidate splits by) — run through a
+// logistic curve fit by gradient descent to every decisive (non-tied) qualifying game's actual
+// winner. Deliberately one parameter, not one per stat: with a season's worth of games for a
+// handful of players, a richer model would just memorize this season's specific games instead of
+// learning something that generalizes to a brand new split nobody's actually played yet. Requires
+// a real minimum sample size before it shows up anywhere — below that, a predicted percentage is
+// just noise wearing a number.
+const WIN_PROBABILITY_MIN_GAMES = 6;
+
+function computeWinProbabilityTrainingRows() {
+  const qualityMap = computeBalanceQualityMap();
+  const rows = [];
+  state.games.filter(isQualifyingGame).forEach(game => {
+    if (game.teamA.length === 0 || game.teamB.length === 0) return;
+    const scoreA = teamScore(game, game.teamA);
+    const scoreB = teamScore(game, game.teamB);
+    if (scoreA === scoreB) return; // a tie has no winner to learn from
+    const avgA = game.teamA.reduce((sum, id) => sum + (qualityMap[id]?.quality || 0), 0) / game.teamA.length;
+    const avgB = game.teamB.reduce((sum, id) => sum + (qualityMap[id]?.quality || 0), 0) / game.teamB.length;
+    rows.push({ diff: avgA - avgB, label: scoreA > scoreB ? 1 : 0 });
+  });
+  return rows;
+}
+
+// Fits P(higher-quality side wins) = sigmoid(w*diff + b) by plain gradient descent. Two
+// parameters, a fixed learning rate, and a fixed iteration count are all this needs — with at
+// most a few dozen training rows, the loss surface is simple enough to converge well inside this
+// budget every time, and there's no meaningful train/validation split at this sample size anyway.
+function trainWinProbabilityModel(rows) {
+  let w = 0.15, b = 0;
+  const lr = 0.1;
+  const n = rows.length;
+  for (let it = 0; it < 3000; it++) {
+    let gw = 0, gb = 0;
+    rows.forEach(r => {
+      const p = 1 / (1 + Math.exp(-(w * r.diff + b)));
+      const err = p - r.label;
+      gw += err * r.diff;
+      gb += err;
+    });
+    w -= lr * gw / n;
+    b -= lr * gb / n;
+  }
+  return { w, b, n };
+}
+
+function getWinProbabilityModel() {
+  const rows = computeWinProbabilityTrainingRows();
+  if (rows.length < WIN_PROBABILITY_MIN_GAMES) return null;
+  return trainWinProbabilityModel(rows);
+}
+
+function predictWinProbability(model, diff) {
+  return 1 / (1 + Math.exp(-(model.w * diff + model.b)));
+}
+
 // Tiebreaker only, by design (Two-Way spread is the real, measured/estimated signal and always
 // wins — see the sort in generateBalancedTeamSets()). Three components, summed: how far apart
 // each team's *average* height is in inches (mirrors scoreTeamSet()'s own average-not-total
@@ -1794,7 +1854,20 @@ function renderBalanceResults() {
   const anyEstimated = Object.values(qualityMap).some(v => v.source === "reputation");
   const liftMap = computeChemistryLiftMap([...balanceAttendeeIds]);
   const winRateMap = computeTeamWinRateMap([...balanceAttendeeIds]);
+  const winProbModel = getWinProbabilityModel();
   wrap.innerHTML = balanceResults.map((r, i) => {
+    // Each team's predicted win probability against the average of every *other* team in this
+    // split — for the common two-team case that's just the direct matchup; for a 3+ team split
+    // (more attendees than 2× the requested team size) it's "vs. a league-average opponent
+    // tonight," since there's no single opposing roster to point the model at. Only computed at
+    // all once the model has a real sample size behind it (see WIN_PROBABILITY_MIN_GAMES).
+    const winProbs = winProbModel
+      ? r.avgs.map((avg, ti) => {
+          const rest = r.avgs.filter((_, j) => j !== ti);
+          const restAvg = rest.reduce((a, b) => a + b, 0) / rest.length;
+          return predictWinProbability(winProbModel, avg - restAvg);
+        })
+      : null;
     // Surfaces the height/build/role tiebreak's own reasoning per team, not just its effect on
     // ranking — a player's name is titled with their height/build/role/original note straight
     // from PLAYER_PHYSICAL_DATA (hover to see exactly what drove a categorization), and each
@@ -1839,9 +1912,12 @@ function renderBalanceResults() {
       const winLine = Math.abs(winAdj.value) >= 0.1
         ? `<div class="balance-team-physical" title="Two-Way/20-scale adjustment from this pairing's actual win rate in past games together, already included in the avg above.">Past record: ${winAdj.value >= 0 ? "+" : ""}${winAdj.value.toFixed(1)}${winGamesNote}</div>`
         : "";
+      const winProbLabel = winProbs
+        ? `<span class="balance-team-winprob" title="A small model fit to this browser's own logged games (${winProbModel.n} decisive game${winProbModel.n === 1 ? "" : "s"} so far): predicted chance this team wins tonight, ${r.avgs.length > 2 ? "against a league-average opponent" : "against the team across from it"}.">${Math.round(winProbs[ti] * 100)}% win</span>`
+        : "";
       return `
         <div class="balance-team-card">
-          <h5><span>Team ${String.fromCharCode(65 + ti)}</span><span class="balance-team-avg">${r.avgs[ti].toFixed(1)} avg</span></h5>
+          <h5><span>Team ${String.fromCharCode(65 + ti)}</span><span class="balance-team-metrics"><span class="balance-team-avg">${r.avgs[ti].toFixed(1)} avg</span>${winProbLabel}</span></h5>
           <ul>${team.map(id => {
             const name = state.players.find(p => p.id === id)?.name || "?";
             const marker = qualityMap[id]?.source === "reputation" ? " *" : "";
@@ -4840,6 +4916,170 @@ function renderVolumeEfficiencyChart() {
   `;
 }
 
+// ---------- Play Style Clusters (k-means) ----------
+// Groups players by how their own stat profile actually compares to the rest of the roster,
+// rather than by anyone's manually-picked Scorer/Defender/Playmaker tag (see PLAYER_PHYSICAL_DATA/
+// PHYSICAL_ROLE_LABELS elsewhere in this file — a real, separate, hand-entered system). Five
+// per-20 features, standardized to z-scores (a raw Assists/20 of "6" and a raw Def Rating/20 of
+// "6" aren't remotely the same size of number, so clustering on the raw values would just measure
+// whichever stat happens to have the largest scale), clustered with k-means. Deterministic on
+// purpose — seeded, not Math.random() — so the same season's data always produces the same
+// groupings instead of visibly reshuffling on every unrelated re-render.
+const PLAY_STYLE_FEATURES = [
+  { key: "off", label: "Off Rating/20", accessor: r => r.offRatingPer20 },
+  { key: "def", label: "Def Rating/20", accessor: r => defensiveRating(r.rate, r.rateDefense) },
+  { key: "ast", label: "Assists/20", accessor: r => r.rate.ast },
+  { key: "reb", label: "Rebounds/20", accessor: r => r.rate.oreb + r.rate.dreb },
+  { key: "stocks", label: "Stocks/20", accessor: r => r.rate.stl + r.rate.blk }
+];
+const PLAY_STYLE_MIN_PLAYERS = 4;
+const PLAY_STYLE_MIN_GP = 2;
+
+function computePlayerStyleFeatures() {
+  return computeLeaderboard()
+    .filter(r => r.gp >= PLAY_STYLE_MIN_GP)
+    .map(r => ({ player: r.player, gp: r.gp, values: PLAY_STYLE_FEATURES.map(f => f.accessor(r)) }));
+}
+
+function standardizePlayStyleFeatures(rows) {
+  const n = PLAY_STYLE_FEATURES.length;
+  const means = new Array(n), stds = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const vals = rows.map(r => r.values[i]);
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const variance = vals.reduce((sum, v) => sum + (v - mean) ** 2, 0) / vals.length;
+    means[i] = mean;
+    stds[i] = Math.sqrt(variance) || 1; // guards a stat everyone happens to share equally (0 spread)
+  }
+  return rows.map(r => ({ ...r, z: r.values.map((v, i) => (v - means[i]) / stds[i]) }));
+}
+
+function euclideanDist(a, b) {
+  return Math.sqrt(a.reduce((sum, v, i) => sum + (v - b[i]) ** 2, 0));
+}
+
+// A tiny seeded PRNG (Lehmer/Park-Miller) — deterministic given the same seed, unlike
+// Math.random(), which is exactly the point here (see the comment above this section).
+function seededRandom(seed) {
+  let s = seed % 2147483647;
+  if (s <= 0) s += 2147483646;
+  return function () {
+    s = (s * 16807) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+}
+
+// k-means++ initialization: the first center is picked (seeded-)randomly, then each next center
+// is picked with probability proportional to its squared distance from the nearest center already
+// chosen — spreads the starting centers out across the data instead of risking two starting right
+// next to each other, the classic failure mode of picking k plain random starting points.
+function kMeansPlusPlusInit(points, k, rand) {
+  const centers = [points[Math.floor(rand() * points.length)]];
+  while (centers.length < k) {
+    const distSq = points.map(p => Math.min(...centers.map(c => euclideanDist(p, c) ** 2)));
+    const total = distSq.reduce((a, b) => a + b, 0);
+    if (total === 0) { centers.push(points[Math.floor(rand() * points.length)]); continue; }
+    let r = rand() * total, idx = 0;
+    for (; idx < distSq.length - 1; idx++) { r -= distSq[idx]; if (r <= 0) break; }
+    centers.push(points[idx]);
+  }
+  return centers;
+}
+
+// Standard Lloyd's algorithm: assign each point to its nearest center, recompute each center as
+// the mean of its assigned points, repeat until nothing reassigns (or a hard iteration cap, as a
+// safety net against a pathological oscillation between two equally-good assignments).
+function kMeans(points, k, seed) {
+  const rand = seededRandom(seed);
+  let centers = kMeansPlusPlusInit(points, k, rand);
+  let assignments = new Array(points.length).fill(-1);
+  for (let iter = 0; iter < 100; iter++) {
+    const next = points.map(p => {
+      let best = 0, bestDist = Infinity;
+      centers.forEach((c, ci) => {
+        const d = euclideanDist(p, c);
+        if (d < bestDist) { bestDist = d; best = ci; }
+      });
+      return best;
+    });
+    const changed = next.some((a, i) => a !== assignments[i]);
+    assignments = next;
+    centers = centers.map((c, ci) => {
+      const members = points.filter((_, i) => assignments[i] === ci);
+      return members.length > 0 ? c.map((_, d) => members.reduce((s, m) => s + m[d], 0) / members.length) : c;
+    });
+    if (!changed) break;
+  }
+  return { centers, assignments };
+}
+
+const PLAY_STYLE_DESCRIPTORS = {
+  off: { high: "Scorer", low: "Low-Usage" },
+  def: { high: "Lockdown Defender", low: "Defense-Light" },
+  ast: { high: "Playmaker", low: "" },
+  reb: { high: "Glass-Cleaner", low: "" },
+  stocks: { high: "Disruptor", low: "" }
+};
+
+// Labels a cluster by whichever one or two features sit furthest from the league-wide average
+// (z=0) at that cluster's own centroid, rather than a fixed preset name per cluster index — so
+// the label actually reflects what this specific group's games produced, not a guess at what a
+// "cluster 2" is supposed to mean. A centroid with nothing far from average reads as a real
+// finding (a genuinely unremarkable, all-around group), not a labeling failure.
+function describePlayStyleCluster(center) {
+  const ranked = PLAY_STYLE_FEATURES
+    .map((f, i) => ({ feature: f, z: center[i] }))
+    .sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
+  const top = ranked.slice(0, 2).filter(r => Math.abs(r.z) >= 0.35);
+  const words = top.map(r => (r.z >= 0 ? PLAY_STYLE_DESCRIPTORS[r.feature.key].high : PLAY_STYLE_DESCRIPTORS[r.feature.key].low)).filter(Boolean);
+  return words.length > 0 ? [...new Set(words)].join(" / ") : "Balanced / Role Player";
+}
+
+function computePlayerStyleClusters() {
+  const rows = computePlayerStyleFeatures();
+  if (rows.length < PLAY_STYLE_MIN_PLAYERS) return null;
+  const standardized = standardizePlayStyleFeatures(rows);
+  const points = standardized.map(r => r.z);
+  const k = Math.min(4, Math.max(2, Math.floor(rows.length / 3)));
+  // Several seeded (not random) restarts, keeping whichever converges to the lowest total squared
+  // distance from each point to its own cluster's center — the standard k-means quality measure —
+  // since Lloyd's algorithm above can still settle into a locally-good-but-not-best assignment
+  // depending on where it started.
+  let best = null;
+  for (let seed = 1; seed <= 8; seed++) {
+    const { centers, assignments } = kMeans(points, k, seed * 97 + rows.length);
+    const inertia = points.reduce((sum, p, i) => sum + euclideanDist(p, centers[assignments[i]]) ** 2, 0);
+    if (!best || inertia < best.inertia) best = { centers, assignments };
+  }
+  return best.centers
+    .map((center, ci) => ({
+      label: describePlayStyleCluster(center),
+      members: standardized.filter((_, i) => best.assignments[i] === ci)
+    }))
+    .filter(c => c.members.length > 0)
+    .sort((a, b) => b.members.length - a.members.length);
+}
+
+function renderPlayStyleClusters() {
+  const wrap = document.getElementById("playStyleClusters");
+  if (!wrap) return;
+  const clusters = computePlayerStyleClusters();
+  if (!clusters) {
+    wrap.innerHTML = `<p class="empty-state">Needs at least ${PLAY_STYLE_MIN_PLAYERS} players with ${PLAY_STYLE_MIN_GP}+ qualifying games to cluster yet.</p>`;
+    return;
+  }
+  wrap.innerHTML = `
+    <div class="play-style-clusters">
+      ${clusters.map(c => `
+        <div class="play-style-cluster">
+          <h4>${escapeHtml(c.label)} <span class="hint" style="margin:0">(${c.members.length})</span></h4>
+          <ul>${c.members.map(m => `<li>${renderPlayerAvatar(m.player)}${escapeHtml(m.player.name)}</li>`).join("")}</ul>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 // Two-Way/20 rank at every checkpoint across the season, one line per player — the "how's my
 // standing actually trended" question the single-snapshot Leaderboard table can't answer on its
 // own. A checkpoint is every date with at least one qualifying game; a player's rank at that
@@ -6202,6 +6442,7 @@ function renderLeaderboard() {
   renderPowerRankingVsPerformance();
   renderQuadrantChart();
   renderVolumeEfficiencyChart();
+  renderPlayStyleClusters();
   renderTwoWayRankChart();
   renderLeagueHeatmap();
   renderShotZonePanel();

@@ -1094,9 +1094,23 @@ button:disabled {
   gap: 8px;
   font-size: 0.85rem;
 }
+.balance-team-metrics {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
 .balance-team-avg {
   color: var(--muted);
   font-weight: 500;
+}
+/* The model-predicted win% (see getWinProbabilityModel() in app.js) gets the accent color rather
+   than the same muted tone as the plain average next to it — it's a prediction, not a measured
+   fact like the avg is, and the color difference keeps that distinction visible at a glance. */
+.balance-team-winprob {
+  color: var(--accent);
+  font-weight: 600;
 }
 .balance-team-card ul {
   margin: 0;
@@ -1646,6 +1660,47 @@ button:disabled {
 }
 .award-standings-name {
   font-weight: 600;
+}
+
+/* Play Style Clusters (renderPlayStyleClusters() in app.js) — one card per k-means cluster, laid
+   out however many columns actually fit rather than a fixed count, since k itself varies with
+   roster size (2-4 clusters depending on how many qualifying players there are). */
+.play-style-clusters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-top: 10px;
+}
+.play-style-cluster {
+  background: var(--surface-tint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  min-width: 0;
+}
+.play-style-cluster h4 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.play-style-cluster ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.play-style-cluster li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  min-width: 0;
 }
 
 .power-ranking-night {
