@@ -674,7 +674,7 @@ function renderPlayers() {
     // Effort deliberately never becomes its own tag pill (see PLAYER_PHYSICAL_DATA's own
     // comment) — this hover title is the one place it's visible on this row.
     const tagsTitleText = phys?.effort !== undefined
-      ? `Effort: ${EFFORT_LABELS[phys.effort]}${phys.note ? " — " + phys.note : ""}`
+      ? `Effort: ${EFFORT_LABELS[phys.effort]}${phys.note ? " (" + phys.note + ")" : ""}`
       : (phys?.note || "");
     const tagsTitle = tagsTitleText ? ` title="${escapeHtml(tagsTitleText)}"` : "";
     const tagsHtml = tags.length > 0
@@ -863,7 +863,7 @@ function renderRsvpRecentList() {
     const hasGame = state.games.some(g => g.date === r.date);
     let statusHtml;
     if (!hasGame) {
-      statusHtml = ' <span class="badge">Pending — no game logged yet</span>';
+      statusHtml = ' <span class="badge">Pending: no game logged yet</span>';
     } else {
       const missed = r.playerIds.filter(id => !playerAttendedDate(id, r.date));
       statusHtml = missed.length === 0
@@ -871,7 +871,7 @@ function renderRsvpRecentList() {
         : ` <span class="badge badge-lowlight">${missed.length} missed: ${escapeHtml(missed.map(id => state.players.find(p => p.id === id)?.name || "?").join(", "))}</span>`;
     }
     return `<div class="roster-row">
-      <span>${escapeHtml(formatDateDisplay(r.date))} — ${escapeHtml(names.join(", ") || "nobody")}${statusHtml}</span>
+      <span>${escapeHtml(formatDateDisplay(r.date))}: ${escapeHtml(names.join(", ") || "nobody")}${statusHtml}</span>
       <button type="button" class="icon-btn" data-delete-rsvp="${r.id}">Delete</button>
     </div>`;
   }).join("");
@@ -1089,10 +1089,10 @@ function renderGames() {
       : (needsReview ? '<span class="review-badge-slot"></span>' : '');
     const imbalancedBadge = isBalancedGame(game)
       ? ""
-      : ` <span class="badge badge-imbalanced" title="Team A has ${game.teamA.length}, Team B has ${game.teamB.length} — excluded from Leaderboard rates and every other computed comparison unless the Include Imbalanced Games toggle on the Leaderboard is on.">⚖️ ${game.teamA.length}v${game.teamB.length}</span>`;
+      : ` <span class="badge badge-imbalanced" title="Team A has ${game.teamA.length}, Team B has ${game.teamB.length}. Excluded from Leaderboard rates and every other computed comparison unless the Include Imbalanced Games toggle on the Leaderboard is on.">⚖️ ${game.teamA.length}v${game.teamB.length}</span>`;
     const pastSeasonBadge = isCurrentSeasonGame(game)
       ? ""
-      : ` <span class="badge badge-past-season" title="From a season closed out before this one — excluded from Leaderboard rates and every other computed comparison unless the Include Past Seasons toggle on the Leaderboard is on. See Player Detail's Past Seasons panel for that season's own final numbers.">📅 Past Season</span>`;
+      : ` <span class="badge badge-past-season" title="From a season closed out before this one. Excluded from Leaderboard rates and every other computed comparison unless the Include Past Seasons toggle on the Leaderboard is on. See Player Detail's Past Seasons panel for that season's own final numbers.">📅 Past Season</span>`;
     // Best/worst-of-the-game badge — same Two-Way score Best & Worst Individual Games ranks by
     // (Off Rating + Def Rating for that one game, not a per-20 rate or season number), just
     // scoped to this specific game's own roster instead of pooled across the whole season. Only
@@ -1123,7 +1123,7 @@ function renderGames() {
     const teamBNames = game.teamB.map(id => state.players.find(p => p.id === id)?.name).filter(Boolean).join(", ") || "Team B";
     card.innerHTML = `
       <div>
-        <div class="matchup-line">${escapeHtml(teamANames)} ${scoreA} — ${scoreB} ${escapeHtml(teamBNames)}</div>
+        <div class="matchup-line">${escapeHtml(teamANames)} ${scoreA} - ${scoreB} ${escapeHtml(teamBNames)}</div>
         <div class="date-line">${formatDateDisplay(game.date)} · ${game.teamA.length + game.teamB.length} players${game.notes ? " · " + escapeHtml(game.notes) : ""}${videoBadge}${reviewBadge}${imbalancedBadge}${pastSeasonBadge}${starBadge}${coldBadge}</div>
       </div>
     `;
@@ -1342,8 +1342,8 @@ function renderBalanceAttendeePicker() {
     chip.title = q.source === "stats"
       ? `${q.quality.toFixed(1)} season Two-Way/20`
       : q.source === "reputation"
-        ? `No dashboard stats yet — estimated from a ${q.avgPercentile}th percentile power ranking (${q.parties} part${q.parties === 1 ? "y" : "ies"}), not logged film`
-        : "No dashboard stats or power ranking data — counted as a neutral average";
+        ? `No dashboard stats yet: estimated from a ${q.avgPercentile}th percentile power ranking (${q.parties} part${q.parties === 1 ? "y" : "ies"}), not logged film`
+        : "No dashboard stats or power ranking data: counted as a neutral average";
     chip.addEventListener("click", () => {
       if (balanceAttendeeIds.has(p.id)) balanceAttendeeIds.delete(p.id);
       else balanceAttendeeIds.add(p.id);
@@ -1924,7 +1924,7 @@ function renderBalanceResults() {
             const phys = getPlayerPhysicalData(id);
             const roleLabel = phys ? phys.roles.map(r => PHYSICAL_ROLE_LABELS[r]).join("/") : "";
             const effortLabel = phys?.effort !== undefined ? `${EFFORT_LABELS[phys.effort]} effort, ` : "";
-            const titleText = phys ? `${formatHeightIn(phys.heightIn)}, ${BUILD_LABELS[phys.build]}, ${effortLabel}${roleLabel}${phys.note ? " — " + phys.note : ""}` : "";
+            const titleText = phys ? `${formatHeightIn(phys.heightIn)}, ${BUILD_LABELS[phys.build]}, ${effortLabel}${roleLabel}${phys.note ? " (" + phys.note + ")" : ""}` : "";
             const title = phys ? ` title="${escapeHtml(titleText)}"` : "";
             return `<li${title}>${escapeHtml(name)}${marker}</li>`;
           }).join("")}</ul>
@@ -1953,7 +1953,7 @@ function renderBalanceResults() {
       </div>
     `;
   }).join("") + (anyEstimated
-    ? '<p class="hint" style="margin:0">* No dashboard stats yet — quality estimated from real power-ranking reputation (see the attendee picker above for each one\'s percentile), not logged film.</p>'
+    ? '<p class="hint" style="margin:0">* No dashboard stats yet: quality estimated from real power-ranking reputation (see the attendee picker above for each one\'s percentile), not logged film.</p>'
     : "");
   wrap.querySelectorAll(".balance-use-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -2246,7 +2246,7 @@ function renderHeatmapInto(containerId, allFieldGoals, colorFn = heatmapCellColo
   const missing = allFieldGoals.length - withLocation.length;
   container.innerHTML = `
     <div class="shot-chart-wrap">${svg}</div>
-    <p class="hint" style="margin:0">${withLocation.length} of ${allFieldGoals.length} field goal${allFieldGoals.length === 1 ? "" : "s"} plotted${missing > 0 ? ` — ${missing} still missing a location` : ""}.</p>
+    <p class="hint" style="margin:0">${withLocation.length} of ${allFieldGoals.length} field goal${allFieldGoals.length === 1 ? "" : "s"} plotted${missing > 0 ? ` (${missing} still missing a location)` : ""}.</p>
   `;
 }
 
@@ -2628,7 +2628,7 @@ function renderShotEditRow(game, ev) {
   const tr = document.createElement("tr");
   tr.innerHTML = `
     <td colspan="8" class="stat-cell expanded" style="text-align:left">
-      <div class="stat-label">Editing ${scorer ? escapeHtml(scorer.name) : "?"}'s ${made ? "make" : "miss"} — defender/assist/block/rebound only</div>
+      <div class="stat-label">Editing ${scorer ? escapeHtml(scorer.name) : "?"}'s ${made ? "make" : "miss"} (defender/assist/block/rebound only)</div>
       <div class="stat-label" style="margin-top:6px">Contesting defender(s)</div>
       <div class="defender-pick-list">
         <button type="button" class="secondary-btn${editDefenders.size === 0 ? " selected" : ""}" data-edit-nodefender="1">No defender</button>
@@ -2646,7 +2646,7 @@ function renderShotEditRow(game, ev) {
           <button type="button" class="secondary-btn${!editBlocker ? " selected" : ""}" data-edit-noblock="1">No block</button>
           ${opponents.map(o => `<button type="button" class="secondary-btn${editBlocker === o.id ? " selected" : ""}" data-edit-block="${o.id}">${escapeHtml(o.name)}</button>`).join("")}
         </div>
-        ${ev.turnoverEventId ? '<p class="hint" style="margin:6px 0 0">This miss is marked out of bounds, so it has no rebounder — remove and re-log it if that\'s wrong.</p>' : `
+        ${ev.turnoverEventId ? '<p class="hint" style="margin:6px 0 0">This miss is marked out of bounds, so it has no rebounder. Remove and re-log it if that\'s wrong.</p>' : `
           <div class="stat-label" style="margin-top:6px">Rebounded by?</div>
           <div class="defender-pick-list">
             <button type="button" class="secondary-btn${!editRebounder ? " selected" : ""}" data-edit-norebound="1">No rebound tracked</button>
@@ -2779,7 +2779,7 @@ function renderScoringLog(game) {
     editBtn.className = "icon-btn";
     editBtn.textContent = editingShotId === ev.id ? "Editing…" : "Edit";
     editBtn.disabled = editingShotId === ev.id;
-    editBtn.title = "Fix the tagged defender, assist, block, or rebound — not make/miss, points, or out-of-bounds";
+    editBtn.title = "Fix the tagged defender, assist, block, or rebound (not make/miss, points, or out-of-bounds)";
     editBtn.addEventListener("click", () => {
       editingShotId = ev.id;
       editDefenders = new Set(ev.defenderIds || []);
@@ -2838,7 +2838,7 @@ document.addEventListener("keydown", e => {
 
 function renderMasterVideoControls(game) {
   const select = document.getElementById("masterVideoSelect");
-  select.innerHTML = '<option value="">— None (use a video just for this game) —</option>' +
+  select.innerHTML = '<option value="">None (use a video just for this game)</option>' +
     state.masterVideos.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("");
   select.value = game.masterVideoId || "";
 
@@ -3160,20 +3160,20 @@ function renderBoxScore(game) {
         const rebounder = pendingRebounder ? state.players.find(pl2 => pl2.id === pendingRebounder) : null;
         ptsCell.classList.add("expanded");
         ptsCell.innerHTML = `
-          <div class="stat-label">Who was ${verb}? (${pendingScore.isMiss ? "miss" : "+"}${pendingScore.points}) — ${escapeHtml(label)}</div>
+          <div class="stat-label">Who was ${verb}? (${pendingScore.isMiss ? "miss" : "+"}${pendingScore.points}): ${escapeHtml(label)}</div>
           <div class="defender-pick-list">
             <button type="button" class="secondary-btn${pendingDefenders.size === 0 ? " selected" : ""}" data-nodefender="1">No defender</button>
             ${opponents.map(o => `<button type="button" class="secondary-btn${pendingDefenders.has(o.id) ? " selected" : ""}" data-defender="${o.id}">${escapeHtml(o.name)}</button>`).join("")}
           </div>
           ${pendingScore.points === 1 ? "" : `
-            <div class="stat-label" style="margin-top:6px">Where was it from? ${pendingShotLocation ? "" : "— not marked"}</div>
+            <div class="stat-label" style="margin-top:6px">Where was it from? ${pendingShotLocation ? "" : "(not marked)"}</div>
             <div class="shot-chart-wrap">
               ${renderShotChartBaseSvg("data-shot-chart")}
               <button type="button" class="icon-btn" data-clear-location="1">Clear location</button>
             </div>
           `}
           ${pendingScore.isMiss ? `
-            <div class="stat-label" style="margin-top:6px">Blocked by? — ${blocker ? escapeHtml(blocker.name) : "No block"}</div>
+            <div class="stat-label" style="margin-top:6px">Blocked by? ${blocker ? escapeHtml(blocker.name) : "No block"}</div>
             <div class="defender-pick-list">
               <button type="button" class="secondary-btn${!pendingBlocker ? " selected" : ""}" data-noblock="1">No block</button>
               ${opponents.map(o => `<button type="button" class="secondary-btn${pendingBlocker === o.id ? " selected" : ""}" data-block="${o.id}">${escapeHtml(o.name)}</button>`).join("")}
@@ -3184,7 +3184,7 @@ function renderBoxScore(game) {
               <button type="button" class="secondary-btn${pendingOutOfBounds ? " selected" : ""}" data-oob="1">Out of bounds (turnover)</button>
             </div>
             ${pendingOutOfBounds ? "" : `
-              <div class="stat-label" style="margin-top:6px">Rebounded by? — ${rebounder ? escapeHtml(rebounder.name) : "No rebound tracked"}</div>
+              <div class="stat-label" style="margin-top:6px">Rebounded by? ${rebounder ? escapeHtml(rebounder.name) : "No rebound tracked"}</div>
               <div class="defender-pick-list">
                 <button type="button" class="secondary-btn${!pendingRebounder ? " selected" : ""}" data-norebound="1">No rebound tracked</button>
                 <button type="button" class="secondary-btn${pendingRebounder === pid ? " selected" : ""}" data-rebound="${pid}">${escapeHtml(p.name)} (self)</button>
@@ -3193,7 +3193,7 @@ function renderBoxScore(game) {
               </div>
             `}
           ` : `
-            <div class="stat-label" style="margin-top:6px">Assisted by? — ${assister ? escapeHtml(assister.name) : "No assist"}</div>
+            <div class="stat-label" style="margin-top:6px">Assisted by? ${assister ? escapeHtml(assister.name) : "No assist"}</div>
             <div class="defender-pick-list">
               <button type="button" class="secondary-btn${!pendingAssist ? " selected" : ""}" data-noassist="1">No assist</button>
               ${teammates.map(t => `<button type="button" class="secondary-btn${pendingAssist === t.id ? " selected" : ""}" data-assist="${t.id}">${escapeHtml(t.name)}</button>`).join("")}
@@ -3532,7 +3532,7 @@ function twoWayScore(s, sh, def) {
 const FOUL_OUT_THRESHOLD = 3;
 function foulCellHtml(pf) {
   return pf >= FOUL_OUT_THRESHOLD
-    ? `${pf} <span class="badge badge-lowlight" title="${FOUL_OUT_THRESHOLD} fouls — ejected for the rest of this game">🚫 OUT</span>`
+    ? `${pf} <span class="badge badge-lowlight" title="${FOUL_OUT_THRESHOLD} fouls: ejected for the rest of this game">🚫 OUT</span>`
     : String(pf);
 }
 
@@ -3932,7 +3932,7 @@ async function exportReelVideo(game) {
   const mimeType = pickRecorderMimeType();
   const statusEl = document.getElementById("reelExportStatus");
   if (!mimeType) {
-    statusEl.textContent = "This browser doesn't support recording video — try a recent Chrome or Firefox.";
+    statusEl.textContent = "This browser doesn't support recording video. Try a recent Chrome or Firefox.";
     return;
   }
 
@@ -3971,7 +3971,7 @@ async function exportReelVideo(game) {
       const seekOutcome = await raceCancel(waitForSeek(video, clips[i].start), cancelPromise);
       if (seekOutcome === "cancelled") break;
       if (seekOutcome === "timeout") {
-        stoppedEarly = `Clip ${i + 1} of ${clips.length} never finished seeking — stopped there.`;
+        stoppedEarly = `Clip ${i + 1} of ${clips.length} never finished seeking. Stopped there.`;
         break;
       }
 
@@ -3985,7 +3985,7 @@ async function exportReelVideo(game) {
       if (playOutcome !== "played") {
         recorder.pause();
         if (playOutcome === "cancelled") break;
-        stoppedEarly = `Clip ${i + 1} of ${clips.length} didn't start playing — stopped there.`;
+        stoppedEarly = `Clip ${i + 1} of ${clips.length} didn't start playing. Stopped there.`;
         break;
       }
 
@@ -3999,7 +3999,7 @@ async function exportReelVideo(game) {
       recorder.pause();
       if (waitOutcome === "cancelled") break;
       if (waitOutcome === "timeout") {
-        stoppedEarly = `Clip ${i + 1} of ${clips.length} stalled partway through — stopped there.`;
+        stoppedEarly = `Clip ${i + 1} of ${clips.length} stalled partway through. Stopped there.`;
         break;
       }
     }
@@ -4017,16 +4017,16 @@ async function exportReelVideo(game) {
   updateReelExportButton(game);
 
   if (cancelled) {
-    statusEl.textContent = "Cancelled — nothing downloaded.";
+    statusEl.textContent = "Cancelled. Nothing downloaded.";
   } else if (chunks.length === 0) {
-    statusEl.textContent = stoppedEarly || "Recording produced no data — try again.";
+    statusEl.textContent = stoppedEarly || "Recording produced no data. Try again.";
   } else {
     const blob = new Blob(chunks, { type: mimeType });
     download(`${game.date || "game"}-highlights.${pickRecorderExtension(mimeType)}`, blob, mimeType);
     const clipWord = clips.length === 1 ? "clip" : "clips";
     statusEl.textContent = stoppedEarly
       ? `${stoppedEarly} Downloaded what was recorded before that.`
-      : `Done — ${clips.length} ${clipWord} combined and downloaded.`;
+      : `Done: ${clips.length} ${clipWord} combined and downloaded.`;
   }
 }
 
@@ -4348,7 +4348,7 @@ function renderGameWinningBucketsPanel() {
   if (!body) return;
   const rows = computeGameWinningBuckets();
   body.innerHTML = rows.length === 0
-    ? '<tr><td colspan="2" class="empty-state">No game-winning buckets identified yet — needs a timestamped make that closes out a decided game.</td></tr>'
+    ? '<tr><td colspan="2" class="empty-state">No game-winning buckets identified yet. Needs a timestamped make that closes out a decided game.</td></tr>'
     : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.count}</td></tr>`).join("");
 }
 
@@ -4451,7 +4451,7 @@ function renderIndividualGamePerformances() {
   const worst = sorted.slice(-n).reverse();
   const li = r => `
     <li>
-      <span class="award-standings-name">${escapeHtml(r.player.name)} <span class="hint" style="margin:0">— ${escapeHtml(formatDateDisplay(r.game.date))}</span></span>
+      <span class="award-standings-name">${escapeHtml(r.player.name)} <span class="hint" style="margin:0">(${escapeHtml(formatDateDisplay(r.game.date))})</span></span>
       <span>${r.twoWay >= 0 ? "+" : ""}${r.twoWay.toFixed(1)} Two-Way <span class="hint" style="margin:0">(${r.pts} pts)</span></span>
     </li>
   `;
@@ -5888,7 +5888,7 @@ function renderLeagueSeasonStandings() {
   const wrap = document.getElementById("leagueSeasonStandings");
   if (!sel || !wrap) return;
   if (state.seasonHistory.length === 0) {
-    wrap.innerHTML = '<p class="empty-state">No seasons closed yet (Export → Data Management → Start New Season) — nothing archived to show.</p>';
+    wrap.innerHTML = '<p class="empty-state">No seasons closed yet (Export → Data Management → Start New Season). Nothing archived to show.</p>';
     return;
   }
   const sorted = [...state.seasonHistory].sort((a, b) => (b.endedAt || "").localeCompare(a.endedAt || ""));
@@ -5952,7 +5952,7 @@ function renderFlakeStatsPanel(playerId) {
   if (!wrap) return;
   const stats = computeFlakeStats(playerId);
   if (stats.pct === null) {
-    wrap.innerHTML = '<p class="empty-state">No resolved RSVPs for this player yet — flake % needs at least one RSVP\'d date with a logged game.</p>';
+    wrap.innerHTML = '<p class="empty-state">No resolved RSVPs for this player yet. Flake % needs at least one RSVP\'d date with a logged game.</p>';
     return;
   }
   wrap.innerHTML = `<p class="score-display">${stats.pct}% <span class="hint" style="margin:0">(${stats.flaked} of ${stats.resolved} RSVP'd sessions missed)</span></p>`;
@@ -6221,7 +6221,7 @@ function renderAssistedByPanel(playerId) {
     wrap.innerHTML = '<p class="empty-state">No field goals logged yet.</p>';
     return;
   }
-  const qualityNote = avgAssisterQuality !== null ? ` — average assister quality: ${avgAssisterQuality.toFixed(1)} Off Rating/20` : "";
+  const qualityNote = avgAssisterQuality !== null ? `, average assister quality: ${avgAssisterQuality.toFixed(1)} Off Rating/20` : "";
   const rows = assisters.length === 0
     ? '<tr><td colspan="3" class="empty-state">No assisted makes yet.</td></tr>'
     : assisters.map(a => `<tr><td>${escapeHtml(a.player.name)}</td><td>${a.assists}</td><td>${a.offRatingPer20 !== null ? a.offRatingPer20.toFixed(1) : "—"}</td></tr>`).join("");
@@ -6245,34 +6245,34 @@ const LEADERBOARD_COLUMNS = [
   { key: "w", label: "W", accessor: r => r.wins, tooltip: "Wins, counted only for games with real shots logged." },
   { key: "l", label: "L", accessor: r => r.losses, tooltip: "Losses, counted only for games with real shots logged." },
   { key: "pct", label: "PCT", accessor: r => r.winPct, display: r => formatPct(r.winPct), tooltip: "Win percentage: wins / (wins + losses)." },
-  { key: "pts", label: "PTS/20", accessor: r => r.rate.pts, display: r => r.rate.pts.toFixed(1), tooltip: "Points, per 20 combined points scored in the game (not per game — see the note above the table)." },
-  { key: "shotpct", label: "Shot%", advanced: true, accessor: r => r.shotPct, display: r => formatPct(r.shotPct), tooltip: "Share of their own team's field goal attempts that were theirs, across games they played — not the league's shots, their team's. A season-long share (their FGA / their team's FGA in those same games), not a per-20 rate." },
-  { key: "astpct", label: "AST%", advanced: true, accessor: r => r.astPct, display: r => formatPct(r.astPct), tooltip: "Share of their own team's assists that were theirs, across games they played — not the league's assists, their team's. A season-long share (their AST / their team's AST in those same games), not a per-20 rate." },
-  { key: "orebpct", label: "OREB%", advanced: true, accessor: r => r.orebPct, display: r => formatPct(r.orebPct), tooltip: "Real Total Rebound %-style share: this player's OREB divided by every offensive rebound available on their team's misses that game (their team's OREB plus the opponent's DREB on those same misses) — not just their own team's OREB total like Shot%/AST% above, since a rebound is contested between both teams. Poolean has no substitutions, so a rostered player is on the floor for the whole game — the minutes-played term real rebound rate stats normally need just doesn't apply here. A season-long share, not a per-20 rate." },
+  { key: "pts", label: "PTS/20", accessor: r => r.rate.pts, display: r => r.rate.pts.toFixed(1), tooltip: "Points, per 20 combined points scored in the game (not per game; see the note above the table)." },
+  { key: "shotpct", label: "Shot%", advanced: true, accessor: r => r.shotPct, display: r => formatPct(r.shotPct), tooltip: "Share of their own team's field goal attempts that were theirs, across games they played: not the league's shots, their team's. A season-long share (their FGA / their team's FGA in those same games), not a per-20 rate." },
+  { key: "astpct", label: "AST%", advanced: true, accessor: r => r.astPct, display: r => formatPct(r.astPct), tooltip: "Share of their own team's assists that were theirs, across games they played: not the league's assists, their team's. A season-long share (their AST / their team's AST in those same games), not a per-20 rate." },
+  { key: "orebpct", label: "OREB%", advanced: true, accessor: r => r.orebPct, display: r => formatPct(r.orebPct), tooltip: "Real Total Rebound %-style share: this player's OREB divided by every offensive rebound available on their team's misses that game (their team's OREB plus the opponent's DREB on those same misses), not just their own team's OREB total like Shot%/AST% above, since a rebound is contested between both teams. Poolean has no substitutions, so a rostered player is on the floor for the whole game; the minutes-played term real rebound rate stats normally need just doesn't apply here. A season-long share, not a per-20 rate." },
   { key: "drebpct", label: "DREB%", advanced: true, accessor: r => r.drebPct, display: r => formatPct(r.drebPct), tooltip: "Same idea as OREB% for the other side of the ball: this player's DREB divided by every defensive rebound available on the opponent's misses that game (their team's DREB plus the opponent's OREB on those same misses). A season-long share, not a per-20 rate." },
-  { key: "trebpct", label: "TRB%", advanced: true, accessor: r => r.trebPct, display: r => formatPct(r.trebPct), tooltip: "OREB and DREB combined: this player's total rebounds divided by every rebound actually available across the games they played (OREB% and DREB%'s two pools added together). Same no-substitutions reasoning as OREB%/DREB% above — a season-long share, not a per-20 rate." },
-  { key: "tovpct", label: "TOV%", advanced: true, accessor: r => r.tovPct, display: r => formatPct(r.tovPct), tooltip: "How often this player turned it over relative to their own scoring opportunities — TOV ÷ (FGA + 0.44×FTA + TOV), the same FTA-equivalent scaling True Shooting % uses. Not a share of the team's turnovers like Shot%/AST% above — a turnover isn't a shared resource the way a shot or an assist is, so this measures usage instead: of the times this player had the ball in a position to score or give it away, how often it was the latter." },
+  { key: "trebpct", label: "TRB%", advanced: true, accessor: r => r.trebPct, display: r => formatPct(r.trebPct), tooltip: "OREB and DREB combined: this player's total rebounds divided by every rebound actually available across the games they played (OREB% and DREB%'s two pools added together). Same no-substitutions reasoning as OREB%/DREB% above; a season-long share, not a per-20 rate." },
+  { key: "tovpct", label: "TOV%", advanced: true, accessor: r => r.tovPct, display: r => formatPct(r.tovPct), tooltip: "How often this player turned it over relative to their own scoring opportunities: TOV ÷ (FGA + 0.44×FTA + TOV), the same FTA-equivalent scaling True Shooting % uses. Not a share of the team's turnovers like Shot%/AST% above; a turnover isn't a shared resource the way a shot or an assist is, so this measures usage instead: of the times this player had the ball in a position to score or give it away, how often it was the latter." },
   { key: "fg", label: "FG", accessor: r => pct(r.shooting.fgm, r.shooting.fga), display: r => formatShootingSplit(r.rateShooting.fgm, r.rateShooting.fga, true), tooltip: "Field goals made/attempted (2s and 3s combined), per 20 combined points, with FG%." },
   { key: "tpt", label: "3PT", accessor: r => pct(r.shooting.tpm, r.shooting.tpa), display: r => formatShootingSplit(r.rateShooting.tpm, r.rateShooting.tpa, true), tooltip: "3-pointers made/attempted, per 20 combined points, with 3PT%. See the 3PT Shot Distance panel below for the Arc/Deep breakdown." },
   { key: "ft", label: "FT", accessor: r => pct(r.shooting.ftm, r.shooting.fta), display: r => formatShootingSplit(r.rateShooting.ftm, r.rateShooting.fta, true), tooltip: "Free throws made/attempted, per 20 combined points, with FT%." },
-  { key: "efg", label: "eFG%", accessor: r => effectiveFgPct(r.shooting.fgm, r.shooting.tpm, r.shooting.fga), display: r => formatPct(effectiveFgPct(r.shooting.fgm, r.shooting.tpm, r.shooting.fga)), tooltip: "Effective FG% — field goal percentage weighted so a made 3 counts as 1.5 made 2s." },
-  { key: "ts", label: "TS%", accessor: r => trueShootingPct(r.totals.pts, r.shooting.fga, r.shooting.fta), display: r => formatPct(trueShootingPct(r.totals.pts, r.shooting.fga, r.shooting.fta)), tooltip: "True Shooting % — overall scoring efficiency across field goals and free throws combined." },
+  { key: "efg", label: "eFG%", accessor: r => effectiveFgPct(r.shooting.fgm, r.shooting.tpm, r.shooting.fga), display: r => formatPct(effectiveFgPct(r.shooting.fgm, r.shooting.tpm, r.shooting.fga)), tooltip: "Effective FG%: field goal percentage weighted so a made 3 counts as 1.5 made 2s." },
+  { key: "ts", label: "TS%", accessor: r => trueShootingPct(r.totals.pts, r.shooting.fga, r.shooting.fta), display: r => formatPct(trueShootingPct(r.totals.pts, r.shooting.fga, r.shooting.fta)), tooltip: "True Shooting %: overall scoring efficiency across field goals and free throws combined." },
   { key: "oreb", label: "OREB/20", accessor: r => r.rate.oreb, display: r => r.rate.oreb.toFixed(1), tooltip: "Offensive rebounds (grabbed by a teammate of the shooter), per 20 combined points." },
   { key: "dreb", label: "DREB/20", accessor: r => r.rate.dreb, display: r => r.rate.dreb.toFixed(1), tooltip: "Defensive rebounds (grabbed by an opponent of the shooter), per 20 combined points." },
-  { key: "ast", label: "AST/20", accessor: r => r.rate.ast, display: r => r.rate.ast.toFixed(1), tooltip: "Assists — credited on a made shot when a teammate is tagged as the passer — per 20 combined points." },
+  { key: "ast", label: "AST/20", accessor: r => r.rate.ast, display: r => r.rate.ast.toFixed(1), tooltip: "Assists (credited on a made shot when a teammate is tagged as the passer), per 20 combined points." },
   { key: "stl", label: "STL/20", accessor: r => r.rate.stl, display: r => r.rate.stl.toFixed(1), tooltip: "Steals, per 20 combined points. Feeds Def Rating below." },
-  { key: "blk", label: "BLK/20", accessor: r => r.rate.blk, display: r => r.rate.blk.toFixed(1), tooltip: "Blocks — credited on a missed shot when this player is tagged as the blocker — per 20 combined points. Feeds Def Rating below, except when the block is already one of this player's own Stops (the usual case) — see Def Rating's own tooltip." },
+  { key: "blk", label: "BLK/20", accessor: r => r.rate.blk, display: r => r.rate.blk.toFixed(1), tooltip: "Blocks (credited on a missed shot when this player is tagged as the blocker), per 20 combined points. Feeds Def Rating below, except when the block is already one of this player's own Stops (the usual case); see Def Rating's own tooltip." },
   { key: "tov", label: "TOV/20", accessor: r => r.rate.tov, display: r => r.rate.tov.toFixed(1), tooltip: "Turnovers (including ones forced by a steal, or a miss ruled out of bounds), per 20 combined points." },
   { key: "atov", label: "A/TO", accessor: r => r.totals.tov === 0 ? (r.totals.ast === 0 ? 0 : Infinity) : r.totals.ast / r.totals.tov, display: r => r.astTov, tooltip: "Assist-to-turnover ratio." },
   { key: "pf", label: "PF/20", accessor: r => r.rate.pf, display: r => r.rate.pf.toFixed(1), tooltip: "Personal fouls, per 20 combined points." },
   { key: "ptsAllowed", label: "Pts Allowed/20", accessor: r => r.rateDefense.ptsAllowed, display: r => r.rateDefense.ptsAllowed.toFixed(1), tooltip: "Points scored by opponents on shots where this player was the tagged defender, per 20 combined points." },
-  { key: "oppfg", label: "Opp FG%", accessor: r => pct(r.defense.timesBeaten, r.defense.timesBeaten + r.defense.stops), display: r => formatPct(pct(r.defense.timesBeaten, r.defense.timesBeaten + r.defense.stops)), tooltip: "Shooting percentage of everyone this player was tagged defending, make or miss — a real 'shooting percentage allowed.'" },
+  { key: "oppfg", label: "Opp FG%", accessor: r => pct(r.defense.timesBeaten, r.defense.timesBeaten + r.defense.stops), display: r => formatPct(pct(r.defense.timesBeaten, r.defense.timesBeaten + r.defense.stops)), tooltip: "Shooting percentage of everyone this player was tagged defending, make or miss: a real 'shooting percentage allowed.'" },
   { key: "beaten", label: "Beaten/20", accessor: r => r.rateDefense.timesBeaten, display: r => r.rateDefense.timesBeaten.toFixed(1), tooltip: "Times scored on while tagged as the defender on a made shot, per 20 combined points." },
   { key: "stops", label: "Stops/20", accessor: r => r.rateDefense.stops, display: r => r.rateDefense.stops.toFixed(1), tooltip: "Times tagged as the defender on a missed shot, per 20 combined points." },
-  { key: "defrtg20", label: "Def Rating/20", accessor: r => defensiveRating(r.rate, r.rateDefense), display: r => defensiveRating(r.rate, r.rateDefense).toFixed(1), tooltip: "This tool's Defensive Rating: STL, plus BLK (only when it isn't already one of this player's own Stops, so a blocked-and-tagged shot isn't credited twice), plus Stops minus Beaten minus 0.4×Pts Allowed — all per 20 combined points. Not points-allowed-per-100-possessions like the NBA stat of the same name — possessions aren't tracked here, so combined points stands in as the pace proxy, same as every other per-20 rate on this board. 0 for anyone never tagged as a defender with no steals or blocks — not a penalty for conservative tagging." },
-  { key: "offrtg20", label: "Off Rating/20", accessor: r => r.offRatingPer20, display: r => r.offRatingPer20.toFixed(1), tooltip: "Offense-only Game Score: PTS, shooting efficiency, rebounds, assists, TOV, and fouls — adapted from the standard basketball Game Score formula, minus its STL and BLK terms, which live in Def Rating instead — per 20 combined points." },
+  { key: "defrtg20", label: "Def Rating/20", accessor: r => defensiveRating(r.rate, r.rateDefense), display: r => defensiveRating(r.rate, r.rateDefense).toFixed(1), tooltip: "This tool's Defensive Rating: STL, plus BLK (only when it isn't already one of this player's own Stops, so a blocked-and-tagged shot isn't credited twice), plus Stops minus Beaten minus 0.4×Pts Allowed, all per 20 combined points. Not points-allowed-per-100-possessions like the NBA stat of the same name; possessions aren't tracked here, so combined points stands in as the pace proxy, same as every other per-20 rate on this board. 0 for anyone never tagged as a defender with no steals or blocks, not a penalty for conservative tagging." },
+  { key: "offrtg20", label: "Off Rating/20", accessor: r => r.offRatingPer20, display: r => r.offRatingPer20.toFixed(1), tooltip: "Offense-only Game Score: PTS, shooting efficiency, rebounds, assists, TOV, and fouls, adapted from the standard basketball Game Score formula, minus its STL and BLK terms, which live in Def Rating instead, per 20 combined points." },
   { key: "twoway20", label: "Two-Way/20", accessor: r => r.twoWayPer20, display: r => r.twoWayPer20.toFixed(1), tooltip: "Off Rating plus Def Rating, per 20 combined points." },
-  { key: "last5", label: "Last 5", accessor: r => r.last5OffRatingPer20, display: r => r.last5Gp > 0 ? `${r.last5Trend} ${r.last5OffRatingPer20.toFixed(1)}` : "—", tooltip: "Off Rating/20 over their last 5 games with real shots logged (fewer if they haven't played 5 yet). ▲/▼ shows whether that's above or below their season Off Rating/20 — within ±0.5 counts as flat (–)." }
+  { key: "last5", label: "Last 5", accessor: r => r.last5OffRatingPer20, display: r => r.last5Gp > 0 ? `${r.last5Trend} ${r.last5OffRatingPer20.toFixed(1)}` : "—", tooltip: "Off Rating/20 over their last 5 games with real shots logged (fewer if they haven't played 5 yet). ▲/▼ shows whether that's above or below their season Off Rating/20; within ±0.5 counts as flat (–)." }
 ];
 
 let leaderboardSort = { key: "pts", dir: "desc" };
@@ -6347,7 +6347,7 @@ function updatePastSeasonsBtnLabel() {
     if (!state.currentSeasonStartedAt) {
       input.checked = false;
       input.disabled = true;
-      input.title = "No season has been closed yet (Export → Data Management → Start New Season) — nothing archived to include.";
+      input.title = "No season has been closed yet (Export → Data Management → Start New Season). Nothing archived to include.";
       return;
     }
     input.disabled = false;
@@ -6703,7 +6703,7 @@ function renderLeagueHighlights() {
   const clips = computeLeagueHighlights();
   body.innerHTML = "";
   if (clips.length === 0) {
-    body.innerHTML = '<tr><td colspan="6" class="empty-state">No clips tagged yet — mark one from the Highlight / Lowlight Reel table in Stat Entry.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="empty-state">No clips tagged yet. Mark one from the Highlight / Lowlight Reel table in Stat Entry.</td></tr>';
     return;
   }
   clips.forEach(clip => {
@@ -6820,7 +6820,7 @@ async function exportLeagueVideo() {
   const mimeType = pickRecorderMimeType();
   const statusEl = document.getElementById("leagueExportStatus");
   if (!mimeType) {
-    statusEl.textContent = "This browser doesn't support recording video — try a recent Chrome or Firefox.";
+    statusEl.textContent = "This browser doesn't support recording video. Try a recent Chrome or Firefox.";
     return;
   }
 
@@ -6885,7 +6885,7 @@ async function exportLeagueVideo() {
     statusEl.textContent = `Loading video for ${formatDateDisplay(first.game.date)}…`;
     const firstLoadOutcome = await raceCancel(loadVideoSrc(video, first.src), cancelPromise);
     if (firstLoadOutcome === "error" || firstLoadOutcome === "timeout") {
-      stoppedEarly = `Couldn't load the video for ${formatDateDisplay(first.game.date)} — stopped there.`;
+      stoppedEarly = `Couldn't load the video for ${formatDateDisplay(first.game.date)}. Stopped there.`;
     } else if (firstLoadOutcome !== "cancelled") {
       currentSrc = first.src;
       recorder = createLeagueRecorder();
@@ -6900,7 +6900,7 @@ async function exportLeagueVideo() {
         const loadOutcome = await raceCancel(loadVideoSrc(video, src), cancelPromise);
         if (loadOutcome === "cancelled") break;
         if (loadOutcome !== "done") {
-          stoppedEarly = `Couldn't load the video for ${formatDateDisplay(game.date)} — stopped there.`;
+          stoppedEarly = `Couldn't load the video for ${formatDateDisplay(game.date)}. Stopped there.`;
           break;
         }
         currentSrc = src;
@@ -6912,7 +6912,7 @@ async function exportLeagueVideo() {
       const seekOutcome = await raceCancel(waitForSeek(video, clip.start), cancelPromise);
       if (seekOutcome === "cancelled") break;
       if (seekOutcome === "timeout") {
-        stoppedEarly = `Clip ${done} of ${totalClips} never finished seeking — stopped there.`;
+        stoppedEarly = `Clip ${done} of ${totalClips} never finished seeking. Stopped there.`;
         break;
       }
 
@@ -6944,7 +6944,7 @@ async function exportLeagueVideo() {
       if (playOutcome !== "played") {
         recorder.pause();
         if (playOutcome === "cancelled") break;
-        stoppedEarly = `Clip ${done} of ${totalClips} didn't start playing — stopped there.`;
+        stoppedEarly = `Clip ${done} of ${totalClips} didn't start playing. Stopped there.`;
         break;
       }
 
@@ -6955,7 +6955,7 @@ async function exportLeagueVideo() {
       recorder.pause();
       if (waitOutcome === "cancelled") break;
       if (waitOutcome === "timeout") {
-        stoppedEarly = `Clip ${done} of ${totalClips} stalled partway through — stopped there.`;
+        stoppedEarly = `Clip ${done} of ${totalClips} stalled partway through. Stopped there.`;
         break;
       }
     }
@@ -6976,18 +6976,18 @@ async function exportLeagueVideo() {
   updateLeagueExportButton();
 
   const skipNote = skippedClips > 0
-    ? ` (${skippedClips} clip${skippedClips === 1 ? "" : "s"} across ${skippedGames} game${skippedGames === 1 ? "" : "s"} skipped — no usable video source.)`
+    ? ` (${skippedClips} clip${skippedClips === 1 ? "" : "s"} across ${skippedGames} game${skippedGames === 1 ? "" : "s"} skipped: no usable video source.)`
     : "";
   if (cancelled) {
-    statusEl.textContent = "Cancelled — nothing downloaded.";
+    statusEl.textContent = "Cancelled. Nothing downloaded.";
   } else if (chunks.length === 0) {
-    statusEl.textContent = (stoppedEarly || "Recording produced no data — try again.") + skipNote;
+    statusEl.textContent = (stoppedEarly || "Recording produced no data. Try again.") + skipNote;
   } else {
     const blob = new Blob(chunks, { type: mimeType });
     download(`league-highlights.${pickRecorderExtension(mimeType)}`, blob, mimeType);
     statusEl.textContent = stoppedEarly
       ? `${stoppedEarly} Downloaded what was recorded before that.${skipNote}`
-      : `Done — ${done} clip${done === 1 ? "" : "s"} combined and downloaded.${skipNote}`;
+      : `Done: ${done} clip${done === 1 ? "" : "s"} combined and downloaded.${skipNote}`;
   }
 }
 
@@ -7390,7 +7390,7 @@ async function loadBackfillVideo(game, videoWrap) {
     videoWrap.innerHTML = `<video controls class="backfill-video"></video>`;
     videoWrap.querySelector("video").src = url;
   } else {
-    videoWrap.innerHTML = '<p class="hint" style="margin:0">No video available for this game — mark from memory, or open it directly in Stat Entry.</p>';
+    videoWrap.innerHTML = '<p class="hint" style="margin:0">No video available for this game. Mark from memory, or open it directly in Stat Entry.</p>';
   }
 }
 
@@ -7490,7 +7490,7 @@ function renderBackfillShotLocations() {
       row.className = ev.shotLocation ? "backfill-shot-row backfill-shot-row-marked" : "backfill-shot-row";
       row.innerHTML = `
         <div class="backfill-shot-label">
-          ${scorer ? escapeHtml(scorer.name) : "?"} — ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt)
+          ${scorer ? escapeHtml(scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt)
         </div>
         <button type="button" class="secondary-btn" data-watch="1" ${hasTime ? "" : "disabled"}>▶ Watch</button>
         ${renderShotChartBaseSvg("data-shot-chart")}
@@ -7604,7 +7604,7 @@ function renderFlaggedShotMismatches() {
   const groups = Object.values(byGame).sort((a, b) => (a.game.date || "").localeCompare(b.game.date || ""));
 
   if (groups.length === 0) {
-    wrap.innerHTML = '<p class="empty-state">No flagged shots — every marked 2PT/3PT location agrees with its point value.</p>';
+    wrap.innerHTML = '<p class="empty-state">No flagged shots. Every marked 2PT/3PT location agrees with its point value.</p>';
     return;
   }
 
@@ -7627,7 +7627,7 @@ function renderFlaggedShotMismatches() {
       row.className = "backfill-shot-row backfill-shot-row-marked";
       row.innerHTML = `
         <div class="backfill-shot-label">
-          ${scorer ? escapeHtml(scorer.name) : "?"} — picked ${ev.points}pt, marked at 📍 ${zoneLabel}
+          ${scorer ? escapeHtml(scorer.name) : "?"}: picked ${ev.points}pt, marked at 📍 ${zoneLabel}
         </div>
         <button type="button" class="secondary-btn" data-watch="1" ${hasTime ? "" : "disabled"}>▶ Watch</button>
         ${renderShotChartBaseSvg("data-shot-chart")}
@@ -7661,7 +7661,7 @@ function renderFlaggedShotMismatches() {
           if (!wrap.querySelector(".flagged-done-msg")) {
             const doneMsg = document.createElement("p");
             doneMsg.className = "empty-state flagged-done-msg";
-            doneMsg.textContent = "No flagged shots — every marked 2PT/3PT location agrees with its point value.";
+            doneMsg.textContent = "No flagged shots. Every marked 2PT/3PT location agrees with its point value.";
             wrap.appendChild(doneMsg);
           }
         } else {
@@ -7791,9 +7791,9 @@ document.getElementById("importFileInput").addEventListener("change", e => {
 // checklist.
 document.getElementById("startNewSeasonBtn").addEventListener("click", async () => {
   const today = new Date().toISOString().slice(0, 10);
-  const label = prompt('Name the season that\'s ending (shown on player profiles and the "Include Past Seasons" toggle) — e.g. "Summer 2026":', "");
+  const label = prompt('Name the season that\'s ending (shown on player profiles and the "Include Past Seasons" toggle), e.g. "Summer 2026":', "");
   if (label === null) return;
-  if (!confirm("This archives every current game behind today's date and clears locally-stored video files. Games, stats, the player roster, and every player's height/build/role tags are all kept — download JSON first if you want a full backup anyway. Continue?")) return;
+  if (!confirm("This archives every current game behind today's date and clears locally-stored video files. Games, stats, the player roster, and every player's height/build/role tags are all kept. Download JSON first if you want a full backup anyway. Continue?")) return;
   state.seasonHistory.push({ label: label.trim() || `Season ending ${today}`, startedAt: state.currentSeasonStartedAt, endedAt: today });
   state.currentSeasonStartedAt = today;
   saveState();

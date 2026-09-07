@@ -86,11 +86,13 @@
 }
 
 /* League Export's "Combine All Clips Into One Video" tool is a live, in-browser recorder that
-   only works against locally loaded video files Ben has on his own machine — friends have no such
-   files to combine, and the same result already ships pre-baked as the Season Highlight Reel
-   panel above. Hidden (the whole row plus its explanatory hint below it) rather than left
-   disabled and confusing. */
-.reel-export-row {
+   only works against locally loaded video files Ben has on his own machine, and the same result
+   already ships pre-baked as the Season Highlight Reel panel above. Hidden (the whole row) rather
+   than left disabled and confusing. Scoped to the league-wide panel specifically (.reel-export-row
+   is also the per-game Combine Clips row in Stat Entry's own Highlight/Lowlight Reel panel, which
+   stays: that one plays back this browser's own currently-loaded video, hosted or not, so it isn't
+   the same broken case). */
+.panel:has(#leagueHighlightsTable) .reel-export-row {
   display: none !important;
 }
 
