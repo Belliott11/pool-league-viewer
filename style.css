@@ -1516,12 +1516,16 @@ button:disabled {
   gap: 10px;
 }
 /* Awards vs. Stats sits in a .panel-row next to Power Ranking vs. Performance, and the two are
-   naturally very different lengths (an expandable award list vs. a per-night table) — the panel
-   box itself already stretches to match its taller neighbor (align-items:stretch on .panel-row),
-   but that alone just left blank space below a short award grid, or an overflowing one for a
-   long one. Making this specific panel a flex column, with the grid as the one flexible/scrolling
-   child, means the grid always fills exactly the stretched height and scrolls internally instead
-   — so this panel is never taller OR shorter than its neighbor, whichever that happens to be. */
+   naturally very different lengths (an expandable award list vs. a per-night table). The first
+   attempt at fixing this only used align-items:stretch — making this panel a flex column with the
+   grid as the flexible/scrolling child (flex:1 1 auto; min-height:0; overflow-y:auto) so it'd fill
+   exactly the row's stretched height — but that only actually engages the scroll when this panel
+   is the *shorter* one, since stretch expands every item in the row to match whichever is
+   *tallest* natively. With a real, larger award list (11 awards, some multi-winner), this panel
+   turned out to be the taller one most of the time, so the row just stretched Power Ranking up to
+   match it instead — the opposite of "collapsed into scrollable." A flat `max-height` on the grid
+   itself (not tied to the neighbor's height at all) guarantees scrolling kicks in once there's
+   more than a screenful of awards, regardless of which panel happens to be taller this time. */
 .panel:has(> #awardsVsStats) {
   display: flex;
   flex-direction: column;
@@ -1529,6 +1533,7 @@ button:disabled {
 .panel:has(> #awardsVsStats) #awardsVsStats {
   flex: 1 1 auto;
   min-height: 0;
+  max-height: 500px;
   overflow-y: auto;
 }
 .award-row {
