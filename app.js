@@ -5026,9 +5026,9 @@ function kMeans(points, k, seed) {
 const PLAY_STYLE_DESCRIPTORS = {
   off: { high: "Scorer", low: "Low-Usage" },
   def: { high: "Lockdown Defender", low: "Defense-Light" },
-  ast: { high: "Playmaker", low: "" },
-  reb: { high: "Glass-Cleaner", low: "" },
-  stocks: { high: "Disruptor", low: "" }
+  ast: { high: "Playmaker", low: "Score-First" },
+  reb: { high: "Glass-Cleaner", low: "Perimeter-Only" },
+  stocks: { high: "Disruptor", low: "Low-Disruption" }
 };
 
 // Labels a cluster by whichever one or two features sit furthest from the league-wide average
