@@ -5024,11 +5024,11 @@ function kMeans(points, k, seed) {
 }
 
 const PLAY_STYLE_DESCRIPTORS = {
-  off: { high: "Scorer", low: "Low-Usage" },
-  def: { high: "Lockdown Defender", low: "Defense-Light" },
-  ast: { high: "Playmaker", low: "Score-First" },
-  reb: { high: "Glass-Cleaner", low: "Perimeter-Only" },
-  stocks: { high: "Disruptor", low: "Low-Disruption" }
+  off: { high: "Scorer", low: "Cold" },
+  def: { high: "Lockdown Defender", low: "Turnstile" },
+  ast: { high: "Playmaker", low: "Black Hole" },
+  reb: { high: "Glass-Cleaner", low: "Allergic to the Glass" },
+  stocks: { high: "Disruptor", low: "Ghost" }
 };
 
 // Labels a cluster by whichever one or two features sit furthest from the league-wide average
