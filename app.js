@@ -1861,13 +1861,23 @@ function renderBalanceResults() {
     // (more attendees than 2× the requested team size) it's "vs. a league-average opponent
     // tonight," since there's no single opposing roster to point the model at. Only computed at
     // all once the model has a real sample size behind it (see WIN_PROBABILITY_MIN_GAMES).
-    const winProbs = winProbModel
-      ? r.avgs.map((avg, ti) => {
-          const rest = r.avgs.filter((_, j) => j !== ti);
-          const restAvg = rest.reduce((a, b) => a + b, 0) / rest.length;
-          return predictWinProbability(winProbModel, avg - restAvg);
-        })
-      : null;
+    // For the common 2-team case this is one game with one winner, so the two probabilities are
+    // forced to add to exactly 100% (computed once from Team A's own diff, Team B just takes the
+    // complement) rather than each computed independently from its own diff against "the other
+    // team's average" — sigmoid(x) + sigmoid(-x) always sums to 1, but the model's own fitted
+    // bias term breaks that symmetry the moment each side re-adds it separately: sigmoid(w*diff+b)
+    // + sigmoid(-w*diff+b) only equals 1 when b happens to be exactly 0, which a real fitted bias
+    // essentially never is. A 3+ team split has no single winner to begin with (each team's
+    // number is "vs. a league-average opponent tonight," not a shared event), so summing to 100%
+    // isn't meaningful there and those are left as independent per-team estimates.
+    const winProbs = !winProbModel ? null
+      : r.avgs.length === 2
+        ? (() => { const p = predictWinProbability(winProbModel, r.avgs[0] - r.avgs[1]); return [p, 1 - p]; })()
+        : r.avgs.map((avg, ti) => {
+            const rest = r.avgs.filter((_, j) => j !== ti);
+            const restAvg = rest.reduce((a, b) => a + b, 0) / rest.length;
+            return predictWinProbability(winProbModel, avg - restAvg);
+          });
     // Surfaces the height/build/role tiebreak's own reasoning per team, not just its effect on
     // ranking — a player's name is titled with their height/build/role/original note straight
     // from PLAYER_PHYSICAL_DATA (hover to see exactly what drove a categorization), and each
