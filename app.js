@@ -6285,7 +6285,7 @@ const LEADERBOARD_COLUMNS = [
   { key: "last5", label: "Last 5", accessor: r => r.last5OffRatingPer20, display: r => r.last5Gp > 0 ? `${r.last5Trend} ${r.last5OffRatingPer20.toFixed(1)}` : "—", tooltip: "Off Rating/20 over their last 5 games with real shots logged (fewer if they haven't played 5 yet). ▲/▼ shows whether that's above or below their season Off Rating/20; within ±0.5 counts as flat (–)." }
 ];
 
-let leaderboardSort = { key: "pts", dir: "desc" };
+let leaderboardSort = { key: "twoway20", dir: "desc" };
 
 // The six share-of-team/-pool "%" columns (Shot%/AST%/OREB%/DREB%/TRB%/TOV%) are marked
 // `advanced: true` above and hidden by default — the newest, most niche additions to an
