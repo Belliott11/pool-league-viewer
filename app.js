@@ -1289,13 +1289,22 @@ function getPlayerPhysicalData(id) {
 // Converts a season-average power-ranking percentile (0-100, 50 = exactly average that night)
 // into a Two-Way/20-equivalent estimate. Calibrated against the real spread of this roster's own
 // Two-Way/20 values (roughly -5 to +5.5): 10 percentile points above/below league-average maps
-// to about 1 point of Two-Way/20, so a dominant 100th-percentile reputation (Phillip) lands
-// around +5 rather than some inflated outlier. A single adjustable constant, not a UI setting,
-// same pattern as every other judgment-call threshold in this tool (CLUTCH_MARGIN_THRESHOLD,
+// to about 1 point of Two-Way/20. A single adjustable constant, not a UI setting, same pattern as
+// every other judgment-call threshold in this tool (CLUTCH_MARGIN_THRESHOLD,
 // SECOND_CHANCE_WINDOW_SECONDS, etc.) — revisit if it turns out to under- or over-weight
 // reputation once more of these players actually get logged film.
-function estimatedQualityFromReputation(avgPercentile) {
-  return (avgPercentile - 50) / 10;
+//
+// A CLEAN_SWEEP_BONUS on top of that linear mapping, for the specific case of a real 100th
+// percentile average across multiple parties (rank 1 *every single night*, not just "above
+// average") — a genuinely different, rarer claim than a merely-high percentile, and the plain
+// linear formula alone was underselling it: Phillip's own 100th-percentile/4-party reputation
+// landed at only +5.0, barely ahead of (and sometimes behind) real logged players' own measured
+// Two-Way/20 in the high-3s/4s. Gated at 2+ parties so a single lucky night at 100th percentile
+// doesn't trigger the same bonus a real multi-party sweep earns.
+const CLEAN_SWEEP_BONUS = 2;
+function estimatedQualityFromReputation(avgPercentile, parties) {
+  const base = (avgPercentile - 50) / 10;
+  return avgPercentile === 100 && parties >= 2 ? base + CLEAN_SWEEP_BONUS : base;
 }
 
 // Every attendee's balancing quality plus where it came from, computed once per generate/render
@@ -1309,7 +1318,7 @@ function computeBalanceQualityMap() {
     } else {
       const rep = PLAYER_REPUTATION_BY_ID[r.player.id];
       map[r.player.id] = rep
-        ? { quality: estimatedQualityFromReputation(rep.avgPercentile), source: "reputation", avgPercentile: rep.avgPercentile, parties: rep.parties }
+        ? { quality: estimatedQualityFromReputation(rep.avgPercentile, rep.parties), source: "reputation", avgPercentile: rep.avgPercentile, parties: rep.parties }
         : { quality: 0, source: "none" };
     }
   });
