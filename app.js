@@ -1301,7 +1301,7 @@ function getPlayerPhysicalData(id) {
 // landed at only +5.0, barely ahead of (and sometimes behind) real logged players' own measured
 // Two-Way/20 in the high-3s/4s. Gated at 2+ parties so a single lucky night at 100th percentile
 // doesn't trigger the same bonus a real multi-party sweep earns.
-const CLEAN_SWEEP_BONUS = 2;
+const CLEAN_SWEEP_BONUS = 1.2;
 function estimatedQualityFromReputation(avgPercentile, parties) {
   const base = (avgPercentile - 50) / 10;
   return avgPercentile === 100 && parties >= 2 ? base + CLEAN_SWEEP_BONUS : base;
