@@ -5042,7 +5042,15 @@ function describePlayStyleCluster(center) {
     .sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
   const top = ranked.slice(0, 2).filter(r => Math.abs(r.z) >= 0.35);
   const words = top.map(r => (r.z >= 0 ? PLAY_STYLE_DESCRIPTORS[r.feature.key].high : PLAY_STYLE_DESCRIPTORS[r.feature.key].low)).filter(Boolean);
-  return words.length > 0 ? [...new Set(words)].join(" / ") : "Balanced / Role Player";
+  const label = words.length > 0 ? [...new Set(words)].join(" / ") : "Balanced / Role Player";
+  // Plain-language gloss of the same top features the label above was built from — the label
+  // itself is a nickname, not self-explanatory (a "Ghost" reads as an insult until you know it
+  // means "below-average Stocks"), so this spells out which real stat earned it and which
+  // direction, in the same order the label lists them.
+  const explain = top.length > 0
+    ? top.map(r => `${r.z >= 0 ? "above" : "below"}-average ${r.feature.label}`).join(", ")
+    : "no stat far enough from average to stand out";
+  return { label, explain };
 }
 
 function computePlayerStyleClusters() {
@@ -5063,7 +5071,7 @@ function computePlayerStyleClusters() {
   }
   return best.centers
     .map((center, ci) => ({
-      label: describePlayStyleCluster(center),
+      ...describePlayStyleCluster(center),
       members: standardized.filter((_, i) => best.assignments[i] === ci)
     }))
     .filter(c => c.members.length > 0)
@@ -5083,6 +5091,7 @@ function renderPlayStyleClusters() {
       ${clusters.map(c => `
         <div class="play-style-cluster">
           <h4>${escapeHtml(c.label)} <span class="hint" style="margin:0">(${c.members.length})</span></h4>
+          <p class="hint play-style-explain">${escapeHtml(c.explain)}</p>
           <ul>${c.members.map(m => `<li>${renderPlayerAvatar(m.player)}${escapeHtml(m.player.name)}</li>`).join("")}</ul>
         </div>
       `).join("")}

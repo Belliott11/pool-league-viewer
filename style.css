@@ -1679,13 +1679,17 @@ button:disabled {
   min-width: 0;
 }
 .play-style-cluster h4 {
-  margin: 0 0 8px;
+  margin: 0 0 4px;
   font-family: var(--font-display);
   font-size: 0.92rem;
   display: flex;
   align-items: baseline;
   gap: 6px;
   flex-wrap: wrap;
+}
+.play-style-explain {
+  margin: 0 0 8px;
+  font-style: italic;
 }
 .play-style-cluster ul {
   margin: 0;
