@@ -1619,10 +1619,14 @@ function computeWinProbabilityTrainingRows() {
   return rows;
 }
 
-// Fits P(higher-quality side wins) = sigmoid(w*diff + b) by plain gradient descent. Two
+// Fits P(higher-quality side wins) = sigmoid(w*diff + b) by plain gradient descent, with a small
+// L2 penalty on w (not b) so the fitted slope can't run away on a handful of rows — checked
+// directly against this app's own real data: unregularized, 7 training games alone produced
+// w=0.67, confident enough to call a realistic ~9-point quality gap a 99.7% sure thing. Two
 // parameters, a fixed learning rate, and a fixed iteration count are all this needs — with at
 // most a few dozen training rows, the loss surface is simple enough to converge well inside this
 // budget every time, and there's no meaningful train/validation split at this sample size anyway.
+const WIN_PROBABILITY_L2 = 0.1;
 function trainWinProbabilityModel(rows) {
   let w = 0.15, b = 0;
   const lr = 0.1;
@@ -1635,7 +1639,7 @@ function trainWinProbabilityModel(rows) {
       gw += err * r.diff;
       gb += err;
     });
-    w -= lr * gw / n;
+    w -= lr * (gw / n + WIN_PROBABILITY_L2 * w);
     b -= lr * gb / n;
   }
   return { w, b, n };
@@ -1647,8 +1651,20 @@ function getWinProbabilityModel() {
   return trainWinProbabilityModel(rows);
 }
 
+// Regularizing the fit alone doesn't bound how confident a prediction can look — even heavy L2
+// still left a realistic quality gap near 95%+ off just 7 games, because a plain sigmoid keeps
+// saturating toward 0/1 at large inputs regardless of how small w is shrunk. So the raw model
+// output is additionally blended toward 50/50 by how many decisive games it was actually trained
+// on, same "confidence scales with sample size" pattern as teamChemistryAdjustment()'s and
+// teamWinRateAdjustment()'s own min(1, gp/3) damping elsewhere in this file — full confidence
+// at WIN_PROBABILITY_CONFIDENCE_GAMES decisive games, linearly less before that, floor at
+// WIN_PROBABILITY_MIN_GAMES (below which getWinProbabilityModel() returns null and nothing
+// renders at all).
+const WIN_PROBABILITY_CONFIDENCE_GAMES = 20;
 function predictWinProbability(model, diff) {
-  return 1 / (1 + Math.exp(-(model.w * diff + model.b)));
+  const raw = 1 / (1 + Math.exp(-(model.w * diff + model.b)));
+  const confidence = Math.min(1, model.n / WIN_PROBABILITY_CONFIDENCE_GAMES);
+  return 0.5 + (raw - 0.5) * confidence;
 }
 
 // Tiebreaker only, by design (Two-Way spread is the real, measured/estimated signal and always

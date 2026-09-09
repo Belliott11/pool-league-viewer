@@ -1,0 +1,14 @@
+{
+  "name": "Pool League Stat Tracker",
+  "short_name": "Pool League",
+  "description": "Season recap for the crew: full standings, stats, awards, and game highlight clips.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#0c1d29",
+  "theme_color": "#0c1d29",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
