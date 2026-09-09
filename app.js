@@ -1464,10 +1464,27 @@ function teamSetSignature(teams) {
 // only ever tiebreak. Summed rather than averaged together deliberately: a pairing that's both
 // shown a real individual lift *and* a real winning record is doubly-confirmed, not
 // double-counted, and each is independently dampened by its own sample size already.
-function scoreTeamSet(teams, qualityById, liftMap, winRateMap) {
+//
+// That per-pair sample-size damping (min(1, gp/3) in both functions) is a different thing from
+// bounding by scale, and isn't enough on its own: a raw per-20 rate difference is just a big
+// number, confident or not, and on this roster the two signals combined run roughly -8 to +7 per
+// team (checked directly against this browser's own real games) while the actual gap between two
+// well-balanced teams' plain average quality is routinely under a point. Left unclamped, "nudge"
+// is the wrong word for what these terms do — the search ends up ranking splits by whichever one
+// chemistry/win-rate happened to favor, not by which one is actually the closest talent-wise, and
+// nothing about that failure is visible from the output alone (every answer still looks
+// reasonable). `nudgeCap` bounds the combined chemistry+win-rate adjustment to a fraction of
+// *this specific group's* own quality spread (attendeeIds, not the whole roster) — so it can
+// still break a near-tie or tip a genuinely close call, but can never outweigh a real talent gap
+// or manufacture one out of a mostly-even group. undefined disables the cap entirely (existing
+// callers that don't pass one), which is only used by code paths measuring the raw, unclamped
+// signal itself rather than actually building teams with it.
+function scoreTeamSet(teams, qualityById, liftMap, winRateMap, nudgeCap) {
   const avgs = teams.map(team => {
     const base = team.reduce((sum, id) => sum + (qualityById[id] || 0), 0) / team.length;
-    return base + teamChemistryAdjustment(team, liftMap).value + teamWinRateAdjustment(team, winRateMap).value;
+    const nudge = teamChemistryAdjustment(team, liftMap).value + teamWinRateAdjustment(team, winRateMap).value;
+    const cappedNudge = nudgeCap === undefined ? nudge : Math.max(-nudgeCap, Math.min(nudgeCap, nudge));
+    return base + cappedNudge;
   });
   return { avgs, spread: Math.max(...avgs) - Math.min(...avgs), physicalScore: scorePhysicalBalance(teams) };
 }
@@ -1706,10 +1723,10 @@ function teamHasAboveAverageHeight(team, avgHeight) {
 // exhaustive one, same spirit as the randomized generation it's refining. Never looks at
 // physicalScore; height/build/role stay a pure tiebreak applied after this step, not something
 // this search optimizes for.
-function localSearchRefine(teams, qualityById, liftMap, winRateMap, iterations) {
+function localSearchRefine(teams, qualityById, liftMap, winRateMap, iterations, nudgeCap) {
   if (teams.length < 2) return teams;
   let current = teams.map(t => [...t]);
-  let currentSpread = scoreTeamSet(current, qualityById, liftMap, winRateMap).spread;
+  let currentSpread = scoreTeamSet(current, qualityById, liftMap, winRateMap, nudgeCap).spread;
   for (let iter = 0; iter < iterations; iter++) {
     const ti = Math.floor(Math.random() * current.length);
     let tj = Math.floor(Math.random() * current.length);
@@ -1719,7 +1736,7 @@ function localSearchRefine(teams, qualityById, liftMap, winRateMap, iterations) 
     const pj = Math.floor(Math.random() * current[tj].length);
     const candidate = current.map(t => [...t]);
     [candidate[ti][pi], candidate[tj][pj]] = [candidate[tj][pj], candidate[ti][pi]];
-    const candidateSpread = scoreTeamSet(candidate, qualityById, liftMap, winRateMap).spread;
+    const candidateSpread = scoreTeamSet(candidate, qualityById, liftMap, winRateMap, nudgeCap).spread;
     if (candidateSpread < currentSpread) {
       current = candidate;
       currentSpread = candidateSpread;
@@ -1734,6 +1751,12 @@ function generateBalancedTeamSets(attendeeIds, teamSize) {
   Object.entries(qualityMap).forEach(([id, v]) => { qualityById[id] = v.quality; });
   const liftMap = computeChemistryLiftMap(attendeeIds);
   const winRateMap = computeTeamWinRateMap(attendeeIds);
+  // Bounds the combined chemistry+win-rate nudge (see scoreTeamSet()'s own comment) to a fifth of
+  // *tonight's specific attendees'* own quality spread, not the whole roster's — so the cap scales
+  // with how spread-out this particular group actually is instead of one fixed number that's too
+  // loose for a lopsided group and too tight for an even one.
+  const attendeeQualities = attendeeIds.map(id => qualityById[id] || 0);
+  const nudgeCap = (Math.max(...attendeeQualities) - Math.min(...attendeeQualities)) / 5;
 
   const numTeams = Math.max(2, Math.round(attendeeIds.length / Math.max(1, teamSize)));
   const base = Math.floor(attendeeIds.length / numTeams);
@@ -1750,7 +1773,7 @@ function generateBalancedTeamSets(attendeeIds, teamSize) {
     const sig = teamSetSignature(teams);
     if (seen.has(sig)) return;
     seen.add(sig);
-    scored.push({ teams, ...scoreTeamSet(teams, qualityById, liftMap, winRateMap) });
+    scored.push({ teams, ...scoreTeamSet(teams, qualityById, liftMap, winRateMap, nudgeCap) });
   });
   scored.sort((a, b) => a.spread - b.spread);
 
@@ -1767,11 +1790,11 @@ function generateBalancedTeamSets(attendeeIds, teamSize) {
   const refinedSeen = new Set();
   const refined = [];
   scored.slice(0, 30).forEach(entry => {
-    const improvedTeams = localSearchRefine(entry.teams, qualityById, liftMap, winRateMap, 25);
+    const improvedTeams = localSearchRefine(entry.teams, qualityById, liftMap, winRateMap, 25, nudgeCap);
     const sig = teamSetSignature(improvedTeams);
     if (refinedSeen.has(sig)) return;
     refinedSeen.add(sig);
-    refined.push({ teams: improvedTeams, ...scoreTeamSet(improvedTeams, qualityById, liftMap, winRateMap) });
+    refined.push({ teams: improvedTeams, ...scoreTeamSet(improvedTeams, qualityById, liftMap, winRateMap, nudgeCap) });
   });
   refined.sort((a, b) => a.spread - b.spread);
 
