@@ -6141,6 +6141,31 @@ function computeFlakeStats(playerId) {
 // dressed up as a coaching note.
 const PLAYER_TIPS_MIN_GP = 3;
 
+// Turns a tip from "here's a stat" into "here's where to go watch it" — the actual improvement
+// mechanism, since a percentage on its own doesn't teach anyone anything a real clip review does.
+// Both helpers return the most recent few qualifying games (capped, not exhaustive) that actually
+// contain the shots behind a given tip, for a "Watch film" row of direct openGame() links.
+function gamesForZoneShots(playerId, zoneKey, made) {
+  // shotBand() (the per-event classifier) returns "arc" for the 3PT-line zone; SHOT_ZONES itself
+  // spells that same zone "line" — the two vocabularies never got reconciled since SHOT_ZONES
+  // predates this lookup, so translate at the one call site that needs both instead of renaming
+  // either existing constant and risking a mismatch somewhere that already depends on the old name.
+  const bandKey = zoneKey === "line" ? "arc" : zoneKey;
+  const games = state.games.filter(isQualifyingGame).filter(g =>
+    g.scoringEvents.some(ev =>
+      ev.scorerId === playerId && (ev.made !== false) === made && (ev.points === 2 || ev.points === 3) &&
+      ev.shotLocation && shotBand(ev.shotLocation, ev.points) === bandKey
+    )
+  ).map(g => ({ id: g.id, date: g.date }));
+  return games.sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
+}
+function gamesForMatchup(scorerId, defenderId) {
+  const games = state.games.filter(isQualifyingGame).filter(g =>
+    g.scoringEvents.some(ev => ev.scorerId === scorerId && (ev.defenderIds || []).includes(defenderId))
+  ).map(g => ({ id: g.id, date: g.date }));
+  return games.sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
+}
+
 function computePlayerTips(playerId) {
   const board = computeLeaderboard().filter(r => r.gp > 0);
   const row = board.find(r => r.player.id === playerId);
@@ -6187,13 +6212,13 @@ function computePlayerTips(playerId) {
     const worstPct = pct(worst.fgm, worst.fga);
     if (ownFgPct - worstPct >= 15) {
       const name = state.players.find(p => p.id === worst.defenderId)?.name || "?";
-      candidates.push({ diff: ownFgPct - worstPct, icon: "⚠️", text: `Matchup to watch: ${name} has held you to ${formatPct(worstPct)} shooting (${worst.fga} attempts), well under your own ${formatPct(ownFgPct)} overall. Worth a different look (a different spot on the floor, a screen, anything) when they're the one on you.` });
+      candidates.push({ diff: ownFgPct - worstPct, icon: "⚠️", text: `Matchup to watch: ${name} has held you to ${formatPct(worstPct)} shooting (${worst.fga} attempts), well under your own ${formatPct(ownFgPct)} overall. Worth a different look (a different spot on the floor, a screen, anything) when they're the one on you.`, games: gamesForMatchup(playerId, worst.defenderId) });
     }
     const best = scorerMatchups.reduce((a, b) => pct(b.fgm, b.fga) > pct(a.fgm, a.fga) ? b : a);
     const bestPct = pct(best.fgm, best.fga);
     if (bestPct - ownFgPct >= 15 && best.defenderId !== worst.defenderId) {
       const name = state.players.find(p => p.id === best.defenderId)?.name || "?";
-      candidates.push({ diff: bestPct - ownFgPct, icon: "✅", text: `Favorable matchup: you're shooting ${formatPct(bestPct)} against ${name} (${best.fga} attempts), well above your own ${formatPct(ownFgPct)} overall. Worth hunting that matchup, or at least not shying away from it, when you get the chance.` });
+      candidates.push({ diff: bestPct - ownFgPct, icon: "✅", text: `Favorable matchup: you're shooting ${formatPct(bestPct)} against ${name} (${best.fga} attempts), well above your own ${formatPct(ownFgPct)} overall. Worth hunting that matchup, or at least not shying away from it, when you get the chance.`, games: gamesForMatchup(playerId, best.defenderId) });
     }
   }
 
@@ -6205,7 +6230,7 @@ function computePlayerTips(playerId) {
     const worstAllowed = pct(worst.fgm, worst.fga);
     if (worstAllowed - avgOppFg >= 15) {
       const name = state.players.find(p => p.id === worst.scorerId)?.name || "?";
-      candidates.push({ diff: worstAllowed - avgOppFg, icon: "⚠️", text: `Defensive matchup to watch: ${name} is shooting ${formatPct(worstAllowed)} against you specifically (${worst.fga} attempts), well above what you allow overall. Extra help on that matchup, or a different defender entirely, might be worth it.` });
+      candidates.push({ diff: worstAllowed - avgOppFg, icon: "⚠️", text: `Defensive matchup to watch: ${name} is shooting ${formatPct(worstAllowed)} against you specifically (${worst.fga} attempts), well above what you allow overall. Extra help on that matchup, or a different defender entirely, might be worth it.`, games: gamesForMatchup(worst.scorerId, playerId) });
     }
   }
 
@@ -6246,11 +6271,11 @@ function computePlayerTips(playerId) {
     if (meaningfulZones.length > 0) {
       const best = meaningfulZones.reduce((a, b) => (b.fgPct - b.leagueZoneFg) > (a.fgPct - a.leagueZoneFg) ? b : a);
       if (best.fgPct - best.leagueZoneFg >= 12) {
-        candidates.push({ diff: best.fgPct - best.leagueZoneFg, icon: "🔥", text: `Strength: ${formatPct(best.fgPct)} from ${best.zone.label} (${best.attempts} attempts), well above the ${formatPct(best.leagueZoneFg)} league average from there. A real weapon from that range, worth respecting, not sagging off.` });
+        candidates.push({ diff: best.fgPct - best.leagueZoneFg, icon: "🔥", text: `Strength: ${formatPct(best.fgPct)} from ${best.zone.label} (${best.attempts} attempts), well above the ${formatPct(best.leagueZoneFg)} league average from there. A real weapon from that range, worth respecting, not sagging off.`, games: gamesForZoneShots(playerId, best.zone.key, true) });
       }
       const worst = meaningfulZones.reduce((a, b) => (a.fgPct - a.leagueZoneFg) > (b.fgPct - b.leagueZoneFg) ? b : a);
       if (worst.leagueZoneFg - worst.fgPct >= 12) {
-        candidates.push({ diff: worst.leagueZoneFg - worst.fgPct, icon: "❄️", text: `Weakness: just ${formatPct(worst.fgPct)} from ${worst.zone.label} (${worst.attempts} attempts), well under the ${formatPct(worst.leagueZoneFg)} league average from there. Sagging off there and daring that shot is a defensible bet.` });
+        candidates.push({ diff: worst.leagueZoneFg - worst.fgPct, icon: "❄️", text: `Weakness: just ${formatPct(worst.fgPct)} from ${worst.zone.label} (${worst.attempts} attempts), well under the ${formatPct(worst.leagueZoneFg)} league average from there. Sagging off there and daring that shot is a defensible bet.`, games: gamesForZoneShots(playerId, worst.zone.key, false) });
       }
     }
   }
@@ -6283,7 +6308,15 @@ function renderPlayerTips(playerId) {
     wrap.innerHTML = `<p class="empty-state">Nothing stands out from the league average in either direction: a genuinely well-rounded game right now.</p>`;
     return;
   }
-  wrap.innerHTML = `<ul class="player-tips-list">${tips.map(t => `<li><span class="player-tip-icon">${t.icon}</span><span>${t.text}</span></li>`).join("")}</ul>`;
+  wrap.innerHTML = `<ul class="player-tips-list">${tips.map(t => {
+    const watchLinks = (t.games && t.games.length > 0)
+      ? `<div class="player-tip-watch">Watch film: ${t.games.map(g => `<button type="button" class="icon-btn player-tip-game-btn" data-game-id="${g.id}">${escapeHtml(formatDateDisplay(g.date))}</button>`).join(" ")}</div>`
+      : "";
+    return `<li><span class="player-tip-icon">${t.icon}</span><span>${t.text}${watchLinks}</span></li>`;
+  }).join("")}</ul>`;
+  wrap.querySelectorAll(".player-tip-game-btn").forEach(btn => {
+    btn.addEventListener("click", () => openGame(btn.dataset.gameId));
+  });
 }
 
 function renderFlakeStatsPanel(playerId) {
@@ -7587,15 +7620,22 @@ function renderNotableMatchups(playerId) {
     const icon = suppressed ? "⚠️" : "✅";
     const verb = suppressed ? "is being held to" : "is shooting";
     const compare = suppressed ? "under" : "above";
+    const games = gamesForMatchup(r.scorer.id, r.defender.id);
+    const watchLinks = games.length > 0
+      ? `<div class="player-tip-watch">Watch film: ${games.map(g => `<button type="button" class="icon-btn player-tip-game-btn" data-game-id="${g.id}">${escapeHtml(formatDateDisplay(g.date))}</button>`).join(" ")}</div>`
+      : "";
     return `<li>
       <span class="player-tip-icon">${icon}</span>
       <span><button type="button" class="icon-btn notable-matchup-player-btn" data-player-id="${r.scorer.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.scorer.name)}</button> ${verb} ${formatPct(r.fgPct)} against
       <button type="button" class="icon-btn notable-matchup-player-btn" data-player-id="${r.defender.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.defender.name)}</button>
-      (${r.fgm}/${r.fga}), ${Math.abs(r.deviation).toFixed(0)} points ${compare} their own ${formatPct(r.ownFgPct)} overall.</span>
+      (${r.fgm}/${r.fga}), ${Math.abs(r.deviation).toFixed(0)} points ${compare} their own ${formatPct(r.ownFgPct)} overall.${watchLinks}</span>
     </li>`;
   }).join("")}</ul>`;
   wrap.querySelectorAll(".notable-matchup-player-btn").forEach(btn => {
     btn.addEventListener("click", () => openPlayerDetail(btn.dataset.playerId));
+  });
+  wrap.querySelectorAll(".player-tip-game-btn").forEach(btn => {
+    btn.addEventListener("click", () => openGame(btn.dataset.gameId));
   });
 }
 

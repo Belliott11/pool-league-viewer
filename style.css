@@ -1746,6 +1746,28 @@ button:disabled {
   font-size: 1.1rem;
   line-height: 1.45;
 }
+/* "Watch film" row (renderPlayerTips()/renderNotableMatchups() in app.js) — the actual
+   improvement mechanism a bare percentage can't be: real dates, each one an openGame() jump
+   straight into that game's own Shot Log, where the existing per-row Jump-to-video buttons take
+   over from there. */
+.player-tip-watch {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.player-tip-game-btn {
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 2px 2px 0 0;
+  background: var(--surface-muted);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+.player-tip-game-btn:hover {
+  background: var(--surface-muted-hover);
+}
 
 /* Notable Matchups (renderNotableMatchups() in app.js) — same card-per-row shape as the
    Personalized Tips list above, reused directly since it's the same underlying signal just
