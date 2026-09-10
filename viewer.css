@@ -28,6 +28,14 @@
   display: none !important;
 }
 
+/* The "N games still missing shot locations" nudge is admin workflow guidance for Ben (its own
+   "Fill them in" button jumps to Export → Backfill Shot Locations) — nothing a friend can act on,
+   and clicking it would land them in the very admin area the Export tab is hidden to keep them
+   out of. */
+#shotLocationGapSummary {
+  display: none !important;
+}
+
 /* Balance Teams' own "Use These Teams → Create Game" button reads its date from #gameDateInput,
    which lives in the now-hidden Create Game panel — with no UI to set that date, every game it
    created would silently come out dateless. Hiding just this one button keeps the actual
@@ -46,9 +54,11 @@
   display: none !important;
 }
 
-/* Each game card's own "Delete" button — the only direct <button> child of .game-card (its other
-   content lives inside a plain <div>), so this selector can't accidentally catch anything else. */
-.game-card > .icon-btn {
+/* Each game card's own "Delete" button. Its "Share" button sibling (also a direct .icon-btn
+   child of .game-card) is deliberately NOT caught by this — read-only and genuinely useful for a
+   friend, so it stays visible; the two buttons are only distinguishable by their own class since
+   both share the plain .icon-btn styling class. */
+.game-card > .icon-btn.game-delete-btn {
   display: none !important;
 }
 

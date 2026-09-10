@@ -134,6 +134,14 @@ document.getElementById("themeToggleBtn").addEventListener("click", () => {
   applyTheme();
 });
 
+document.getElementById("shareSiteBtn").addEventListener("click", function () {
+  shareOrCopy({
+    title: "Pool League Stat Tracker",
+    text: "Check out this season's stats",
+    url: `${location.origin}${location.pathname}`
+  }, this);
+});
+
 applyTheme();
 
 let state = loadState();
@@ -1050,8 +1058,72 @@ document.getElementById("clearGamesFiltersBtn").addEventListener("click", () => 
   renderGames();
 });
 
+// Shared by every "Share" button in this file (games, players, and the site-wide one in the
+// header) — tries the native OS share sheet first (navigator.share(), the thing that actually
+// makes a site "feel shareable" on a phone: it hands off straight to iMessage/WhatsApp/whatever
+// instead of silently filling the clipboard and hoping the person notices), then falls back to
+// the async Clipboard API, then to a temporary off-screen textarea + document.execCommand("copy")
+// for a browser or non-HTTPS context where neither of those is available. `title`/`text`/`url`
+// match navigator.share()'s own parameter names; the clipboard fallbacks just concatenate them
+// into one block, same as a share sheet's own preview usually renders it.
+function shareOrCopy({ title, text, url }, btn) {
+  const flash = (label) => {
+    const original = btn.textContent;
+    btn.textContent = label;
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1500);
+  };
+  const fullText = `${text}\n${url}`;
+  const copyFallback = () => {
+    const onFail = () => {
+      const textarea = document.createElement("textarea");
+      textarea.value = fullText;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand("copy");
+        flash("Copied!");
+      } catch (e) {
+        flash("Copy failed");
+      }
+      document.body.removeChild(textarea);
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(fullText).then(() => flash("Copied!"), onFail);
+    } else {
+      onFail();
+    }
+  };
+  if (navigator.share) {
+    // A user-cancelled share sheet rejects with an AbortError — that's not a failure needing a
+    // clipboard fallback, just someone changing their mind, so it's the one rejection this
+    // swallows silently instead of falling through to copyFallback().
+    navigator.share({ title, text, url }).catch(err => { if (err?.name !== "AbortError") copyFallback(); });
+  } else {
+    copyFallback();
+  }
+}
+
+function buildGameShareText(game) {
+  const scoreA = teamScore(game, game.teamA);
+  const scoreB = teamScore(game, game.teamB);
+  const teamANames = game.teamA.map(id => state.players.find(p => p.id === id)?.name).filter(Boolean).join(", ") || "Team A";
+  const teamBNames = game.teamB.map(id => state.players.find(p => p.id === id)?.name).filter(Boolean).join(", ") || "Team B";
+  return `${formatDateDisplay(game.date)}: ${teamANames} ${scoreA} - ${scoreB} ${teamBNames}`;
+}
+function copyGameShareLink(game, btn) {
+  shareOrCopy({
+    title: "Pool League Stat Tracker",
+    text: buildGameShareText(game),
+    url: `${location.origin}${location.pathname}#game=${encodeURIComponent(game.id)}`
+  }, btn);
+}
+
 function renderGames() {
   renderNeedsReviewSummary();
+  renderShotLocationGapSummary();
   // A game being created/deleted can resolve (or un-resolve) a pending RSVP entry for that same
   // date, so the recent-RSVP list's Pending/Everyone showed/missed status needs to stay in sync
   // with whatever renderGames() itself is reacting to.
@@ -1127,8 +1199,18 @@ function renderGames() {
         <div class="date-line">${formatDateDisplay(game.date)} · ${game.teamA.length + game.teamB.length} players${game.notes ? " · " + escapeHtml(game.notes) : ""}${videoBadge}${reviewBadge}${imbalancedBadge}${pastSeasonBadge}${starBadge}${coldBadge}</div>
       </div>
     `;
+    const shareBtn = document.createElement("button");
+    shareBtn.className = "icon-btn game-share-btn";
+    shareBtn.textContent = "Share";
+    shareBtn.title = "Copy a link straight to this game";
+    shareBtn.addEventListener("click", ev => {
+      ev.stopPropagation();
+      copyGameShareLink(game, shareBtn);
+    });
+    card.appendChild(shareBtn);
+
     const delBtn = document.createElement("button");
-    delBtn.className = "icon-btn";
+    delBtn.className = "icon-btn game-delete-btn";
     delBtn.textContent = "Delete";
     delBtn.addEventListener("click", ev => {
       ev.stopPropagation();
@@ -1171,6 +1253,28 @@ async function renderNeedsReviewSummary() {
   el.textContent = count > 0
     ? `📝 ${count} game${count === 1 ? "" : "s"} with video still need${count === 1 ? "s" : ""} review.`
     : "";
+}
+
+// A game that's been reviewed (real shots logged) but still has field goals with no marked shot
+// chart location was previously only visible on Export → Backfill Shot Locations, a tab nobody
+// but Ben opens — surfacing the same gap right on Games (where he's already looking after
+// reviewing a game) instead of leaving it to be found by accident later. Same missing-location
+// condition renderBackfillShotLocations() itself uses (a 2 or 3 point field goal with no
+// shotLocation); free throws are excluded since they have no shot chart location to mark.
+function renderShotLocationGapSummary() {
+  const el = document.getElementById("shotLocationGapSummary");
+  if (!el) return;
+  const gamesWithGaps = state.games.filter(g =>
+    g.scoringEvents.length > 0 &&
+    g.scoringEvents.some(ev => (ev.points === 2 || ev.points === 3) && !ev.shotLocation)
+  ).length;
+  el.innerHTML = gamesWithGaps > 0
+    ? `📍 ${gamesWithGaps} reviewed game${gamesWithGaps === 1 ? "" : "s"} still missing shot locations on some makes/misses. <button type="button" class="icon-btn" id="jumpToBackfillBtn" style="padding:2px 8px">Fill them in</button>`
+    : "";
+  document.getElementById("jumpToBackfillBtn")?.addEventListener("click", () => {
+    showTab("export");
+    document.getElementById("backfillShotLocations")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 // ---------- Balance Teams ----------
@@ -1970,8 +2074,17 @@ function renderBalanceResults() {
       const winLine = Math.abs(winAdj.value) >= 0.1
         ? `<div class="balance-team-physical" title="Two-Way/20-scale adjustment from this pairing's actual win rate in past games together, already included in the avg above.">Past record: ${winAdj.value >= 0 ? "+" : ""}${winAdj.value.toFixed(1)}${winGamesNote}</div>`
         : "";
+      // Below WIN_PROBABILITY_CONFIDENCE_GAMES, predictWinProbability() is already blending its
+      // raw output toward 50/50 internally (see that function's own comment) — this is just the
+      // visible signal of that same fact, so a "67% win" doesn't read as more settled than it
+      // actually is: a muted style plus a "~" prefix, same idea as a weather app hedging a
+      // forecast that's still mostly a guess.
+      const lowConfidence = winProbModel.n < WIN_PROBABILITY_CONFIDENCE_GAMES;
+      const confidenceNote = lowConfidence
+        ? `, still well short of the ${WIN_PROBABILITY_CONFIDENCE_GAMES} it takes to fully trust — already hedged toward 50/50 to account for that`
+        : "";
       const winProbLabel = winProbs
-        ? `<span class="balance-team-winprob" title="A small model fit to this browser's own logged games (${winProbModel.n} decisive game${winProbModel.n === 1 ? "" : "s"} so far): predicted chance this team wins tonight, ${r.avgs.length > 2 ? "against a league-average opponent" : "against the team across from it"}.">${Math.round(winProbs[ti] * 100)}% win</span>`
+        ? `<span class="balance-team-winprob${lowConfidence ? " balance-team-winprob-low-confidence" : ""}" title="A small model fit to this browser's own logged games (${winProbModel.n} decisive game${winProbModel.n === 1 ? "" : "s"} so far${confidenceNote}): predicted chance this team wins tonight, ${r.avgs.length > 2 ? "against a league-average opponent" : "against the team across from it"}.">${lowConfidence ? "~" : ""}${Math.round(winProbs[ti] * 100)}% win</span>`
         : "";
       return `
         <div class="balance-team-card">
@@ -6014,6 +6127,127 @@ function computeFlakeStats(playerId) {
   return { resolved, flaked, pct: resolved > 0 ? pct(flaked, resolved) : null };
 }
 
+// ---------- Personalized Tips ----------
+// Not a fixed checklist — every candidate tip below is just this player's own number next to the
+// league average for that same stat, and only the ones that actually stand out get shown (same
+// "rank by distance from average, don't force a fixed count" idea Play Style Clusters' own
+// labeling already uses). Needs a real sample (PLAYER_TIPS_MIN_GP qualifying games) before
+// showing anything at all — a hot or cold stretch over 1-2 games isn't a pattern yet, it's noise
+// dressed up as a coaching note.
+const PLAYER_TIPS_MIN_GP = 3;
+
+function computePlayerTips(playerId) {
+  const board = computeLeaderboard().filter(r => r.gp > 0);
+  const row = board.find(r => r.player.id === playerId);
+  if (!row || row.gp < PLAYER_TIPS_MIN_GP) return null;
+
+  const leagueAvg = accessor => {
+    const vals = board.map(accessor).filter(v => v !== null && v !== undefined && !Number.isNaN(v));
+    return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  };
+
+  const candidates = [];
+
+  // Turnovers: how often they turn it over relative to their own scoring opportunities.
+  const avgTov = leagueAvg(r => r.tovPct);
+  if (avgTov !== null && row.tovPct - avgTov >= 4) {
+    candidates.push({ diff: row.tovPct - avgTov, icon: "🎯", text: `Ball security: your turnover rate (${formatPct(row.tovPct)}) is running ${(row.tovPct - avgTov).toFixed(0)} points above the league average (${formatPct(avgTov)}). Tightening decisions with the ball is probably the single fastest way to add value right now.` });
+  }
+
+  // Defense: opponent shooting % against them, only once they've actually been tagged enough to
+  // mean something (fewer than 5 tagged attempts is too small a sample to say anything real).
+  // avgOppFg is also reused below by the defender-side matchup tip.
+  const defAttempts = row.defense.timesBeaten + row.defense.stops;
+  const avgOppFg = leagueAvg(r => {
+    const a = r.defense.timesBeaten + r.defense.stops;
+    return a >= 5 ? pct(r.defense.timesBeaten, a) : null;
+  });
+  if (defAttempts >= 5) {
+    const oppFg = pct(row.defense.timesBeaten, defAttempts);
+    if (avgOppFg !== null && oppFg - avgOppFg >= 8) {
+      candidates.push({ diff: oppFg - avgOppFg, icon: "🛡️", text: `Defense: opponents are shooting ${formatPct(oppFg)} against you, well above the ${formatPct(avgOppFg)} league average allowed. Tighter closeouts or picking your defensive matchups more carefully could close that gap.` });
+    } else if (avgOppFg !== null && avgOppFg - oppFg >= 8) {
+      candidates.push({ diff: avgOppFg - oppFg, icon: "🛡️", text: `Defense: opponents are shooting just ${formatPct(oppFg)} against you, well below the ${formatPct(avgOppFg)} league average. Whatever you're doing on that end is working — real strength, not a fluke at ${row.gp} games.` });
+    }
+  }
+
+  // Matchup-specific, as scorer: a real weak or strong shooting split against one specific
+  // defender they've actually faced enough to mean something (5+ attempts), not a single bad
+  // possession. Compared against their own overall FG%, not the league's — this is about how
+  // this defender changes *their* shot, not a league-wide ranking.
+  const ownFgPct = pct(row.shooting.fgm, row.shooting.fga);
+  const scorerMatchups = headToHeadAsScorer(playerId).filter(m => m.defenderId && m.fga >= 5);
+  if (scorerMatchups.length > 0 && ownFgPct !== null) {
+    const worst = scorerMatchups.reduce((a, b) => pct(b.fgm, b.fga) < pct(a.fgm, a.fga) ? b : a);
+    const worstPct = pct(worst.fgm, worst.fga);
+    if (ownFgPct - worstPct >= 15) {
+      const name = state.players.find(p => p.id === worst.defenderId)?.name || "?";
+      candidates.push({ diff: ownFgPct - worstPct, icon: "⚠️", text: `Matchup to watch: ${name} has held you to ${formatPct(worstPct)} shooting (${worst.fga} attempts), well under your own ${formatPct(ownFgPct)} overall. Worth a different look — a different spot on the floor, a screen, anything — when they're the one on you.` });
+    }
+    const best = scorerMatchups.reduce((a, b) => pct(b.fgm, b.fga) > pct(a.fgm, a.fga) ? b : a);
+    const bestPct = pct(best.fgm, best.fga);
+    if (bestPct - ownFgPct >= 15 && best.defenderId !== worst.defenderId) {
+      const name = state.players.find(p => p.id === best.defenderId)?.name || "?";
+      candidates.push({ diff: bestPct - ownFgPct, icon: "✅", text: `Favorable matchup: you're shooting ${formatPct(bestPct)} against ${name} (${best.fga} attempts), well above your own ${formatPct(ownFgPct)} overall. Worth hunting that matchup, or at least not shying away from it, when you get the chance.` });
+    }
+  }
+
+  // Matchup-specific, as defender: one scorer who's genuinely torched them specifically, beyond
+  // what this player allows overall — not just "a good shooter had a good night."
+  const defenderMatchups = headToHeadAsDefender(playerId).filter(m => m.fga >= 5);
+  if (defenderMatchups.length > 0 && avgOppFg !== null) {
+    const worst = defenderMatchups.reduce((a, b) => pct(b.fgm, b.fga) > pct(a.fgm, a.fga) ? b : a);
+    const worstAllowed = pct(worst.fgm, worst.fga);
+    if (worstAllowed - avgOppFg >= 15) {
+      const name = state.players.find(p => p.id === worst.scorerId)?.name || "?";
+      candidates.push({ diff: worstAllowed - avgOppFg, icon: "⚠️", text: `Defensive matchup to watch: ${name} is shooting ${formatPct(worstAllowed)} against you specifically (${worst.fga} attempts), well above what you allow overall. Extra help on that matchup, or a different defender entirely, might be worth it.` });
+    }
+  }
+
+  // Shot selection: volume vs. efficiency, mirroring the Volume vs. Efficiency chart's own
+  // "mirror opposites" framing but scoped to this one player instead of a scatter plot.
+  const avgTs = leagueAvg(r => trueShootingPct(r.totals.pts, r.shooting.fga, r.shooting.fta));
+  const avgFga = leagueAvg(r => r.rateShooting.fga);
+  const ownTs = trueShootingPct(row.totals.pts, row.shooting.fga, row.shooting.fta);
+  if (avgTs !== null && avgFga !== null && ownTs !== null) {
+    if (row.rateShooting.fga - avgFga >= 2 && avgTs - ownTs >= 8) {
+      candidates.push({ diff: (avgTs - ownTs) + (row.rateShooting.fga - avgFga), icon: "🎯", text: `Shot selection: you're taking more shots per 20 than most (${row.rateShooting.fga.toFixed(1)} vs. ${avgFga.toFixed(1)} average) at a below-average TS% (${formatPct(ownTs)} vs. ${formatPct(avgTs)}). A more selective diet could raise the efficiency without giving up much volume.` });
+    } else if (avgFga - row.rateShooting.fga >= 2 && ownTs - avgTs >= 8) {
+      candidates.push({ diff: (ownTs - avgTs) + (avgFga - row.rateShooting.fga), icon: "🎯", text: `Shot selection: you're shooting ${formatPct(ownTs)} TS%, well above the ${formatPct(avgTs)} average, on fewer attempts than most (${row.rateShooting.fga.toFixed(1)} vs. ${avgFga.toFixed(1)} per 20). There's real room to take (and make) more without your efficiency needing to hold up on its own — it already has.` });
+    }
+  }
+
+  // Rebounding share, both boards combined.
+  const avgTreb = leagueAvg(r => r.trebPct);
+  if (avgTreb !== null && avgTreb - row.trebPct >= 8) {
+    candidates.push({ diff: avgTreb - row.trebPct, icon: "🏀", text: `Rebounding: your share of available boards (${formatPct(row.trebPct)}) sits well under the ${formatPct(avgTreb)} league average. Boxing out on both ends is free extra possessions nobody has to pass you the ball for.` });
+  }
+
+  // Playmaking: assist share of their own team's assists.
+  const avgAst = leagueAvg(r => r.astPct);
+  if (avgAst !== null && avgAst - row.astPct >= 10 && (avgTov === null || row.tovPct - avgTov < 4)) {
+    candidates.push({ diff: avgAst - row.astPct, icon: "🤝", text: `Playmaking: your share of your team's assists (${formatPct(row.astPct)}) is below the ${formatPct(avgAst)} average. Looking to set up a teammate one extra pass earlier could open up easier looks for everyone, yours included.` });
+  }
+
+  candidates.sort((a, b) => b.diff - a.diff);
+  return candidates.slice(0, 4);
+}
+
+function renderPlayerTips(playerId) {
+  const wrap = document.getElementById("playerTips");
+  if (!wrap) return;
+  const tips = computePlayerTips(playerId);
+  if (tips === null) {
+    wrap.innerHTML = `<p class="empty-state">Needs at least ${PLAYER_TIPS_MIN_GP} qualifying games before there's a real pattern to compare against the league average.</p>`;
+    return;
+  }
+  if (tips.length === 0) {
+    wrap.innerHTML = `<p class="empty-state">Nothing stands out from the league average in either direction — a genuinely well-rounded game right now.</p>`;
+    return;
+  }
+  wrap.innerHTML = `<ul class="player-tips-list">${tips.map(t => `<li><span class="player-tip-icon">${t.icon}</span><span>${t.text}</span></li>`).join("")}</ul>`;
+}
+
 function renderFlakeStatsPanel(playerId) {
   const wrap = document.getElementById("playerFlakeStats");
   if (!wrap) return;
@@ -6691,10 +6925,20 @@ function renderPlayerDetail() {
   document.getElementById("playerDetailSummary").textContent = row
     ? `${row.wins}-${row.losses}${row.ties ? `-${row.ties}` : ""} · ${row.rate.pts.toFixed(1)} PTS/20 · ${row.offRatingPer20.toFixed(1)} Off Rating/20 · ${row.twoWayPer20.toFixed(1)} Two-Way/20`
     : "No games yet";
+  const shareBtn = document.getElementById("sharePlayerBtn");
+  shareBtn.onclick = () => shareOrCopy({
+    title: "Pool League Stat Tracker",
+    text: row
+      ? `${player.name}: ${row.wins}-${row.losses}${row.ties ? `-${row.ties}` : ""}, ${row.twoWayPer20.toFixed(1)} Two-Way/20`
+      : player.name,
+    url: `${location.origin}${location.pathname}#player=${encodeURIComponent(player.id)}`
+  }, shareBtn);
 
-  // Render order follows the panels' actual top-to-bottom order in index.html — past-season
-  // context, then season overview, then offense detail (shots, then who defended them), then
-  // defense detail (same shape, mirrored), then team context, then media. Keep the two in sync.
+  // Render order follows the panels' actual top-to-bottom order in index.html — tips first, then
+  // past-season context, then season overview, then offense detail (shots, then who defended
+  // them), then defense detail (same shape, mirrored), then team context, then media. Keep the
+  // two in sync.
+  renderPlayerTips(player.id);
   renderSeasonHistoryPanel(player.id);
   renderFlakeStatsPanel(player.id);
   renderTwoWayTrendChart(player.id);
@@ -7918,6 +8162,20 @@ renderGames();
 // Land back on whatever was in view last time, instead of always resetting to Games — a
 // browser refresh (or just reopening the file) shouldn't feel like navigating to a new page.
 (function restoreLastView() {
+  // A shared link (#game=<id> or #player=<id>, see the Share buttons on the Games list and
+  // Player Detail) always wins over whatever this browser last happened to have open — someone
+  // clicking a link a friend sent wants that specific thing, not wherever they personally left
+  // off last time.
+  const sharedGameId = location.hash.match(/^#game=(.+)$/)?.[1];
+  if (sharedGameId && state.games.some(g => g.id === decodeURIComponent(sharedGameId))) {
+    openGame(decodeURIComponent(sharedGameId));
+    return;
+  }
+  const sharedPlayerId = location.hash.match(/^#player=(.+)$/)?.[1];
+  if (sharedPlayerId && state.players.some(p => p.id === decodeURIComponent(sharedPlayerId))) {
+    openPlayerDetail(decodeURIComponent(sharedPlayerId));
+    return;
+  }
   let ui = null;
   try { ui = JSON.parse(localStorage.getItem(UI_STATE_KEY)); } catch (e) { /* corrupt/missing, ignore */ }
   if (ui && ui.tab === "stats" && ui.gameId && state.games.some(g => g.id === ui.gameId)) {

@@ -43,6 +43,12 @@ body {
   gap: 12px;
   margin-bottom: 16px;
 }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 
 .app-header h1 {
   margin: 0;
@@ -1112,6 +1118,15 @@ button:disabled {
   color: var(--accent);
   font-weight: 600;
 }
+/* Below WIN_PROBABILITY_CONFIDENCE_GAMES (see app.js), the prediction is already hedged toward
+   50/50 internally — this is the visible half of that, so it doesn't read as more settled than
+   it is: faded and italic rather than the same solid accent color a fully-trusted prediction
+   gets. */
+.balance-team-winprob-low-confidence {
+  opacity: 0.65;
+  font-style: italic;
+  font-weight: 500;
+}
 .balance-team-card ul {
   margin: 0;
   padding-left: 18px;
@@ -1705,6 +1720,31 @@ button:disabled {
   gap: 8px;
   font-size: 0.85rem;
   min-width: 0;
+}
+
+/* Personalized Tips (renderPlayerTips() in app.js) */
+.player-tips-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.player-tips-list li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--surface-tint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  line-height: 1.45;
+}
+.player-tip-icon {
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  line-height: 1.45;
 }
 
 .power-ranking-night {
