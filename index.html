@@ -950,6 +950,23 @@
     </div>
 
     <div class="panel">
+      <h2>Shot Arc Hand-Labeling</h2>
+      <p class="hint">For fine-tuning ball detection on real footage (see <code>shot-arc/FINDINGS.md</code> in the main tracker repo: stock detection doesn't find the ball on real in-flight shots). Load one shot's frame folder (<code>shot-arc/frames/&lt;shot-key&gt;/</code>, from <code>extract_frames.py</code>) below, then click the ball's center in each frame, or "No ball visible" if it's occluded/off-screen. Space bar repeats "No ball visible"; click anywhere on the frame to mark it and move on. A small dot shows where you last clicked once you've labeled a frame. When you're done with a shot (or want to stop partway), download the labels JSON and hand the whole batch back for fine-tuning.</p>
+      <div class="button-row">
+        <label class="secondary-btn file-label">
+          Load Frame Folder
+          <input type="file" id="labelFramesInput" webkitdirectory multiple hidden>
+        </label>
+        <button id="labelPrevFrameBtn" class="secondary-btn" disabled>◀ Prev</button>
+        <button id="labelNoballBtn" class="secondary-btn" disabled>No ball visible (space)</button>
+        <button id="labelNextFrameBtn" class="secondary-btn" disabled>Next ▶</button>
+        <button id="labelDownloadBtn" class="secondary-btn" disabled>Download Labels JSON</button>
+      </div>
+      <p id="labelProgress" class="hint" style="margin:8px 0 0"></p>
+      <div id="labelFrameWrap" style="position:relative;display:inline-block;margin-top:8px"></div>
+    </div>
+
+    <div class="panel">
       <h2>Data Management</h2>
       <div class="button-row">
         <label class="secondary-btn file-label">
