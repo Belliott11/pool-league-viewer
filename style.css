@@ -1918,6 +1918,18 @@ button:disabled {
   stroke-dasharray: 4 3;
   opacity: 0.55;
 }
+/* The optional second reference line (renderTrendLineChart's own `leagueAvg` param) — a dotted
+   accent-colored line rather than the season-average line's dashed neutral one, so the two stay
+   visually distinct even when they land close together on the same chart. */
+.ts-line-ref-league {
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  stroke-dasharray: 1.5 3;
+  opacity: 0.7;
+}
+.ts-line-league-label {
+  fill: var(--accent);
+}
 
 /* Head-to-Head Matchup Grid — reuses .matchup-table/.sticky-col, cell fill color is generated
    inline per-cell (same red-to-green FG% hue as the heatmap), since it's data-driven. */

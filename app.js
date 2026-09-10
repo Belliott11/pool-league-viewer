@@ -6362,23 +6362,31 @@ function computeTwoWayTrend(playerId) {
 
 function renderTwoWayTrendChart(playerId) {
   const { points, seasonAvg } = computeTwoWayTrend(playerId);
-  renderTrendLineChart("playerTwoWayTrend", points, seasonAvg, "Two-Way/20");
+  const leagueAvg = leagueAvgOfPlayerTrend(computeTwoWayTrend);
+  renderTrendLineChart("playerTwoWayTrend", points, seasonAvg, "Two-Way/20", leagueAvg);
 }
 
 // Generic SVG line-chart renderer — per-game points plus a dashed season-average reference
 // line, parameterized over a {date, value} point list and a unit label rather than hardwired to
 // one stat. renderTwoWayTrendChart() (above) is now just a thin wrapper over this; Teammate
 // Quality and both Matchup Difficulty charts below use it directly.
-function renderTrendLineChart(containerId, points, seasonAvg, unitLabel) {
+// `leagueAvg` (optional) draws a second reference line: the same stat's average across every
+// other qualifying player, so a number like "1.1" reads against a real baseline ("is that good?")
+// instead of just this one player's own history. Omitted entirely when there isn't a meaningful
+// league-wide number to compare against (a caller passing undefined/null just gets the original
+// single-reference-line chart, unchanged).
+function renderTrendLineChart(containerId, points, seasonAvg, unitLabel, leagueAvg) {
   const wrap = document.getElementById(containerId);
   if (!wrap) return;
   if (points.length === 0 || seasonAvg === null) {
     wrap.innerHTML = '<p class="empty-state">Not enough data yet.</p>';
     return;
   }
+  const hasLeagueAvg = leagueAvg !== undefined && leagueAvg !== null;
   const W = 560, H = 220, PAD_L = 40, PAD_R = 16, PAD_T = 16, PAD_B = 34;
   const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
   const values = [...points.map(p => p.value), seasonAvg];
+  if (hasLeagueAvg) values.push(leagueAvg);
   const rawMin = Math.min(...values), rawMax = Math.max(...values);
   const span = Math.max(1, rawMax - rawMin);
   const yMin = rawMin - span * 0.15;
@@ -6397,6 +6405,16 @@ function renderTrendLineChart(containerId, points, seasonAvg, unitLabel) {
     <text x="${xScale(i)}" y="${H - PAD_B + 16}" text-anchor="middle" class="ts-line-axis-label">${escapeHtml(formatDateDisplay(p.date))}</text>
   `).join("");
   const seasonY = yScale(seasonAvg);
+  const leagueY = hasLeagueAvg ? yScale(leagueAvg) : null;
+  // Labels default to opposite corners so the two reference lines' text doesn't collide when
+  // they land close together; if they're far enough apart vertically that collision was never a
+  // real risk, both being anchored to the same end still reads fine.
+  const leagueRefSvg = hasLeagueAvg ? `
+      <line x1="${PAD_L}" y1="${leagueY}" x2="${W - PAD_R}" y2="${leagueY}" class="ts-line-ref ts-line-ref-league">
+        <title>League average: ${leagueAvg.toFixed(1)} ${escapeHtml(unitLabel)}</title>
+      </line>
+      <text x="${PAD_L}" y="${leagueY - 4}" text-anchor="start" class="ts-line-axis-label ts-line-league-label">league avg ${leagueAvg.toFixed(1)}</text>
+  ` : "";
 
   wrap.innerHTML = `
     <svg viewBox="0 0 ${W} ${H}" class="ts-line-svg">
@@ -6406,11 +6424,22 @@ function renderTrendLineChart(containerId, points, seasonAvg, unitLabel) {
         <title>Season average: ${seasonAvg.toFixed(1)} ${escapeHtml(unitLabel)}</title>
       </line>
       <text x="${W - PAD_R}" y="${seasonY - 4}" text-anchor="end" class="ts-line-axis-label">season avg ${seasonAvg.toFixed(1)}</text>
+      ${leagueRefSvg}
       <path d="${pathD}" class="ts-line-path" />
       ${dotsSvg}
       ${xLabelsSvg}
     </svg>
   `;
+}
+
+// Averages a per-player trend function's own seasonAvg across every player who has one — the
+// league-wide baseline these charts plot as a second reference line (see renderTrendLineChart's
+// own `leagueAvg` param), computed generically over whichever trend function is passed in so
+// Teammate Quality/Offensive/Defensive Matchup Difficulty can each reuse this instead of three
+// near-identical baseline computations.
+function leagueAvgOfPlayerTrend(trendFn) {
+  const vals = state.players.map(p => trendFn(p.id).seasonAvg).filter(v => v !== null && v !== undefined);
+  return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 }
 
 // "Teammate Quality" — how strong (season Off Rating/20) this player's own teammates have been,
@@ -6444,7 +6473,8 @@ function computeTeammateQualityTrend(playerId) {
 
 function renderTeammateQualityChart(playerId) {
   const { points, seasonAvg } = computeTeammateQualityTrend(playerId);
-  renderTrendLineChart("playerTeammateQuality", points, seasonAvg, "Off Rating/20");
+  const leagueAvg = leagueAvgOfPlayerTrend(computeTeammateQualityTrend);
+  renderTrendLineChart("playerTeammateQuality", points, seasonAvg, "Off Rating/20", leagueAvg);
 }
 
 // "Defensive Matchup Difficulty" — the defensive-side counterpart to Teammate Quality above: how
@@ -6476,7 +6506,8 @@ function computeDefensiveMatchupDifficultyTrend(playerId) {
 
 function renderDefensiveMatchupDifficultyChart(playerId) {
   const { points, seasonAvg } = computeDefensiveMatchupDifficultyTrend(playerId);
-  renderTrendLineChart("playerDefensiveMatchupDifficulty", points, seasonAvg, "Opp Off Rating/20");
+  const leagueAvg = leagueAvgOfPlayerTrend(computeDefensiveMatchupDifficultyTrend);
+  renderTrendLineChart("playerDefensiveMatchupDifficulty", points, seasonAvg, "Opp Off Rating/20", leagueAvg);
 }
 
 // "Offensive Matchup Difficulty" — the mirror of Defensive Matchup Difficulty from the scorer's
@@ -6516,7 +6547,8 @@ function computeOffensiveMatchupDifficultyTrend(playerId) {
 
 function renderOffensiveMatchupDifficultyChart(playerId) {
   const { points, seasonAvg } = computeOffensiveMatchupDifficultyTrend(playerId);
-  renderTrendLineChart("playerOffensiveMatchupDifficulty", points, seasonAvg, "Opp Def Rating/20");
+  const leagueAvg = leagueAvgOfPlayerTrend(computeOffensiveMatchupDifficultyTrend);
+  renderTrendLineChart("playerOffensiveMatchupDifficulty", points, seasonAvg, "Opp Def Rating/20", leagueAvg);
 }
 
 // "Assisted By" — what share of this player's own makes were set up by someone else, and how
@@ -6560,12 +6592,27 @@ function renderAssistedByPanel(playerId) {
     wrap.innerHTML = '<p class="empty-state">No field goals logged yet.</p>';
     return;
   }
-  const qualityNote = avgAssisterQuality !== null ? `, average assister quality: ${avgAssisterQuality.toFixed(1)} Off Rating/20` : "";
+  // League baselines for both headline numbers, same "is this actually high or low" context the
+  // trend charts' own league-average reference line gives — computed from every other player's
+  // own breakdown rather than a single leaguewide pool, so a player who barely shoots doesn't
+  // quietly dominate the average the way pooling every make league-wide would let them.
+  const otherBreakdowns = state.players.filter(p => p.id !== playerId).map(p => computeAssistedByBreakdown(p.id)).filter(b => b.fgm > 0);
+  const leagueAvgAssistedPct = otherBreakdowns.length > 0
+    ? otherBreakdowns.reduce((sum, b) => sum + b.assistedPct, 0) / otherBreakdowns.length
+    : null;
+  const leagueAvgAssisterQuality = (() => {
+    const vals = otherBreakdowns.map(b => b.avgAssisterQuality).filter(v => v !== null);
+    return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  })();
+  const assistedPctNote = leagueAvgAssistedPct !== null ? ` (league average: ${formatPct(leagueAvgAssistedPct)})` : "";
+  const qualityNote = avgAssisterQuality !== null
+    ? `, average assister quality: ${avgAssisterQuality.toFixed(1)} Off Rating/20${leagueAvgAssisterQuality !== null ? ` (league average: ${leagueAvgAssisterQuality.toFixed(1)})` : ""}`
+    : "";
   const rows = assisters.length === 0
     ? '<tr><td colspan="3" class="empty-state">No assisted makes yet.</td></tr>'
     : assisters.map(a => `<tr><td>${escapeHtml(a.player.name)}</td><td>${a.assists}</td><td>${a.offRatingPer20 !== null ? a.offRatingPer20.toFixed(1) : "—"}</td></tr>`).join("");
   wrap.innerHTML = `
-    <p class="hint" style="margin:0 0 10px">${assistedFgm} of ${fgm} makes were assisted (${formatPct(assistedPct)})${qualityNote}.</p>
+    <p class="hint" style="margin:0 0 10px">${assistedFgm} of ${fgm} makes were assisted (${formatPct(assistedPct)}${assistedPctNote})${qualityNote}.</p>
     <div class="table-scroll">
       <table class="matchup-table">
         <thead><tr><th>Teammate</th><th>Assists</th><th>Their Off Rating/20</th></tr></thead>
