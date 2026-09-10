@@ -2632,8 +2632,13 @@ function effectiveFgPct(fgm, tpm, fga) {
   return fga > 0 ? Math.round(((fgm + 0.5 * tpm) / fga) * 100) : null;
 }
 
+// Rounds defensively — every existing caller already passes an integer straight from pct() /
+// turnoverPct() / trueShootingPct() (all three round internally), so this is a no-op for them;
+// it only actually matters for a value like a plain average of several already-rounded numbers
+// (computePlayerTips' own leagueAvg()), which is a real, non-integer float and would otherwise
+// print however many decimal places floating-point division happens to produce.
 function formatPct(v) {
-  return v === null ? "—" : `${v}%`;
+  return v === null ? "—" : `${Math.round(v)}%`;
 }
 
 // { playerId, points, isMiss } while waiting for the user to pick who (if anyone) was
@@ -6214,6 +6219,39 @@ function computePlayerTips(playerId) {
       candidates.push({ diff: (avgTs - ownTs) + (row.rateShooting.fga - avgFga), icon: "🎯", text: `Shot selection: you're taking more shots per 20 than most (${row.rateShooting.fga.toFixed(1)} vs. ${avgFga.toFixed(1)} average) at a below-average TS% (${formatPct(ownTs)} vs. ${formatPct(avgTs)}). A more selective diet could raise the efficiency without giving up much volume.` });
     } else if (avgFga - row.rateShooting.fga >= 2 && ownTs - avgTs >= 8) {
       candidates.push({ diff: (ownTs - avgTs) + (avgFga - row.rateShooting.fga), icon: "🎯", text: `Shot selection: you're shooting ${formatPct(ownTs)} TS%, well above the ${formatPct(avgTs)} average, on fewer attempts than most (${row.rateShooting.fga.toFixed(1)} vs. ${avgFga.toFixed(1)} per 20). There's real room to take (and make) more without your efficiency needing to hold up on its own — it already has.` });
+    }
+  }
+
+  // Shot profile: their real preferred zone (share of their own attempts) and a real strength or
+  // weakness zone (FG% in a zone they've taken enough shots in to mean something), each checked
+  // against the league's own average FG% from that same zone — not just "they shoot well from
+  // deep" but "X%, vs. a Y% league average from that same distance." Reuses SHOT_ZONES (the same
+  // four buckets the league-wide Shot Distance table sorts by), so this can never disagree with
+  // that table's own numbers.
+  const totalZoneAttempts = SHOT_ZONES.reduce((sum, z) => sum + z.attempts(row), 0);
+  if (totalZoneAttempts >= 8) {
+    const zoneStats = SHOT_ZONES.map(z => {
+      const attempts = z.attempts(row), makes = z.makes(row);
+      const leagueZoneFg = leagueAvg(r => {
+        const a = z.attempts(r);
+        return a >= 5 ? pct(z.makes(r), a) : null;
+      });
+      return { zone: z, attempts, fgPct: pct(makes, attempts), share: pct(attempts, totalZoneAttempts), leagueZoneFg };
+    });
+    const favorite = zoneStats.reduce((a, b) => b.attempts > a.attempts ? b : a);
+    if (favorite.share >= 35) {
+      candidates.push({ diff: favorite.share / 10, icon: "📍", text: `Shot profile: ${formatPct(favorite.share)} of their field goal attempts come from ${favorite.zone.label} (${favorite.attempts} attempts) — that's their go-to spot, worth knowing whether you're setting up to feed them there or trying to take it away.` });
+    }
+    const meaningfulZones = zoneStats.filter(z => z.attempts >= 5 && z.leagueZoneFg !== null);
+    if (meaningfulZones.length > 0) {
+      const best = meaningfulZones.reduce((a, b) => (b.fgPct - b.leagueZoneFg) > (a.fgPct - a.leagueZoneFg) ? b : a);
+      if (best.fgPct - best.leagueZoneFg >= 12) {
+        candidates.push({ diff: best.fgPct - best.leagueZoneFg, icon: "🔥", text: `Strength: ${formatPct(best.fgPct)} from ${best.zone.label} (${best.attempts} attempts), well above the ${formatPct(best.leagueZoneFg)} league average from there. A real weapon from that range — worth respecting, not sagging off.` });
+      }
+      const worst = meaningfulZones.reduce((a, b) => (a.fgPct - a.leagueZoneFg) > (b.fgPct - b.leagueZoneFg) ? b : a);
+      if (worst.leagueZoneFg - worst.fgPct >= 12) {
+        candidates.push({ diff: worst.leagueZoneFg - worst.fgPct, icon: "❄️", text: `Weakness: just ${formatPct(worst.fgPct)} from ${worst.zone.label} (${worst.attempts} attempts), well under the ${formatPct(worst.leagueZoneFg)} league average from there. Sagging off there and daring that shot is a defensible bet.` });
+      }
     }
   }
 
