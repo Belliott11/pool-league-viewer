@@ -6406,6 +6406,69 @@ function computeAreaCategory(playerId, def) {
   return { ownRate, leagueMedian, trend: trendNote(seasonRate, recentRate, def.higherIsBetter) };
 }
 
+// Automated clip curation for Areas to Work On: reuses the exact same multi-game compile pipeline
+// the league-wide "Combine All Clips" export already has (runClipExportFromGroups(), see its own
+// comment) instead of introducing a second video-recording mechanism. Nothing new gets stored —
+// no new fields, no manual tagging step — this just synthesizes a {start, end} clip (padded 5
+// seconds either side, the same padding the real Mark-a-Clip highlight/lowlight flow already
+// uses) around every matching scoringEvent's own already-existing videoTime, on the fly, purely
+// for this one export. Only the four categories the spec actually describes a filter for get a
+// "Watch these clips" button at all (shot zones, Wide-Open Shooting, turnover rate, defense) —
+// A/TO, out-of-bounds, and Second-Chance Conversion still get the lighter per-game "Watch film"
+// links built earlier, just not a compiled reel.
+const CLIP_CURATION_PAD_SECONDS = 5;
+function computeCategoryClipGroups(playerId, categoryKey) {
+  const bandKey = categoryKey.startsWith("zone_") ? categoryKey.slice(5) : null;
+  const matchScoringEvent = ev => {
+    if (bandKey) {
+      // Both makes and misses in the flagged zone, on purpose — the spec's own point is seeing
+      // what a make looks like right next to what a miss looks like, not just a reel of failures.
+      if (ev.scorerId !== playerId || (ev.points !== 2 && ev.points !== 3) || !ev.shotLocation) return false;
+      const wantBand = bandKey === "line" ? "arc" : bandKey; // shotBand()'s own "arc" vs. SHOT_ZONES' "line", see gamesForZoneShots()'s identical note
+      return shotBand(ev.shotLocation, ev.points) === wantBand;
+    }
+    if (categoryKey === "wideopen") {
+      return ev.scorerId === playerId && (ev.points === 2 || ev.points === 3) && (!ev.defenderIds || ev.defenderIds.length === 0);
+    }
+    if (categoryKey === "defense") {
+      // Beaten and Stops combined into one reel rather than the spec's own two sub-groups — a
+      // simplification for this first version; still real value seeing every tagged possession in
+      // one place, and splitting later is just a second, narrower filter on the same mechanism.
+      return (ev.defenderIds || []).includes(playerId);
+    }
+    return false;
+  };
+
+  const grouped = [];
+  state.games.filter(isQualifyingGame).forEach(game => {
+    const events = categoryKey === "tov"
+      ? game.turnoverEvents.filter(ev => ev.playerId === playerId)
+      : game.scoringEvents.filter(matchScoringEvent);
+    const clips = events
+      .filter(ev => ev.videoTime !== null && ev.videoTime !== undefined)
+      .map(ev => ({ start: Math.max(0, ev.videoTime - CLIP_CURATION_PAD_SECONDS), end: ev.videoTime + CLIP_CURATION_PAD_SECONDS }))
+      .sort((a, b) => a.start - b.start);
+    if (clips.length > 0) grouped.push({ game, clips });
+  });
+  return grouped.sort((a, b) => (a.game.date || "").localeCompare(b.game.date || ""));
+}
+
+// Triggered from Player Detail (where Areas to Work On lives), but the actual recording/preview
+// UI is the League Export panel on the Leaderboard tab — reused as-is rather than building a
+// second video-preview element, so this switches there and scrolls to it before starting, the
+// same "go look at the one place this always happens" pattern instead of a duplicate UI.
+function startAreaClipExport(playerId, categoryKey, categoryLabel) {
+  const grouped = computeCategoryClipGroups(playerId, categoryKey);
+  if (grouped.length === 0) return;
+  showTab("leaderboard");
+  const previewWrap = document.getElementById("leagueExportPreviewWrap");
+  previewWrap?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const statusEl = document.getElementById("leagueExportStatus");
+  if (statusEl) statusEl.textContent = `Compiling clips for "${categoryLabel}"…`;
+  const safeName = categoryLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  runClipExportFromGroups(grouped, `${safeName || "clips"}-clips`);
+}
+
 function computeAreasToWorkOn(playerId) {
   const board = computeLeaderboard().filter(r => r.gp > 0);
   const row = board.find(r => r.player.id === playerId);
@@ -6427,7 +6490,7 @@ function computeAreasToWorkOn(playerId) {
     const zoneFga = z.attempts(row);
     const share = totalFga > 0 ? pct(zoneFga, totalFga) : null;
     const shareNote = share !== null
-      ? ` This is ${zoneFga} of your ${totalFga} shot attempts this season (${formatPct(share)} of your diet)${share >= 25 ? ", worth genuinely working on given how often it comes up" : share < 10 ? ", low-volume enough that it's a minor factor either way" : ""}.`
+      ? ` This is ${zoneFga} of your ${totalFga} shot attempts this season (${formatPct(share)} of your diet)${share >= 25 ? (isWeak ? ", worth genuinely working on given how often it comes up" : ", a real weapon given how often you get there") : share < 10 ? ", low-volume enough that it's a minor factor either way" : ""}.`
       : "";
     results.push({
       key: `zone_${z.key}`, isWeak,
@@ -7528,9 +7591,16 @@ function loadVideoSrc(video, src, timeoutMs = 20000) {
   });
 }
 
-async function exportLeagueVideo() {
+// Everything from here down used to be exportLeagueVideo() itself, hardwired to
+// leagueClipsByGameChronological()'s own manually-tagged plays. Factored out so a second caller
+// (Areas to Work On's own "Watch these clips" button — see computeCategoryClipGroups() below) can
+// feed it a different clip source: a filter's own matching scoringEvents, synthesized into clips
+// on the fly, in exactly the same {game, clips: [{start, end}]} shape leagueClipsByGameChronological()
+// already produces. Nothing about the actual recording pipeline (source resolution, the
+// mid-export recorder-recreation-on-src-swap fix, cancel handling) changes at all — only where
+// the clip list itself comes from.
+async function runClipExportFromGroups(grouped, downloadFilename) {
   if (leagueExportState) return;
-  const grouped = leagueClipsByGameChronological();
   if (grouped.length === 0) return;
   const mimeType = pickRecorderMimeType();
   const statusEl = document.getElementById("leagueExportStatus");
@@ -7699,11 +7769,15 @@ async function exportLeagueVideo() {
     statusEl.textContent = (stoppedEarly || "Recording produced no data. Try again.") + skipNote;
   } else {
     const blob = new Blob(chunks, { type: mimeType });
-    download(`league-highlights.${pickRecorderExtension(mimeType)}`, blob, mimeType);
+    download(`${downloadFilename}.${pickRecorderExtension(mimeType)}`, blob, mimeType);
     statusEl.textContent = stoppedEarly
       ? `${stoppedEarly} Downloaded what was recorded before that.${skipNote}`
       : `Done: ${done} clip${done === 1 ? "" : "s"} combined and downloaded.${skipNote}`;
   }
+}
+
+function exportLeagueVideo() {
+  return runClipExportFromGroups(leagueClipsByGameChronological(), "league-highlights");
 }
 
 document.getElementById("exportLeagueVideoBtn").addEventListener("click", () => {
