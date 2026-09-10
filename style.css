@@ -1747,6 +1747,29 @@ button:disabled {
   line-height: 1.45;
 }
 
+/* Notable Matchups (renderNotableMatchups() in app.js) — same card-per-row shape as the
+   Personalized Tips list above, reused directly since it's the same underlying signal just
+   pooled league-wide instead of scoped to one player's own page. */
+.notable-matchups-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.notable-matchups-list li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--surface-tint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  line-height: 1.45;
+  font-size: 0.88rem;
+}
+
 .power-ranking-night {
   margin-bottom: 18px;
 }

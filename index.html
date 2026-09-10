@@ -39,11 +39,20 @@
 </script>
 </head>
 <body>
+<!-- Seeded before the gate below so the gate's own name picker can read the real roster straight
+     out of localStorage without waiting for app.js — this file's only job is a handful of
+     synchronous localStorage.setItem() calls, nothing DOM-dependent, so loading it this early is
+     safe. (Normally script order at the bottom of <body> matters for "don't block rendering";
+     this one file is tiny and blocking-safe by design.) -->
+<script src="viewer-seed-data.js"></script>
 <div id="pinGateOverlay" style="position:fixed;inset:0;z-index:99999;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;">
   <form id="pinGateForm" style="display:flex;flex-direction:column;gap:14px;align-items:center;max-width:280px;width:100%;">
     <h2 style="margin:0;font-family:var(--font-display);color:var(--text);">Pool League Stat Tracker</h2>
-    <p style="margin:0;color:var(--muted);font-size:0.9rem;text-align:center;">Enter the PIN to view.</p>
-    <input type="password" id="pinGateInput" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" style="width:100%;text-align:center;font-size:1.4rem;letter-spacing:0.3em;">
+    <p style="margin:0;color:var(--muted);font-size:0.9rem;text-align:center;">Who are you, and what's the PIN?</p>
+    <select id="pinGateNameSelect" required style="width:100%;padding:10px;font-size:1rem;text-align:center;">
+      <option value="">Pick your name</option>
+    </select>
+    <input type="password" id="pinGateInput" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="PIN" style="width:100%;text-align:center;font-size:1.4rem;letter-spacing:0.3em;">
     <button type="submit" style="width:100%;">Unlock</button>
     <p id="pinGateError" hidden style="margin:0;color:var(--danger, #e5484d);font-size:0.85rem;">Wrong PIN. Try again.</p>
   </form>
@@ -52,19 +61,69 @@
   // Client-side-only gate — a real deterrent for a link getting casually forwarded or browsed,
   // not real security: this repo has to be public for GitHub Pages to work at all, so the raw
   // data file is directly viewable on github.com by anyone who goes looking regardless of this.
+  // Same one shared PIN for everyone (not a per-person password, still just 6969) — the name
+  // picker is purely so each friend lands on their own Player Detail page afterward, reusing the
+  // #player=<id> deep-link routing app.js's own Share button already relies on (see
+  // restoreLastView() in app.js): setting location.hash here and letting that existing routing
+  // pick it up on load is simpler and less likely to drift out of sync than duplicating its logic.
   (function () {
     var PIN = "6969";
     var KEY = "poolLeagueViewerPinOk";
+    var PLAYER_KEY = "poolLeagueViewerPlayerId";
     var overlay = document.getElementById("pinGateOverlay");
-    if (localStorage.getItem(KEY) === "1") { overlay.remove(); return; }
+
+    // "Not you? Switch profile" lives in <header>, which hasn't been parsed yet at this point in
+    // the document (this script runs early, ahead of the gate overlay markup even, so it can
+    // block rendering ASAP) — deferred to DOMContentLoaded so the lookup doesn't just silently
+    // find nothing. Wired unconditionally, once, regardless of which branch below runs, since the
+    // button itself is only ever visible after the gate is already unlocked.
+    document.addEventListener("DOMContentLoaded", function () {
+      var switchBtn = document.getElementById("switchProfileBtn");
+      if (!switchBtn) return;
+      switchBtn.addEventListener("click", function () {
+        localStorage.removeItem(KEY);
+        localStorage.removeItem(PLAYER_KEY);
+        location.hash = "";
+        location.reload();
+      });
+    });
+
+    if (localStorage.getItem(KEY) === "1") {
+      overlay.remove();
+      var savedPlayerId = localStorage.getItem(PLAYER_KEY);
+      if (savedPlayerId && !location.hash) location.hash = "#player=" + encodeURIComponent(savedPlayerId);
+      return;
+    }
+
+    var nameSelect = document.getElementById("pinGateNameSelect");
+    try {
+      var seeded = JSON.parse(localStorage.getItem("poolLeagueStatTracker"));
+      var players = ((seeded && seeded.players) || []).slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+      players.forEach(function (p) {
+        var opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.name; // textContent, not innerHTML — no escaping needed, never unsafe
+        nameSelect.appendChild(opt);
+      });
+    } catch (e) { /* seed data missing/corrupt — leave just the placeholder option in place */ }
+
     document.getElementById("pinGateForm").addEventListener("submit", function (e) {
       e.preventDefault();
       var input = document.getElementById("pinGateInput");
+      var errorEl = document.getElementById("pinGateError");
+      if (!nameSelect.value) {
+        errorEl.textContent = "Pick your name first.";
+        errorEl.hidden = false;
+        return;
+      }
       if (input.value === PIN) {
         localStorage.setItem(KEY, "1");
+        localStorage.setItem(PLAYER_KEY, nameSelect.value);
+        location.hash = "#player=" + encodeURIComponent(nameSelect.value);
         overlay.remove();
       } else {
-        document.getElementById("pinGateError").hidden = false;
+        errorEl.textContent = "Wrong PIN. Try again.";
+        errorEl.hidden = false;
         input.value = "";
         input.focus();
       }
@@ -76,6 +135,7 @@
     <div class="header-top-row">
       <h1>Pool League <em>Stat Tracker</em></h1>
       <div class="header-actions">
+        <button id="switchProfileBtn" class="theme-toggle-btn" type="button" title="Not you? Switch profile">👤</button>
         <button id="shareSiteBtn" class="theme-toggle-btn" type="button" title="Share this site">🔗</button>
         <button id="themeToggleBtn" class="theme-toggle-btn" type="button" title="Toggle dark mode">🌙</button>
       </div>
@@ -535,6 +595,12 @@
     </div>
 
     <div class="panel">
+      <h2>Notable Matchups</h2>
+      <p class="hint">Every scorer/defender pair with a real, exploitable shooting swing, league-wide, ranked biggest first: the same signal Player Detail's own Personalized Tips surfaces one player at a time, gathered here in one place. Needs 5+ attempts against that one specific opponent and at least a 15-point swing from the scorer's own overall FG% before it counts as a pattern rather than one lucky or unlucky night.</p>
+      <div id="notableMatchups"></div>
+    </div>
+
+    <div class="panel">
       <h2>Teammate Lift Matrix</h2>
       <p class="hint">The pairwise With/Without comparison the Best Teammate award's Average Teammate Lift boils into one number per player, here as a full grid instead: row player on the team, column player's own Two-Way/20 change as a result (green = boosts them, red = drags them down; opacity tracks how large the swing is relative to the biggest one on the grid). A blank cell means that pairing hasn't logged games both with and without each other yet. This grid is <strong>not symmetric</strong>: row A / column B ("does A help B") and row B / column A ("does B help A") are two different facts about two different people's games, not mirror images of each other.</p>
       <div id="teammateLiftMatrix"></div>
@@ -665,7 +731,7 @@
     <!-- Personalized Tips -->
     <div class="panel">
       <h2>Personalized Tips</h2>
-      <p class="hint">This player's own numbers next to the league average for that same stat — only shown when something actually stands out, not a fixed checklist. Doubles as a real scouting note on whoever you're looking at: their preferred shot zone and a real strength/weakness zone (checked against the league's own FG% from that same distance), plus real matchup-specific splits (a defender who's genuinely held them below their own usual shooting, or a scorer who's shot well above what they normally allow), each needing 5+ real attempts before it counts as a pattern rather than one bad or good night.</p>
+      <p class="hint">This player's own numbers next to the league average for that same stat, only shown when something actually stands out, not a fixed checklist. Doubles as a real scouting note on whoever you're looking at: their preferred shot zone and a real strength/weakness zone (checked against the league's own FG% from that same distance), plus real matchup-specific splits (a defender who's genuinely held them below their own usual shooting, or a scorer who's shot well above what they normally allow), each needing 5+ real attempts before it counts as a pattern rather than one bad or good night.</p>
       <div id="playerTips"></div>
     </div>
 
@@ -867,7 +933,8 @@
 
 </main>
 
-<script src="viewer-seed-data.js"></script>
+<!-- viewer-seed-data.js already loaded at the top of <body>, ahead of the PIN gate's own name
+     picker; no need to load it a second time here. -->
 <script src="app.js"></script>
 <script src="viewer-clips.js"></script>
 <script src="viewer-videos.js"></script>

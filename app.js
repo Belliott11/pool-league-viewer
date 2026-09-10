@@ -2081,7 +2081,7 @@ function renderBalanceResults() {
       // forecast that's still mostly a guess.
       const lowConfidence = winProbModel.n < WIN_PROBABILITY_CONFIDENCE_GAMES;
       const confidenceNote = lowConfidence
-        ? `, still well short of the ${WIN_PROBABILITY_CONFIDENCE_GAMES} it takes to fully trust — already hedged toward 50/50 to account for that`
+        ? `, still well short of the ${WIN_PROBABILITY_CONFIDENCE_GAMES} it takes to fully trust; already hedged toward 50/50 to account for that`
         : "";
       const winProbLabel = winProbs
         ? `<span class="balance-team-winprob${lowConfidence ? " balance-team-winprob-low-confidence" : ""}" title="A small model fit to this browser's own logged games (${winProbModel.n} decisive game${winProbModel.n === 1 ? "" : "s"} so far${confidenceNote}): predicted chance this team wins tonight, ${r.avgs.length > 2 ? "against a league-average opponent" : "against the team across from it"}.">${lowConfidence ? "~" : ""}${Math.round(winProbs[ti] * 100)}% win</span>`
@@ -6172,7 +6172,7 @@ function computePlayerTips(playerId) {
     if (avgOppFg !== null && oppFg - avgOppFg >= 8) {
       candidates.push({ diff: oppFg - avgOppFg, icon: "🛡️", text: `Defense: opponents are shooting ${formatPct(oppFg)} against you, well above the ${formatPct(avgOppFg)} league average allowed. Tighter closeouts or picking your defensive matchups more carefully could close that gap.` });
     } else if (avgOppFg !== null && avgOppFg - oppFg >= 8) {
-      candidates.push({ diff: avgOppFg - oppFg, icon: "🛡️", text: `Defense: opponents are shooting just ${formatPct(oppFg)} against you, well below the ${formatPct(avgOppFg)} league average. Whatever you're doing on that end is working — real strength, not a fluke at ${row.gp} games.` });
+      candidates.push({ diff: avgOppFg - oppFg, icon: "🛡️", text: `Defense: opponents are shooting just ${formatPct(oppFg)} against you, well below the ${formatPct(avgOppFg)} league average. Whatever you're doing on that end is working: real strength, not a fluke at ${row.gp} games.` });
     }
   }
 
@@ -6187,7 +6187,7 @@ function computePlayerTips(playerId) {
     const worstPct = pct(worst.fgm, worst.fga);
     if (ownFgPct - worstPct >= 15) {
       const name = state.players.find(p => p.id === worst.defenderId)?.name || "?";
-      candidates.push({ diff: ownFgPct - worstPct, icon: "⚠️", text: `Matchup to watch: ${name} has held you to ${formatPct(worstPct)} shooting (${worst.fga} attempts), well under your own ${formatPct(ownFgPct)} overall. Worth a different look — a different spot on the floor, a screen, anything — when they're the one on you.` });
+      candidates.push({ diff: ownFgPct - worstPct, icon: "⚠️", text: `Matchup to watch: ${name} has held you to ${formatPct(worstPct)} shooting (${worst.fga} attempts), well under your own ${formatPct(ownFgPct)} overall. Worth a different look (a different spot on the floor, a screen, anything) when they're the one on you.` });
     }
     const best = scorerMatchups.reduce((a, b) => pct(b.fgm, b.fga) > pct(a.fgm, a.fga) ? b : a);
     const bestPct = pct(best.fgm, best.fga);
@@ -6218,7 +6218,7 @@ function computePlayerTips(playerId) {
     if (row.rateShooting.fga - avgFga >= 2 && avgTs - ownTs >= 8) {
       candidates.push({ diff: (avgTs - ownTs) + (row.rateShooting.fga - avgFga), icon: "🎯", text: `Shot selection: you're taking more shots per 20 than most (${row.rateShooting.fga.toFixed(1)} vs. ${avgFga.toFixed(1)} average) at a below-average TS% (${formatPct(ownTs)} vs. ${formatPct(avgTs)}). A more selective diet could raise the efficiency without giving up much volume.` });
     } else if (avgFga - row.rateShooting.fga >= 2 && ownTs - avgTs >= 8) {
-      candidates.push({ diff: (ownTs - avgTs) + (avgFga - row.rateShooting.fga), icon: "🎯", text: `Shot selection: you're shooting ${formatPct(ownTs)} TS%, well above the ${formatPct(avgTs)} average, on fewer attempts than most (${row.rateShooting.fga.toFixed(1)} vs. ${avgFga.toFixed(1)} per 20). There's real room to take (and make) more without your efficiency needing to hold up on its own — it already has.` });
+      candidates.push({ diff: (ownTs - avgTs) + (avgFga - row.rateShooting.fga), icon: "🎯", text: `Shot selection: you're shooting ${formatPct(ownTs)} TS%, well above the ${formatPct(avgTs)} average, on fewer attempts than most (${row.rateShooting.fga.toFixed(1)} vs. ${avgFga.toFixed(1)} per 20). There's real room to take (and make) more without your efficiency needing to hold up on its own; it already has.` });
     }
   }
 
@@ -6240,13 +6240,13 @@ function computePlayerTips(playerId) {
     });
     const favorite = zoneStats.reduce((a, b) => b.attempts > a.attempts ? b : a);
     if (favorite.share >= 35) {
-      candidates.push({ diff: favorite.share / 10, icon: "📍", text: `Shot profile: ${formatPct(favorite.share)} of their field goal attempts come from ${favorite.zone.label} (${favorite.attempts} attempts) — that's their go-to spot, worth knowing whether you're setting up to feed them there or trying to take it away.` });
+      candidates.push({ diff: favorite.share / 10, icon: "📍", text: `Shot profile: ${formatPct(favorite.share)} of their field goal attempts come from ${favorite.zone.label} (${favorite.attempts} attempts). That's their go-to spot, worth knowing whether you're setting up to feed them there or trying to take it away.` });
     }
     const meaningfulZones = zoneStats.filter(z => z.attempts >= 5 && z.leagueZoneFg !== null);
     if (meaningfulZones.length > 0) {
       const best = meaningfulZones.reduce((a, b) => (b.fgPct - b.leagueZoneFg) > (a.fgPct - a.leagueZoneFg) ? b : a);
       if (best.fgPct - best.leagueZoneFg >= 12) {
-        candidates.push({ diff: best.fgPct - best.leagueZoneFg, icon: "🔥", text: `Strength: ${formatPct(best.fgPct)} from ${best.zone.label} (${best.attempts} attempts), well above the ${formatPct(best.leagueZoneFg)} league average from there. A real weapon from that range — worth respecting, not sagging off.` });
+        candidates.push({ diff: best.fgPct - best.leagueZoneFg, icon: "🔥", text: `Strength: ${formatPct(best.fgPct)} from ${best.zone.label} (${best.attempts} attempts), well above the ${formatPct(best.leagueZoneFg)} league average from there. A real weapon from that range, worth respecting, not sagging off.` });
       }
       const worst = meaningfulZones.reduce((a, b) => (a.fgPct - a.leagueZoneFg) > (b.fgPct - b.leagueZoneFg) ? b : a);
       if (worst.leagueZoneFg - worst.fgPct >= 12) {
@@ -6280,7 +6280,7 @@ function renderPlayerTips(playerId) {
     return;
   }
   if (tips.length === 0) {
-    wrap.innerHTML = `<p class="empty-state">Nothing stands out from the league average in either direction — a genuinely well-rounded game right now.</p>`;
+    wrap.innerHTML = `<p class="empty-state">Nothing stands out from the league average in either direction: a genuinely well-rounded game right now.</p>`;
     return;
   }
   wrap.innerHTML = `<ul class="player-tips-list">${tips.map(t => `<li><span class="player-tip-icon">${t.icon}</span><span>${t.text}</span></li>`).join("")}</ul>`;
@@ -6789,6 +6789,7 @@ function renderLeaderboard() {
   renderWideOpenShootingPanel();
   renderLeagueTsChart();
   renderMatchupGrid();
+  renderNotableMatchups();
   renderTeammateLiftMatrix();
   renderTeammateContextPanel();
   renderAssistSynergy();
@@ -7481,6 +7482,72 @@ function headToHeadAsDefender(playerId) {
   return Object.entries(totals)
     .map(([scorerId, v]) => ({ scorerId, ...v }))
     .sort((a, b) => b.fga - a.fga);
+}
+
+// League-wide version of the same "real matchup swing" signal Personalized Tips surfaces on one
+// player's own page at a time — every scorer/defender pair with a genuinely notable shooting
+// swing, ranked and listed in one place instead of needing to click into each player one at a
+// time to find them. Same bar for "real, not noise" as the per-player version: 5+ attempts
+// against that one specific opponent, and at least 15 percentage points away from the scorer's
+// own overall FG% (not the league's — this is about what a specific defender does to a specific
+// scorer's own normal shot, not a league-wide ranking).
+const NOTABLE_MATCHUP_MIN_FGA = 5;
+const NOTABLE_MATCHUP_MIN_DEVIATION = 15;
+function computeNotableMatchups() {
+  const cellTotals = {}; // "scorerId|defenderId" -> { fgm, fga }
+  state.games.filter(isQualifyingGame).forEach(g => {
+    g.scoringEvents.forEach(ev => {
+      (ev.defenderIds || []).forEach(defenderId => {
+        const key = `${ev.scorerId}|${defenderId}`;
+        const cell = cellTotals[key] = cellTotals[key] || { fgm: 0, fga: 0 };
+        cell.fga++;
+        if (ev.made !== false) cell.fgm++;
+      });
+    });
+  });
+  const ownFgById = {};
+  computeLeaderboard().filter(r => r.gp > 0).forEach(r => { ownFgById[r.player.id] = pct(r.shooting.fgm, r.shooting.fga); });
+
+  const rows = [];
+  Object.entries(cellTotals).forEach(([key, cell]) => {
+    if (cell.fga < NOTABLE_MATCHUP_MIN_FGA) return;
+    const [scorerId, defenderId] = key.split("|");
+    const scorer = state.players.find(p => p.id === scorerId);
+    const defender = state.players.find(p => p.id === defenderId);
+    const ownFg = ownFgById[scorerId];
+    if (!scorer || !defender || ownFg === undefined || ownFg === null) return;
+    const fgPct = pct(cell.fgm, cell.fga);
+    const deviation = fgPct - ownFg;
+    if (Math.abs(deviation) < NOTABLE_MATCHUP_MIN_DEVIATION) return;
+    rows.push({ scorer, defender, fgm: cell.fgm, fga: cell.fga, fgPct, ownFgPct: ownFg, deviation });
+  });
+  rows.sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
+  return rows;
+}
+
+function renderNotableMatchups() {
+  const wrap = document.getElementById("notableMatchups");
+  if (!wrap) return;
+  const rows = computeNotableMatchups();
+  if (rows.length === 0) {
+    wrap.innerHTML = `<p class="empty-state">No matchup yet has both ${NOTABLE_MATCHUP_MIN_FGA}+ attempts and a real (${NOTABLE_MATCHUP_MIN_DEVIATION}+ point) swing from that scorer's own overall FG%.</p>`;
+    return;
+  }
+  wrap.innerHTML = `<ul class="notable-matchups-list">${rows.map(r => {
+    const suppressed = r.deviation < 0;
+    const icon = suppressed ? "⚠️" : "✅";
+    const verb = suppressed ? "is being held to" : "is shooting";
+    const compare = suppressed ? "under" : "above";
+    return `<li>
+      <span class="player-tip-icon">${icon}</span>
+      <span><button type="button" class="icon-btn notable-matchup-player-btn" data-player-id="${r.scorer.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.scorer.name)}</button> ${verb} ${formatPct(r.fgPct)} against
+      <button type="button" class="icon-btn notable-matchup-player-btn" data-player-id="${r.defender.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.defender.name)}</button>
+      (${r.fgm}/${r.fga}), ${Math.abs(r.deviation).toFixed(0)} points ${compare} their own ${formatPct(r.ownFgPct)} overall.</span>
+    </li>`;
+  }).join("")}</ul>`;
+  wrap.querySelectorAll(".notable-matchup-player-btn").forEach(btn => {
+    btn.addEventListener("click", () => openPlayerDetail(btn.dataset.playerId));
+  });
 }
 
 const H2H_SCORER_COLUMNS = [
