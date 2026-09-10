@@ -6319,6 +6319,290 @@ function renderPlayerTips(playerId) {
   });
 }
 
+// ---------- Areas to Work On ----------
+// A player's own rate for each category here next to the league MEDIAN for that same stat, not
+// the average and not the league's best. The league leader would flag nearly every category for
+// nearly every player and turn this into background noise nobody reads; the median is a real
+// "behind where a typical player in this league is at this specific thing" bar, rare enough to be
+// worth attention when it fires, common enough that most players land on 1-3 real flags, not 0 or
+// 15. Every category has its own minimum-sample gate (spec'd exactly per category, not a rough
+// guess); below that gate a category never flags at all — this is the single most important rule
+// here, since a confident callout off 3 shots is worse than no callout at all. Both directions get
+// surfaced, not just weaknesses: a category a player clearly beats the median on is useful to know
+// too, if only so they know what NOT to change. Deliberately not ranked/truncated to a fixed
+// count the way Personalized Tips above is — the gates themselves are what keep this small.
+//
+// Explicitly out of scope, on purpose: no prescriptive drills (this tool has no way to verify
+// practice happened between games, so it only ever names the area, never how to fix it), no
+// cross-player comparison framing (median-relative only, phrased about this player's own numbers,
+// never "worse than so-and-so"), and no goal-setting/target-tracking (a real future feature, but
+// one that needs its own storage and its own UI, not an extension of this one).
+const AREAS_TO_WORK_ON_MIN_GP = 3;
+
+function median(values) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+// Shared "is this already improving" check reused by every category below instead of seven
+// near-identical per-category trend computations: sums `statFn(game, playerId)`'s own {num,
+// denom} across every qualifying game for the season rate, and across just the last 3
+// (chronological) for the recent one.
+function seasonVsRecentRate(playerId, statFn) {
+  const games = [...qualifyingGamesForPlayer(playerId)].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const sumOver = list => list.reduce((acc, g) => {
+    const s = statFn(g, playerId);
+    acc.num += s.num; acc.denom += s.denom;
+    return acc;
+  }, { num: 0, denom: 0 });
+  const season = sumOver(games);
+  const recent = sumOver(games.slice(-3));
+  return {
+    seasonRate: season.denom > 0 ? (season.num / season.denom) * 100 : null,
+    recentRate: recent.denom > 0 ? (recent.num / recent.denom) * 100 : null
+  };
+}
+function trendNote(seasonRate, recentRate, higherIsBetter) {
+  if (seasonRate === null || recentRate === null) return "";
+  const improved = higherIsBetter ? recentRate - seasonRate : seasonRate - recentRate;
+  if (improved < 3) return "";
+  return ` Already trending the right way: ${seasonRate.toFixed(0)}% for the season, ${recentRate.toFixed(0)}% over your last 3.`;
+}
+
+// The shared shape behind every percent-based category (shot zones, TOV%, Wide-Open Shooting%):
+// a season sample count (gated separately from the rate's own denominator — TOV%'s gate is a
+// plain FGA+FTA+TOV count while its rate uses the FTA-weighted denominator TS%/TOV% already use
+// elsewhere, so `sampleFn` lets a category's gate differ from its rate's own math when it needs
+// to), a season rate, and the league median among every *other* player who clears that same
+// category's own gate.
+function computeAreaCategory(playerId, def) {
+  const games = qualifyingGamesForPlayer(playerId);
+  let num = 0, denom = 0, sample = 0;
+  games.forEach(g => {
+    const s = def.statFn(g, playerId);
+    num += s.num; denom += s.denom;
+    sample += def.sampleFn ? def.sampleFn(g, playerId) : s.denom;
+  });
+  if (sample < def.minSample || denom === 0) return null;
+  const ownRate = (num / denom) * 100;
+
+  const leagueRates = state.players.map(p => {
+    if (p.id === playerId) return null;
+    let n2 = 0, d2 = 0, s2 = 0;
+    qualifyingGamesForPlayer(p.id).forEach(g => {
+      const s = def.statFn(g, p.id);
+      n2 += s.num; d2 += s.denom;
+      s2 += def.sampleFn ? def.sampleFn(g, p.id) : s.denom;
+    });
+    if (s2 < def.minSample || d2 === 0) return null;
+    return (n2 / d2) * 100;
+  }).filter(v => v !== null);
+  const leagueMedian = median(leagueRates);
+  if (leagueMedian === null) return null;
+
+  const { seasonRate, recentRate } = seasonVsRecentRate(playerId, def.statFn);
+  return { ownRate, leagueMedian, trend: trendNote(seasonRate, recentRate, def.higherIsBetter) };
+}
+
+function computeAreasToWorkOn(playerId) {
+  const board = computeLeaderboard().filter(r => r.gp > 0);
+  const row = board.find(r => r.player.id === playerId);
+  if (!row || row.gp < AREAS_TO_WORK_ON_MIN_GP) return null;
+
+  const results = [];
+
+  // Shooting efficiency by zone, min 5 attempts in that zone this season. Always paired with
+  // that zone's share of this player's own shot diet, per the spec's own requirement — a weak
+  // zone that's 40% of someone's shots matters more than one that's 5%.
+  SHOT_ZONES.forEach(z => {
+    const statFn = (g, pid) => { const sh = shootingStats(g, pid); return { num: z.makes({ shooting: sh }), denom: z.attempts({ shooting: sh }) }; };
+    const cat = computeAreaCategory(playerId, { statFn, minSample: 5, higherIsBetter: true });
+    if (!cat) return;
+    const diff = cat.ownRate - cat.leagueMedian;
+    if (Math.abs(diff) < 8) return;
+    const isWeak = diff < 0;
+    const totalFga = row.shooting.fga;
+    const zoneFga = z.attempts(row);
+    const share = totalFga > 0 ? pct(zoneFga, totalFga) : null;
+    const shareNote = share !== null
+      ? ` This is ${zoneFga} of your ${totalFga} shot attempts this season (${formatPct(share)} of your diet)${share >= 25 ? ", worth genuinely working on given how often it comes up" : share < 10 ? ", low-volume enough that it's a minor factor either way" : ""}.`
+      : "";
+    results.push({
+      key: `zone_${z.key}`, isWeak,
+      text: `Your ${z.label} shooting is ${formatPct(cat.ownRate)}, ${isWeak ? "below" : "above"} the league median of ${formatPct(cat.leagueMedian)}.${shareNote}${cat.trend}`,
+      games: gamesForZoneShots(playerId, z.key, !isWeak)
+    });
+  });
+
+  // TOV%: min 10 combined FGA+FTA+TOV (a plain count, deliberately not the FTA-weighted
+  // denominator turnoverPct() itself uses for the rate).
+  {
+    const statFn = (g, pid) => { const s = getOrCreatePlayerStats(g, pid); const sh = shootingStats(g, pid); return { num: s.tov, denom: sh.fga + 0.44 * sh.fta + s.tov }; };
+    const sampleFn = (g, pid) => { const s = getOrCreatePlayerStats(g, pid); const sh = shootingStats(g, pid); return sh.fga + sh.fta + s.tov; };
+    const cat = computeAreaCategory(playerId, { statFn, sampleFn, minSample: 10, higherIsBetter: false });
+    if (cat) {
+      const diff = cat.ownRate - cat.leagueMedian;
+      if (Math.abs(diff) >= 4) {
+        const isWeak = diff > 0;
+        results.push({ key: "tov", isWeak, text: `Your turnover rate is ${formatPct(cat.ownRate)}, ${isWeak ? "above" : "below"} the league median of ${formatPct(cat.leagueMedian)}.${cat.trend}` });
+      }
+    }
+  }
+
+  // A/TO: min 5 assists or turnovers combined. A ratio, not a percentage, so it's handled
+  // separately from computeAreaCategory's percent-shaped engine — including the zero-turnover
+  // edge case (an infinite ratio reads as an automatic, real strength, not a division to skip).
+  {
+    const totals = row.totals;
+    const sample = totals.ast + totals.tov;
+    if (sample >= 5) {
+      const leagueRatios = board.filter(r => r.player.id !== playerId && (r.totals.ast + r.totals.tov) >= 5 && r.totals.tov > 0).map(r => r.totals.ast / r.totals.tov);
+      const leagueMedian = median(leagueRatios);
+      if (leagueMedian !== null) {
+        if (totals.tov === 0 && totals.ast > 0) {
+          results.push({ key: "atoto", isWeak: false, text: `Your assist-to-turnover ratio has no turnovers at all charged against ${totals.ast} assist${totals.ast === 1 ? "" : "s"} this season, an automatic strength beyond what the league median of ${leagueMedian.toFixed(1)} even measures.` });
+        } else if (totals.tov > 0) {
+          const ownRatio = totals.ast / totals.tov;
+          const diff = ownRatio - leagueMedian;
+          if (Math.abs(diff) >= 0.5) {
+            const isWeak = diff < 0;
+            results.push({ key: "atoto", isWeak, text: `Your assist-to-turnover ratio is ${ownRatio.toFixed(1)}, ${isWeak ? "below" : "above"} the league median of ${leagueMedian.toFixed(1)}.` });
+          }
+        }
+      }
+    }
+  }
+
+  // Wide-Open Shooting %: min 5 wide-open attempts. TS%-style (points per 2 shot-equivalents),
+  // matching the league-wide Wide-Open Shooting panel's own formula exactly, so this can never
+  // disagree with that table.
+  {
+    const statFn = (g, pid) => {
+      let pts = 0, fga = 0;
+      g.scoringEvents.forEach(ev => {
+        if (ev.scorerId !== pid || (ev.points !== 2 && ev.points !== 3)) return;
+        if (ev.defenderIds && ev.defenderIds.length > 0) return;
+        fga++;
+        if (ev.made !== false) pts += ev.points;
+      });
+      return { num: pts, denom: fga * 2 };
+    };
+    const cat = computeAreaCategory(playerId, { statFn, minSample: 5, higherIsBetter: true });
+    if (cat) {
+      const diff = cat.ownRate - cat.leagueMedian;
+      if (Math.abs(diff) >= 8) {
+        const isWeak = diff < 0;
+        results.push({ key: "wideopen", isWeak, text: `Your wide-open shooting (no defender at all tagged) is ${formatPct(cat.ownRate)} TS%, ${isWeak ? "below" : "above"} the league median of ${formatPct(cat.leagueMedian)}. ${isWeak ? "Worth attention since a scouting report can't take these shots away" : "A real strength on the shots nobody can defend"}.${cat.trend}` });
+      }
+    }
+  }
+
+  // Def Rating/20 and Opp FG% together, min 10 shots defended for either to count — two views of
+  // the same defensive-difficulty question, shown together either way, flagged on whichever one
+  // actually clears its own threshold.
+  {
+    const defAttempts = row.defense.timesBeaten + row.defense.stops;
+    if (defAttempts >= 10) {
+      const ownDefRtg = defensiveRating(row.rate, row.rateDefense);
+      const ownOppFg = pct(row.defense.timesBeaten, defAttempts);
+      const others = board.filter(r => r.player.id !== playerId && (r.defense.timesBeaten + r.defense.stops) >= 10);
+      const medDefRtg = median(others.map(r => defensiveRating(r.rate, r.rateDefense)));
+      const medOppFg = median(others.map(r => pct(r.defense.timesBeaten, r.defense.timesBeaten + r.defense.stops)));
+      if (medDefRtg !== null && medOppFg !== null && ownOppFg !== null) {
+        const rtgDiff = ownDefRtg - medDefRtg;
+        const fgDiff = ownOppFg - medOppFg;
+        if (Math.abs(fgDiff) >= 8 || Math.abs(rtgDiff) >= 1.5) {
+          const isWeak = Math.abs(fgDiff) >= 8 ? fgDiff > 0 : rtgDiff < 0;
+          const statFn = (g, pid) => { const def = gameDefenseStats(g, pid); return { num: def.timesBeaten, denom: def.timesBeaten + def.stops }; };
+          const { seasonRate, recentRate } = seasonVsRecentRate(playerId, statFn);
+          const trend = trendNote(seasonRate, recentRate, false);
+          results.push({
+            key: "defense", isWeak,
+            text: `Your defense: Def Rating/20 of ${ownDefRtg.toFixed(1)} (league median ${medDefRtg.toFixed(1)}) and opponents shooting ${formatPct(ownOppFg)} against you (league median ${formatPct(medOppFg)}).${isWeak ? " Tighter closeouts or a different defensive matchup could close that gap." : " Real defensive strength, not a fluke at this sample size."}${trend}`
+          });
+        }
+      }
+    }
+  }
+
+  // Out-of-bounds miss rate: min 10 misses.
+  {
+    const oobRows = computeOutOfBoundsStats();
+    const own = oobRows.find(r => r.player.id === playerId);
+    if (own && own.misses >= 10) {
+      const ownRate = pct(own.oob, own.misses);
+      const leagueMedian = median(oobRows.filter(r => r.player.id !== playerId && r.misses >= 10).map(r => pct(r.oob, r.misses)));
+      if (leagueMedian !== null && ownRate !== null) {
+        const diff = ownRate - leagueMedian;
+        if (Math.abs(diff) >= 8) {
+          const isWeak = diff > 0;
+          const statFn = (g, pid) => {
+            let misses = 0, oob = 0;
+            g.scoringEvents.filter(ev => ev.scorerId === pid && ev.made === false).forEach(ev => { misses++; if (ev.turnoverEventId) oob++; });
+            return { num: oob, denom: misses };
+          };
+          const { seasonRate, recentRate } = seasonVsRecentRate(playerId, statFn);
+          const trend = trendNote(seasonRate, recentRate, false);
+          results.push({ key: "oob", isWeak, text: `Your missed shots go out of bounds ${formatPct(ownRate)} of the time, ${isWeak ? "above" : "below"} the league median of ${formatPct(leagueMedian)}.${isWeak ? " Worth a beat more care about where a miss ends up, not just whether it goes in." : ""}${trend}` });
+        }
+      }
+    }
+  }
+
+  // Second-Chance Conversion rate: min 5 offensive rebounds. Only rebounds with a real video
+  // timestamp on the missed shot can be checked for conversion at all (same limitation the
+  // league-wide Second-Chance Conversion panel already has and explains) — an OREB without one
+  // still counts toward the sample, just never toward the numerator.
+  {
+    const scRows = computeSecondChanceConversions();
+    const own = scRows.find(r => r.player.id === playerId);
+    if (own && own.oreb >= 5) {
+      const ownRate = pct(own.converted, own.oreb);
+      const leagueMedian = median(scRows.filter(r => r.player.id !== playerId && r.oreb >= 5).map(r => pct(r.converted, r.oreb)));
+      if (leagueMedian !== null && ownRate !== null) {
+        const diff = ownRate - leagueMedian;
+        if (Math.abs(diff) >= 12) {
+          const isWeak = diff < 0;
+          results.push({ key: "secondchance", isWeak, text: `Your second-chance conversion (points off your own offensive rebounds) is ${formatPct(ownRate)}, ${isWeak ? "below" : "above"} the league median of ${formatPct(leagueMedian)}.${isWeak ? " Worth a beat more urgency going back up with it instead of resetting." : ""}` });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+function renderAreasToWorkOn(playerId) {
+  const wrap = document.getElementById("areasToWorkOn");
+  if (!wrap) return;
+  const results = computeAreasToWorkOn(playerId);
+  if (results === null) {
+    wrap.innerHTML = `<p class="empty-state">Needs at least ${AREAS_TO_WORK_ON_MIN_GP} qualifying games before there's enough of a season to compare against the league median.</p>`;
+    return;
+  }
+  if (results.length === 0) {
+    wrap.innerHTML = `<p class="empty-state">Nothing clears its own minimum sample yet, or nothing that does is meaningfully off the league median: check back as more games get logged.</p>`;
+    return;
+  }
+  const weaknesses = results.filter(r => r.isWeak);
+  const strengths = results.filter(r => !r.isWeak);
+  const section = (title, rows) => rows.length === 0 ? "" : `
+    <h4 style="margin:14px 0 6px">${title}</h4>
+    <ul class="player-tips-list">${rows.map(r => {
+      const watchLinks = (r.games && r.games.length > 0)
+        ? `<div class="player-tip-watch">Watch film: ${r.games.map(g => `<button type="button" class="icon-btn player-tip-game-btn" data-game-id="${g.id}">${escapeHtml(formatDateDisplay(g.date))}</button>`).join(" ")}</div>`
+        : "";
+      return `<li><span class="player-tip-icon">${r.isWeak ? "❄️" : "🔥"}</span><span>${r.text}${watchLinks}</span></li>`;
+    }).join("")}</ul>
+  `;
+  wrap.innerHTML = section("Areas to work on", weaknesses) + section("Real strengths", strengths);
+  wrap.querySelectorAll(".player-tip-game-btn").forEach(btn => {
+    btn.addEventListener("click", () => openGame(btn.dataset.gameId));
+  });
+}
+
 function renderFlakeStatsPanel(playerId) {
   const wrap = document.getElementById("playerFlakeStats");
   if (!wrap) return;
@@ -7072,6 +7356,7 @@ function renderPlayerDetail() {
   renderOffensiveMatchupDifficultyChart(player.id);
   renderDefensiveMatchupDifficultyChart(player.id);
   renderPlayerReel(player.id);
+  renderAreasToWorkOn(player.id);
 }
 
 // Every highlight/lowlight clip tagged to this player, across every game — the per-clip
