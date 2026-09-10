@@ -63,4 +63,20 @@ const GAME_VIDEO_FILES = {
     }, true); // capture phase — runs before the original's own (offset-unaware) listener
     return btn;
   };
+
+  // Same absolute-vs-trimmed-timeline translation, for the "Watch film" links on Personalized
+  // Tips/Notable Matchups/Areas to Work On (openGameAtTime(gameId, videoTime) in app.js) — those
+  // pass the same kind of absolute videoTime createJumpButton above already has to translate, but
+  // reach the video element through their own path (openGame() -> the just-patched
+  // renderVideoPanel(), then a poll for currentVideoEl) instead of an existing Jump button's click
+  // listener, so there's no click event here to intercept — translate the argument itself instead.
+  const originalOpenGameAtTime = openGameAtTime;
+  openGameAtTime = function (gameId, videoTime) {
+    const hosted = GAME_VIDEO_FILES[gameId];
+    if (!hosted || videoTime === null || videoTime === undefined) {
+      originalOpenGameAtTime(gameId, videoTime);
+      return;
+    }
+    originalOpenGameAtTime(gameId, Math.max(0, videoTime - hosted.videoStart));
+  };
 })();
