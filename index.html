@@ -619,12 +619,6 @@
     </div>
 
     <div class="panel">
-      <h2>Notable Matchups</h2>
-      <p class="hint">Every scorer/defender pair with a real, exploitable shooting swing, league-wide, ranked biggest first: the same signal Player Detail's own Personalized Tips surfaces one player at a time, gathered here in one place. Needs 5+ attempts against that one specific opponent and at least a 15-point swing from the scorer's own overall FG% before it counts as a pattern rather than one lucky or unlucky night.</p>
-      <div id="notableMatchups"></div>
-    </div>
-
-    <div class="panel">
       <h2>Teammate Lift Matrix</h2>
       <p class="hint">The pairwise With/Without comparison the Best Teammate award's Average Teammate Lift boils into one number per player, here as a full grid instead: row player on the team, column player's own Two-Way/20 change as a result (green = boosts them, red = drags them down; opacity tracks how large the swing is relative to the biggest one on the grid). A blank cell means that pairing hasn't logged games both with and without each other yet. This grid is <strong>not symmetric</strong>: row A / column B ("does A help B") and row B / column A ("does B help A") are two different facts about two different people's games, not mirror images of each other.</p>
       <div id="teammateLiftMatrix"></div>
@@ -757,6 +751,13 @@
       <h2>Personalized Tips</h2>
       <p class="hint">This player's own numbers next to the league average for that same stat, only shown when something actually stands out, not a fixed checklist. Doubles as a real scouting note on whoever you're looking at: their preferred shot zone and a real strength/weakness zone (checked against the league's own FG% from that same distance), plus real matchup-specific splits (a defender who's genuinely held them below their own usual shooting, or a scorer who's shot well above what they normally allow), each needing 5+ real attempts before it counts as a pattern rather than one bad or good night.</p>
       <div id="playerTips"></div>
+    </div>
+
+    <!-- Notable Matchups -->
+    <div class="panel">
+      <h2>Notable Matchups</h2>
+      <p class="hint">Every real, exploitable shooting swing involving this player, either as scorer or defender, ranked biggest first. Needs 5+ attempts against that one specific opponent and at least a 15-point swing from the scorer's own overall FG% before it counts as a pattern rather than one lucky or unlucky night.</p>
+      <div id="playerNotableMatchups"></div>
     </div>
 
     <!-- Past Seasons -->

@@ -6789,7 +6789,6 @@ function renderLeaderboard() {
   renderWideOpenShootingPanel();
   renderLeagueTsChart();
   renderMatchupGrid();
-  renderNotableMatchups();
   renderTeammateLiftMatrix();
   renderTeammateContextPanel();
   renderAssistSynergy();
@@ -6978,6 +6977,7 @@ function renderPlayerDetail() {
   // them), then defense detail (same shape, mirrored), then team context, then media. Keep the
   // two in sync.
   renderPlayerTips(player.id);
+  renderNotableMatchups(player.id);
   renderSeasonHistoryPanel(player.id);
   renderFlakeStatsPanel(player.id);
   renderTwoWayTrendChart(player.id);
@@ -7485,15 +7485,16 @@ function headToHeadAsDefender(playerId) {
 }
 
 // League-wide version of the same "real matchup swing" signal Personalized Tips surfaces on one
-// player's own page at a time — every scorer/defender pair with a genuinely notable shooting
-// swing, ranked and listed in one place instead of needing to click into each player one at a
-// time to find them. Same bar for "real, not noise" as the per-player version: 5+ attempts
-// against that one specific opponent, and at least 15 percentage points away from the scorer's
-// own overall FG% (not the league's — this is about what a specific defender does to a specific
-// scorer's own normal shot, not a league-wide ranking).
+// player's own Player Detail page — every scorer/defender pair involving them, with a genuinely
+// notable shooting swing, ranked biggest first. Optionally scoped to one player (either side of
+// the matchup) via `onlyPlayerId`; omitted entirely, it returns every notable pair league-wide.
+// Same bar for "real, not noise" either way: 5+ attempts against that one specific opponent, and
+// at least 15 percentage points away from the scorer's own overall FG% (not the league's — this
+// is about what a specific defender does to a specific scorer's own normal shot, not a
+// league-wide ranking).
 const NOTABLE_MATCHUP_MIN_FGA = 5;
 const NOTABLE_MATCHUP_MIN_DEVIATION = 15;
-function computeNotableMatchups() {
+function computeNotableMatchups(onlyPlayerId) {
   const cellTotals = {}; // "scorerId|defenderId" -> { fgm, fga }
   state.games.filter(isQualifyingGame).forEach(g => {
     g.scoringEvents.forEach(ev => {
@@ -7512,6 +7513,7 @@ function computeNotableMatchups() {
   Object.entries(cellTotals).forEach(([key, cell]) => {
     if (cell.fga < NOTABLE_MATCHUP_MIN_FGA) return;
     const [scorerId, defenderId] = key.split("|");
+    if (onlyPlayerId && scorerId !== onlyPlayerId && defenderId !== onlyPlayerId) return;
     const scorer = state.players.find(p => p.id === scorerId);
     const defender = state.players.find(p => p.id === defenderId);
     const ownFg = ownFgById[scorerId];
@@ -7525,12 +7527,12 @@ function computeNotableMatchups() {
   return rows;
 }
 
-function renderNotableMatchups() {
-  const wrap = document.getElementById("notableMatchups");
+function renderNotableMatchups(playerId) {
+  const wrap = document.getElementById("playerNotableMatchups");
   if (!wrap) return;
-  const rows = computeNotableMatchups();
+  const rows = computeNotableMatchups(playerId);
   if (rows.length === 0) {
-    wrap.innerHTML = `<p class="empty-state">No matchup yet has both ${NOTABLE_MATCHUP_MIN_FGA}+ attempts and a real (${NOTABLE_MATCHUP_MIN_DEVIATION}+ point) swing from that scorer's own overall FG%.</p>`;
+    wrap.innerHTML = `<p class="empty-state">No matchup of theirs yet has both ${NOTABLE_MATCHUP_MIN_FGA}+ attempts and a real (${NOTABLE_MATCHUP_MIN_DEVIATION}+ point) swing from the scorer's own overall FG%.</p>`;
     return;
   }
   wrap.innerHTML = `<ul class="notable-matchups-list">${rows.map(r => {
