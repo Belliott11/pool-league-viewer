@@ -2222,6 +2222,49 @@ function openGame(gameId) {
   }
 }
 
+// Same as openGame(), but also seeks straight to one specific moment once the video's ready —
+// used by "Watch film" links (Personalized Tips, Notable Matchups, Areas to Work On) so clicking
+// one lands on the actual instance it's about, not just the right game at 0:00. The video itself
+// loads asynchronously (from IndexedDB, possibly a multi-hundred-MB blob), so this polls briefly
+// for currentVideoEl to show up rather than assuming it's already there the instant openGame returns.
+function openGameAtTime(gameId, videoTime) {
+  openGame(gameId);
+  if (videoTime === null || videoTime === undefined) return;
+  const tryJump = attemptsLeft => {
+    if (currentGameId !== gameId) return; // navigated elsewhere before the video was ready
+    if (currentVideoEl) {
+      currentVideoEl.currentTime = videoTime;
+      currentVideoEl.play();
+      currentVideoEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    if (attemptsLeft > 0) setTimeout(() => tryJump(attemptsLeft - 1), 200);
+  };
+  tryJump(25);
+}
+
+// Shared by every "Watch film" row (Personalized Tips, Notable Matchups, Areas to Work On):
+// renders one button per matching instance, labeled with the date AND that instance's own
+// timestamp when one was captured (so two games on the same day, or several instances in one
+// game, are never ambiguous the way a bare date list was), wired to jump straight to it.
+function watchFilmLinksHtml(games) {
+  if (!games || games.length === 0) return "";
+  return `<div class="player-tip-watch">Watch film: ${games.map(g => {
+    const label = g.videoTime !== null && g.videoTime !== undefined
+      ? `${formatDateDisplay(g.date)} · ${formatVideoTime(g.videoTime)}`
+      : formatDateDisplay(g.date);
+    const timeAttr = g.videoTime !== null && g.videoTime !== undefined ? ` data-video-time="${g.videoTime}"` : "";
+    return `<button type="button" class="icon-btn player-tip-game-btn" data-game-id="${g.id}"${timeAttr}>${escapeHtml(label)}</button>`;
+  }).join(" ")}</div>`;
+}
+
+function wireWatchFilmButtons(root) {
+  root.querySelectorAll(".player-tip-game-btn").forEach(btn => {
+    const videoTime = btn.dataset.videoTime !== undefined ? parseFloat(btn.dataset.videoTime) : null;
+    btn.addEventListener("click", () => openGameAtTime(btn.dataset.gameId, videoTime));
+  });
+}
+
 async function loadStoredVideo(gameId) {
   if (localVideoBlobUrls[gameId]) return;
   const file = await getVideoFile(gameId);
@@ -6151,18 +6194,24 @@ function gamesForZoneShots(playerId, zoneKey, made) {
   // predates this lookup, so translate at the one call site that needs both instead of renaming
   // either existing constant and risking a mismatch somewhere that already depends on the old name.
   const bandKey = zoneKey === "line" ? "arc" : zoneKey;
-  const games = state.games.filter(isQualifyingGame).filter(g =>
-    g.scoringEvents.some(ev =>
-      ev.scorerId === playerId && (ev.made !== false) === made && (ev.points === 2 || ev.points === 3) &&
-      ev.shotLocation && shotBand(ev.shotLocation, ev.points) === bandKey
-    )
-  ).map(g => ({ id: g.id, date: g.date }));
+  const matches = ev =>
+    ev.scorerId === playerId && (ev.made !== false) === made && (ev.points === 2 || ev.points === 3) &&
+    ev.shotLocation && shotBand(ev.shotLocation, ev.points) === bandKey;
+  const games = state.games.filter(isQualifyingGame).map(g => {
+    const hits = g.scoringEvents.filter(matches);
+    if (hits.length === 0) return null;
+    // Last matching event in this game's own log order, i.e. the most recent instance within it.
+    return { id: g.id, date: g.date, videoTime: hits[hits.length - 1].videoTime };
+  }).filter(Boolean);
   return games.sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
 }
 function gamesForMatchup(scorerId, defenderId) {
-  const games = state.games.filter(isQualifyingGame).filter(g =>
-    g.scoringEvents.some(ev => ev.scorerId === scorerId && (ev.defenderIds || []).includes(defenderId))
-  ).map(g => ({ id: g.id, date: g.date }));
+  const matches = ev => ev.scorerId === scorerId && (ev.defenderIds || []).includes(defenderId);
+  const games = state.games.filter(isQualifyingGame).map(g => {
+    const hits = g.scoringEvents.filter(matches);
+    if (hits.length === 0) return null;
+    return { id: g.id, date: g.date, videoTime: hits[hits.length - 1].videoTime };
+  }).filter(Boolean);
   return games.sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
 }
 
@@ -6309,14 +6358,10 @@ function renderPlayerTips(playerId) {
     return;
   }
   wrap.innerHTML = `<ul class="player-tips-list">${tips.map(t => {
-    const watchLinks = (t.games && t.games.length > 0)
-      ? `<div class="player-tip-watch">Watch film: ${t.games.map(g => `<button type="button" class="icon-btn player-tip-game-btn" data-game-id="${g.id}">${escapeHtml(formatDateDisplay(g.date))}</button>`).join(" ")}</div>`
-      : "";
+    const watchLinks = watchFilmLinksHtml(t.games);
     return `<li><span class="player-tip-icon">${t.icon}</span><span>${t.text}${watchLinks}</span></li>`;
   }).join("")}</ul>`;
-  wrap.querySelectorAll(".player-tip-game-btn").forEach(btn => {
-    btn.addEventListener("click", () => openGame(btn.dataset.gameId));
-  });
+  wireWatchFilmButtons(wrap);
 }
 
 // ---------- Areas to Work On ----------
@@ -6654,16 +6699,12 @@ function renderAreasToWorkOn(playerId) {
   const section = (title, rows) => rows.length === 0 ? "" : `
     <h4 style="margin:14px 0 6px">${title}</h4>
     <ul class="player-tips-list">${rows.map(r => {
-      const watchLinks = (r.games && r.games.length > 0)
-        ? `<div class="player-tip-watch">Watch film: ${r.games.map(g => `<button type="button" class="icon-btn player-tip-game-btn" data-game-id="${g.id}">${escapeHtml(formatDateDisplay(g.date))}</button>`).join(" ")}</div>`
-        : "";
+      const watchLinks = watchFilmLinksHtml(r.games);
       return `<li><span class="player-tip-icon">${r.isWeak ? "❄️" : "🔥"}</span><span>${r.text}${watchLinks}</span></li>`;
     }).join("")}</ul>
   `;
   wrap.innerHTML = section("Areas to work on", weaknesses) + section("Real strengths", strengths);
-  wrap.querySelectorAll(".player-tip-game-btn").forEach(btn => {
-    btn.addEventListener("click", () => openGame(btn.dataset.gameId));
-  });
+  wireWatchFilmButtons(wrap);
 }
 
 function renderFlakeStatsPanel(playerId) {
@@ -7980,9 +8021,7 @@ function renderNotableMatchups(playerId) {
     const verb = suppressed ? "is being held to" : "is shooting";
     const compare = suppressed ? "under" : "above";
     const games = gamesForMatchup(r.scorer.id, r.defender.id);
-    const watchLinks = games.length > 0
-      ? `<div class="player-tip-watch">Watch film: ${games.map(g => `<button type="button" class="icon-btn player-tip-game-btn" data-game-id="${g.id}">${escapeHtml(formatDateDisplay(g.date))}</button>`).join(" ")}</div>`
-      : "";
+    const watchLinks = watchFilmLinksHtml(games);
     return `<li>
       <span class="player-tip-icon">${icon}</span>
       <span><button type="button" class="icon-btn notable-matchup-player-btn" data-player-id="${r.scorer.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.scorer.name)}</button> ${verb} ${formatPct(r.fgPct)} against
@@ -7993,9 +8032,7 @@ function renderNotableMatchups(playerId) {
   wrap.querySelectorAll(".notable-matchup-player-btn").forEach(btn => {
     btn.addEventListener("click", () => openPlayerDetail(btn.dataset.playerId));
   });
-  wrap.querySelectorAll(".player-tip-game-btn").forEach(btn => {
-    btn.addEventListener("click", () => openGame(btn.dataset.gameId));
-  });
+  wireWatchFilmButtons(wrap);
 }
 
 const H2H_SCORER_COLUMNS = [
