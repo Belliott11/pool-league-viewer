@@ -299,6 +299,33 @@ main {
   font-weight: 600;
 }
 
+/* Most Leaderboard panels are <details>/<summary> instead of a plain div (see index.html) --
+   the tab was ~20 panels stacked full-length, a lot of blind scrolling just to find one thing,
+   worse on a phone. Season Rates (the primary table) stays open by default; everything else
+   starts collapsed and opens on tap. The heading itself lives inside <summary> so the whole
+   header row is the tap target, not just a separate toggle control next to it. */
+.panel > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+.panel > summary::-webkit-details-marker { display: none; }
+.panel > summary h2 { margin: 0; }
+.panel > summary::after {
+  content: "▸";
+  color: var(--muted);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.panel[open] > summary::after { transform: rotate(90deg); }
+.panel:not([open]) > summary { margin-bottom: 0; }
+.panel > summary:hover h2 { color: var(--accent); }
+
 .panel h4 {
   margin: 14px 0 6px;
   font-family: var(--font-display);
