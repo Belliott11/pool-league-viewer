@@ -2694,6 +2694,7 @@ function shootingStats(game, playerId) {
   const mid = two.filter(ev => ev.shotLocation && shotBand(ev.shotLocation, 2) === "mid");
   const threeArc = three.filter(ev => ev.shotLocation && shotBand(ev.shotLocation, 3) === "arc");
   const threeDeep = three.filter(ev => ev.shotLocation && shotBand(ev.shotLocation, 3) === "deep");
+  const dunk = two.filter(ev => ev.dunk === true);
   return {
     fgm: fg.filter(made).length, fga: fg.length,
     tpm: three.filter(made).length, tpa: three.length,
@@ -2701,7 +2702,8 @@ function shootingStats(game, playerId) {
     closeM: close.filter(made).length, closeA: close.length,
     midM: mid.filter(made).length, midA: mid.length,
     tpArcM: threeArc.filter(made).length, tpArcA: threeArc.length,
-    tpDeepM: threeDeep.filter(made).length, tpDeepA: threeDeep.length
+    tpDeepM: threeDeep.filter(made).length, tpDeepA: threeDeep.length,
+    dunkM: dunk.filter(made).length, dunkA: dunk.length
   };
 }
 
@@ -2777,9 +2779,13 @@ let pendingTag = null;
 function renderTeamDirectionToggle(game) {
   const wrap = document.getElementById("teamDirectionToggle");
   if (!wrap) return;
-  wrap.innerHTML = `Team A's hoop this game:
+  const statusText = game.teamADirection
+    ? `✓ Set: Team A shoots ${game.teamADirection}`
+    : "Not set yet";
+  wrap.innerHTML = `<span>Where is Team A shooting?</span>
     <button type="button" class="secondary-btn${game.teamADirection === "left" ? " selected" : ""}" data-team-direction="left">◀ Left</button>
     <button type="button" class="secondary-btn${game.teamADirection === "right" ? " selected" : ""}" data-team-direction="right">Right ▶</button>
+    <span class="team-direction-status${game.teamADirection ? " team-direction-status-set" : ""}">${statusText}</span>
   `;
   wrap.querySelectorAll("[data-team-direction]").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -4462,7 +4468,7 @@ function computeLeaderboard() {
     // on, and this player's own statistical outlier games if Exclude Outlier Games is on.
     const gamesPlayed = qualifyingGamesForPlayer(p.id);
     const totals = { pts: 0, oreb: 0, dreb: 0, ast: 0, stl: 0, blk: 0, tov: 0, pf: 0 };
-    const shooting = { fgm: 0, fga: 0, tpm: 0, tpa: 0, closeM: 0, closeA: 0, midM: 0, midA: 0, tpArcM: 0, tpArcA: 0, tpDeepM: 0, tpDeepA: 0, ftm: 0, fta: 0 };
+    const shooting = { fgm: 0, fga: 0, tpm: 0, tpa: 0, closeM: 0, closeA: 0, midM: 0, midA: 0, tpArcM: 0, tpArcA: 0, tpDeepM: 0, tpDeepA: 0, ftm: 0, fta: 0, dunkM: 0, dunkA: 0 };
     const defense = { ptsAllowed: 0, timesBeaten: 0, stops: 0, blocksNotAlreadyStopped: 0 };
     let wins = 0, losses = 0, ties = 0, combinedPoints = 0, teamFgaTotal = 0, teamAstTotal = 0, orebPoolTotal = 0, drebPoolTotal = 0;
     gamesPlayed.forEach(g => {
@@ -4547,6 +4553,8 @@ function computeLeaderboard() {
       offRatingTotal: totalOffRating,
       twoWayTotal: totalTwoWay,
       stocks: totals.stl + totals.blk,
+      dunks: shooting.dunkM,
+      dunkPct: pct(shooting.dunkA, shooting.fga),
       shotPct: pct(shooting.fga, teamFgaTotal),
       astPct: pct(totals.ast, teamAstTotal),
       orebPct: pct(totals.oreb, orebPoolTotal),
@@ -7186,6 +7194,8 @@ const LEADERBOARD_COLUMNS = [
   { key: "ft", label: "FT", accessor: r => pct(r.shooting.ftm, r.shooting.fta), display: r => formatShootingSplit(r.rateShooting.ftm, r.rateShooting.fta, true), tooltip: "Free throws made/attempted, per 20 combined points, with FT%." },
   { key: "efg", label: "eFG%", accessor: r => effectiveFgPct(r.shooting.fgm, r.shooting.tpm, r.shooting.fga), display: r => formatPct(effectiveFgPct(r.shooting.fgm, r.shooting.tpm, r.shooting.fga)), tooltip: "Effective FG%: field goal percentage weighted so a made 3 counts as 1.5 made 2s." },
   { key: "ts", label: "TS%", accessor: r => trueShootingPct(r.totals.pts, r.shooting.fga, r.shooting.fta), display: r => formatPct(trueShootingPct(r.totals.pts, r.shooting.fga, r.shooting.fta)), tooltip: "True Shooting %: overall scoring efficiency across field goals and free throws combined." },
+  { key: "dunks", label: "Dunks", advanced: true, accessor: r => r.dunks, tooltip: "Made dunks, season total (not per-20: a counting stat, not a rate). Only counts shots tagged as a dunk in Stat Entry; games logged before that field existed need a manual pass (Export, Review Possible Dunks) before they count here." },
+  { key: "dunkpct", label: "Dunk%", advanced: true, accessor: r => r.dunkPct, display: r => formatPct(r.dunkPct), tooltip: "Share of this player's own field goal attempts (2s and 3s combined) that were tagged as a dunk, make or miss: how much of their offense is above the rim. Same Review Possible Dunks caveat as Dunks: undercounts until older games are backfilled." },
   { key: "oreb", label: "OREB/20", accessor: r => r.rate.oreb, display: r => r.rate.oreb.toFixed(1), tooltip: "Offensive rebounds (grabbed by a teammate of the shooter), per 20 combined points." },
   { key: "dreb", label: "DREB/20", accessor: r => r.rate.dreb, display: r => r.rate.dreb.toFixed(1), tooltip: "Defensive rebounds (grabbed by an opponent of the shooter), per 20 combined points." },
   { key: "ast", label: "AST/20", accessor: r => r.rate.ast, display: r => r.rate.ast.toFixed(1), tooltip: "Assists (credited on a made shot when a teammate is tagged as the passer), per 20 combined points." },
@@ -7616,7 +7626,7 @@ function renderShootingByDirection(playerId) {
   if (!wrap) return;
   const { left, right } = computeShootingByDirection(playerId);
   if (!left && !right) {
-    wrap.innerHTML = `<p class="empty-state">No games with a set direction yet (${SHOOTING_BY_DIRECTION_MIN_FGA}+ attempts on a side needed once there are). Set it per game in Stat Entry: "Team A's hoop this game."</p>`;
+    wrap.innerHTML = `<p class="empty-state">No games with a set direction yet (${SHOOTING_BY_DIRECTION_MIN_FGA}+ attempts on a side needed once there are). Set it per game in Stat Entry: "Where is Team A shooting?"</p>`;
     return;
   }
   const row = (label, t) => t
