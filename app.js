@@ -9322,6 +9322,21 @@ renderGames();
 
 // Land back on whatever was in view last time, instead of always resetting to Games — a
 // browser refresh (or just reopening the file) shouldn't feel like navigating to a new page.
+// "Me" tab: a direct shortcut back to whoever's logged in on this device's own Player Detail
+// page, since Leaderboard -> find your own name -> tap it is a lot of friction to redo on every
+// single visit just to check your own stats. Hidden entirely for a guest (no player id to jump
+// to) or if the id the PIN gate saved doesn't match anyone currently in the roster.
+(function setUpMeTab() {
+  const btn = document.getElementById("meTabBtn");
+  if (!btn) return;
+  const playerId = localStorage.getItem("poolLeagueViewerPlayerId");
+  const player = playerId ? state.players.find(p => p.id === playerId) : null;
+  if (!player) return;
+  btn.textContent = player.name;
+  btn.hidden = false;
+  btn.addEventListener("click", () => openPlayerDetail(player.id));
+})();
+
 (function restoreLastView() {
   // A shared link (#game=<id> or #player=<id>, see the Share buttons on the Games list and
   // Player Detail) always wins over whatever this browser last happened to have open — someone
