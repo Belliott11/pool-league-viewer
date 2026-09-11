@@ -106,6 +106,15 @@
   display: none !important;
 }
 
+/* Areas to Work On's "Watch these clips" button runs the same locally-loaded-video-only recorder
+   as League Export above (see that comment), so it's the same broken case here -- a friend
+   clicking it would land on an empty League Export panel with nothing to actually record from.
+   The plain per-instance "Watch film" links right next to it are unaffected (openGameAtTime(),
+   not a recording pipeline) and stay. */
+.area-clip-export-btn {
+  display: none !important;
+}
+
 /* The per-game Highlight/Lowlight Reel table is the one exception to "action buttons live in
    their own trailing column" — its Start/End/Player/Note cells are themselves live, editable
    inputs (not a button next to a plain value), so hiding a whole column would hide real data, not

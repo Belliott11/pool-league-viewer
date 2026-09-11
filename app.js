@@ -6461,6 +6461,17 @@ function computeAreaCategory(playerId, def) {
 // "Watch these clips" button at all (shot zones, Wide-Open Shooting, turnover rate, defense) —
 // A/TO, out-of-bounds, and Second-Chance Conversion still get the lighter per-game "Watch film"
 // links built earlier, just not a compiled reel.
+// Short labels for the "Watch these clips" button/status text and export filename -- only the
+// four categories computeCategoryClipGroups() actually knows a filter for get an entry here, so
+// every other category (A/TO, out-of-bounds, Second-Chance) silently gets no button at all, same
+// as the spec's own scoping.
+const AREA_CLIP_CATEGORY_LABELS = Object.fromEntries([
+  ...SHOT_ZONES.map(z => [`zone_${z.key}`, `${z.label} shooting`]),
+  ["wideopen", "Wide-open shooting"],
+  ["tov", "Turnovers"],
+  ["defense", "Defense"],
+]);
+
 const CLIP_CURATION_PAD_SECONDS = 5;
 function computeCategoryClipGroups(playerId, categoryKey) {
   const bandKey = categoryKey.startsWith("zone_") ? categoryKey.slice(5) : null;
@@ -6700,11 +6711,18 @@ function renderAreasToWorkOn(playerId) {
     <h4 style="margin:14px 0 6px">${title}</h4>
     <ul class="player-tips-list">${rows.map(r => {
       const watchLinks = watchFilmLinksHtml(r.games);
-      return `<li><span class="player-tip-icon">${r.isWeak ? "❄️" : "🔥"}</span><span>${r.text}${watchLinks}</span></li>`;
+      const clipLabel = AREA_CLIP_CATEGORY_LABELS[r.key];
+      const clipBtn = clipLabel
+        ? `<div class="player-tip-watch"><button type="button" class="icon-btn area-clip-export-btn" data-player-id="${playerId}" data-category-key="${r.key}" data-category-label="${escapeHtml(clipLabel)}">🎬 Watch these clips</button></div>`
+        : "";
+      return `<li><span class="player-tip-icon">${r.isWeak ? "❄️" : "🔥"}</span><span>${r.text}${watchLinks}${clipBtn}</span></li>`;
     }).join("")}</ul>
   `;
   wrap.innerHTML = section("Areas to work on", weaknesses) + section("Real strengths", strengths);
   wireWatchFilmButtons(wrap);
+  wrap.querySelectorAll(".area-clip-export-btn").forEach(btn => {
+    btn.addEventListener("click", () => startAreaClipExport(btn.dataset.playerId, btn.dataset.categoryKey, btn.dataset.categoryLabel));
+  });
 }
 
 function renderFlakeStatsPanel(playerId) {
