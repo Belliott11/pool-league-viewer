@@ -5792,6 +5792,85 @@ const SHOT_ZONE_COLUMNS = [
 ];
 let shotZoneSort = { key: "attempts", dir: "desc" };
 
+const LEAGUE_DIRECTION_MIN_FGA = 5;
+
+// League-wide, not per-player (see Shooting by Direction on Player Detail for that): does the
+// team shooting one direction actually do better than the other, across every game where
+// game.teamADirection has been set? FG%/TS% pool every attempt from every player on the team
+// shooting that direction; Win% is one result per game per direction, same as a normal team
+// record, not one per player.
+function computeLeagueDirectionSplits() {
+  const shooting = { left: { fgm: 0, fga: 0, fta: 0, pts: 0 }, right: { fgm: 0, fga: 0, fta: 0, pts: 0 } };
+  const record = { left: { wins: 0, losses: 0, ties: 0 }, right: { wins: 0, losses: 0, ties: 0 } };
+  state.games.filter(isQualifyingGame).forEach(game => {
+    if (!game.teamADirection) return;
+    const dirA = game.teamADirection;
+    const dirB = dirA === "left" ? "right" : "left";
+    [[game.teamA, dirA], [game.teamB, dirB]].forEach(([teamIds, dir]) => {
+      teamIds.forEach(pid => {
+        const sh = shootingStats(game, pid);
+        shooting[dir].fgm += sh.fgm;
+        shooting[dir].fga += sh.fga;
+        shooting[dir].fta += sh.fta;
+        const s = game.stats.find(st => st.playerId === pid);
+        if (s) shooting[dir].pts += s.pts;
+      });
+    });
+    const scoreA = teamScore(game, game.teamA);
+    const scoreB = teamScore(game, game.teamB);
+    if (scoreA > scoreB) { record[dirA].wins++; record[dirB].losses++; }
+    else if (scoreB > scoreA) { record[dirB].wins++; record[dirA].losses++; }
+    else { record[dirA].ties++; record[dirB].ties++; }
+  });
+  const build = dir => {
+    const sh = shooting[dir];
+    const rec = record[dir];
+    const decided = rec.wins + rec.losses;
+    return {
+      fga: sh.fga,
+      fgPct: sh.fga >= LEAGUE_DIRECTION_MIN_FGA ? pct(sh.fgm, sh.fga) : null,
+      tsPct: sh.fga >= LEAGUE_DIRECTION_MIN_FGA ? trueShootingPct(sh.pts, sh.fga, sh.fta) : null,
+      wins: rec.wins, losses: rec.losses, ties: rec.ties,
+      winPct: decided > 0 ? pct(rec.wins, decided) : null,
+    };
+  };
+  return { left: build("left"), right: build("right") };
+}
+
+function renderLeagueDirectionSplits() {
+  const wrap = document.getElementById("leagueDirectionSplits");
+  if (!wrap) return;
+  const { left, right } = computeLeagueDirectionSplits();
+  if (left.fga === 0 && right.fga === 0) {
+    wrap.innerHTML = '<p class="empty-state">No games with a set direction yet. Set it per game in Stat Entry: "Where is Team A shooting?"</p>';
+    return;
+  }
+  const recordText = r => `${r.wins}-${r.losses}${r.ties ? `-${r.ties}` : ""}`;
+  const row = (label, r) => `<tr>
+    <td>${label}</td>
+    <td>${r.fga}</td>
+    <td>${formatPct(r.fgPct)}</td>
+    <td>${formatPct(r.tsPct)}</td>
+    <td>${recordText(r)}</td>
+    <td>${formatPct(r.winPct)}</td>
+  </tr>`;
+  let note = "";
+  if (left.winPct !== null && right.winPct !== null) {
+    const diff = left.winPct - right.winPct;
+    if (Math.abs(diff) >= 15) {
+      const better = diff > 0 ? "Left" : "Right";
+      note = `<p class="hint" style="margin:8px 0 0">${Math.abs(diff)} points higher win rate shooting ${escapeHtml(better)} so far, worth watching if it holds up as more games get a direction set.</p>`;
+    }
+  }
+  wrap.innerHTML = `
+    <table class="matchup-table">
+      <thead><tr><th>Direction</th><th>FGA</th><th>FG%</th><th>TS%</th><th>Record</th><th>Win%</th></tr></thead>
+      <tbody>${row("Left", left)}${row("Right", right)}</tbody>
+    </table>
+    ${note}
+  `;
+}
+
 function renderShotZonePanel() {
   const headerRow = document.getElementById("shotZoneHeaderRow");
   renderSortableHeader(headerRow, SHOT_ZONE_COLUMNS, shotZoneSort, renderShotZonePanel);
@@ -7385,6 +7464,7 @@ function renderLeaderboard() {
   renderTwoWayRankChart();
   renderLeagueHeatmap();
   renderShotZonePanel();
+  renderLeagueDirectionSplits();
   renderLeagueTsByZoneChart();
   renderWideOpenShootingPanel();
   renderLeagueTsChart();
