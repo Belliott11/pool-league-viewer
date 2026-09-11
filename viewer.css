@@ -115,6 +115,14 @@
   display: none !important;
 }
 
+/* Shot Arc Hand-Labeling loads frames straight from shot-arc/frames/ on Ben's own machine (see
+   extract_frames.py) -- that folder only ever exists locally after he's run the extraction
+   script there, never on the deployed site, so a friend opening this panel would always see
+   "No frames available." Hidden rather than shown permanently empty. */
+.panel:has(#labelShotSelect) {
+  display: none !important;
+}
+
 /* The per-game Highlight/Lowlight Reel table is the one exception to "action buttons live in
    their own trailing column" — its Start/End/Player/Note cells are themselves live, editable
    inputs (not a button next to a plain value), so hiding a whole column would hide real data, not

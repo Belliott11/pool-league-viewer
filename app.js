@@ -550,7 +550,7 @@ function showTab(tab) {
   document.getElementById("tab-" + tab).classList.add("active");
   const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
   if (btn) btn.classList.add("active");
-  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); }
+  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); }
   if (tab === "leaderboard") renderLeaderboard();
   // Refreshes the attendee picker against the current roster — cheap, and a player added while
   // on a different tab shouldn't require a page reload to show up here.
@@ -2222,31 +2222,80 @@ function openGame(gameId) {
   }
 }
 
-// Same as openGame(), but also seeks straight to one specific moment once the video's ready —
-// used by "Watch film" links (Personalized Tips, Notable Matchups, Areas to Work On) so clicking
-// one lands on the actual instance it's about, not just the right game at 0:00. The video itself
-// loads asynchronously (from IndexedDB, possibly a multi-hundred-MB blob), so this polls briefly
-// for currentVideoEl to show up rather than assuming it's already there the instant openGame returns.
-function openGameAtTime(gameId, videoTime) {
-  openGame(gameId);
-  if (videoTime === null || videoTime === undefined) return;
-  const tryJump = attemptsLeft => {
-    if (currentGameId !== gameId) return; // navigated elsewhere before the video was ready
-    if (currentVideoEl) {
-      currentVideoEl.currentTime = videoTime;
-      currentVideoEl.play();
-      currentVideoEl.scrollIntoView({ behavior: "smooth", block: "center" });
-      return;
+// Loads a game's video into an arbitrary <video> element and seeks to one moment, for the inline
+// players "Watch film" buttons open right where they're clicked (Personalized Tips, Notable
+// Matchups, Areas to Work On, Review Possible Dunks) instead of switching away to Stat Entry.
+// Deliberately doesn't touch the global currentVideoEl, which stays reserved for the actual Stat
+// Entry panel's own video. Mirrors renderVideoPanel's own source resolution (master video vs
+// local video). viewer-videos.js patches this the same way it already patches openGame/
+// createJumpButton, so hosted per-game files and their own time offset work here too without
+// this function needing to know about them.
+async function loadInlineVideo(game, videoEl, videoTime) {
+  let url = null;
+  if (game.masterVideoId) {
+    if (!masterVideoBlobUrls[game.masterVideoId]) {
+      const file = await getVideoFile(game.masterVideoId);
+      if (file) masterVideoBlobUrls[game.masterVideoId] = URL.createObjectURL(file);
     }
-    if (attemptsLeft > 0) setTimeout(() => tryJump(attemptsLeft - 1), 200);
+    url = masterVideoBlobUrls[game.masterVideoId] || null;
+  } else {
+    if (!localVideoBlobUrls[game.id]) {
+      const file = await getVideoFile(game.id);
+      if (file) localVideoBlobUrls[game.id] = URL.createObjectURL(file);
+    }
+    url = localVideoBlobUrls[game.id] || game.videoUrl || null;
+  }
+  if (!url) return false;
+  if (videoEl.dataset.loadedUrl !== url) {
+    videoEl.src = url;
+    videoEl.dataset.loadedUrl = url;
+  }
+  const seekAndPlay = () => {
+    if (videoTime !== null && videoTime !== undefined) videoEl.currentTime = videoTime;
+    videoEl.play();
   };
-  tryJump(25);
+  if (videoEl.readyState >= 1) seekAndPlay();
+  else videoEl.addEventListener("loadedmetadata", seekAndPlay, { once: true });
+  return true;
 }
 
-// Shared by every "Watch film" row (Personalized Tips, Notable Matchups, Areas to Work On):
-// renders one button per matching instance, labeled with the date AND that instance's own
-// timestamp when one was captured (so two games on the same day, or several instances in one
-// game, are never ambiguous the way a bare date list was), wired to jump straight to it.
+// One inline player per container (Player Detail's Personalized Tips/Notable Matchups/Areas to
+// Work On each get their own; Review Possible Dunks gets its own too) -- clicking a different
+// "Watch film" instance within the same panel reuses the same player rather than stacking a new
+// one per click.
+function ensureInlineVideoPlayer(wrap) {
+  let player = wrap.querySelector(".inline-video-player");
+  if (!player) {
+    player = document.createElement("div");
+    player.className = "inline-video-player";
+    player.innerHTML = '<p class="hint inline-video-label" style="margin:0 0 4px"></p><video controls style="max-width:100%;display:block;margin-bottom:10px"></video>';
+    wrap.prepend(player); // top of the panel, not the bottom -- no scrolling past a long list to see it
+  }
+  return player;
+}
+
+async function playInlineVideoAt(wrap, gameId, videoTime) {
+  const game = state.games.find(g => g.id === gameId);
+  const player = ensureInlineVideoPlayer(wrap);
+  const video = player.querySelector("video");
+  const labelEl = player.querySelector(".inline-video-label");
+  if (!game) {
+    labelEl.textContent = "Game not found.";
+    return;
+  }
+  labelEl.textContent = `Loading ${formatDateDisplay(game.date)}…`;
+  const ok = await loadInlineVideo(game, video, videoTime);
+  labelEl.textContent = ok
+    ? `${formatDateDisplay(game.date)}${videoTime !== null && videoTime !== undefined ? " · " + formatVideoTime(videoTime) : ""}`
+    : `No video available for ${formatDateDisplay(game.date)}.`;
+  player.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+// Shared by every "Watch film" row (Personalized Tips, Notable Matchups, Areas to Work On, Review
+// Possible Dunks): renders one button per matching instance, labeled with the date AND that
+// instance's own timestamp when one was captured (so two games on the same day, or several
+// instances in one game, are never ambiguous the way a bare date list was), wired to play right
+// there inline instead of switching tabs.
 function watchFilmLinksHtml(games) {
   if (!games || games.length === 0) return "";
   return `<div class="player-tip-watch">Watch film: ${games.map(g => {
@@ -2261,7 +2310,7 @@ function watchFilmLinksHtml(games) {
 function wireWatchFilmButtons(root) {
   root.querySelectorAll(".player-tip-game-btn").forEach(btn => {
     const videoTime = btn.dataset.videoTime !== undefined ? parseFloat(btn.dataset.videoTime) : null;
-    btn.addEventListener("click", () => openGameAtTime(btn.dataset.gameId, videoTime));
+    btn.addEventListener("click", () => playInlineVideoAt(root, btn.dataset.gameId, videoTime));
   });
 }
 
@@ -2702,6 +2751,13 @@ let pendingRebounder = null;
 // wall — or null if no location was marked. Offered on field goals only (points 2 or 3), never
 // on free throws, since a free throw has no shot location on the floor.
 let pendingShotLocation = null;
+// Whether this attempt was a dunk — offered on field goals only, same as shot location. Added so
+// Shot Arc's ball-flight fitting can exclude dunks up front (a dunk is carried by hand through a
+// close-range slam, not a free-flying arc, so no amount of window-trimming makes one fit a
+// parabola; see shot-arc/FINDINGS.md, caught from a real hand-labeled shot whose trajectory
+// zigzagged instead of tracing one arc). Existing shots logged before this field existed have
+// dunk === undefined rather than false — see "Review Possible Dunks" below for backfilling those.
+let pendingDunk = false;
 
 // { playerId, kind: "tov"|"stl"|"pf" } while waiting for the user to tag the one opponent
 // involved (unlike shot defenders, these are single-select and commit immediately on click —
@@ -3390,6 +3446,9 @@ function renderBoxScore(game) {
               ${renderShotChartBaseSvg("data-shot-chart")}
               <button type="button" class="icon-btn" data-clear-location="1">Clear location</button>
             </div>
+            <div class="stat-label" style="margin-top:6px">
+              <button type="button" class="secondary-btn${pendingDunk ? " selected" : ""}" data-toggle-dunk="1">🏀 ${pendingDunk ? "Dunk" : "Not a dunk"}</button>
+            </div>
           `}
           ${pendingScore.isMiss ? `
             <div class="stat-label" style="margin-top:6px">Blocked by? ${blocker ? escapeHtml(blocker.name) : "No block"}</div>
@@ -3451,6 +3510,10 @@ function renderBoxScore(game) {
             pendingShotLocation = null;
             renderStatEntry();
           });
+          ptsCell.querySelector("[data-toggle-dunk]").addEventListener("click", () => {
+            pendingDunk = !pendingDunk;
+            renderStatEntry();
+          });
         }
         if (!pendingScore.isMiss) {
           ptsCell.querySelector("[data-noassist]").addEventListener("click", () => {
@@ -3509,6 +3572,7 @@ function renderBoxScore(game) {
             turnoverEventId: null,
             rebounderId: pendingScore.isMiss && !pendingOutOfBounds ? pendingRebounder : null,
             shotLocation: pendingScore.points === 1 ? null : pendingShotLocation,
+            dunk: pendingScore.points === 1 ? false : pendingDunk,
             videoTime: currentPlaybackTime()
           });
           if (pendingScore.isMiss && pendingOutOfBounds) {
@@ -3526,6 +3590,7 @@ function renderBoxScore(game) {
           pendingOutOfBounds = false;
           pendingRebounder = null;
           pendingShotLocation = null;
+          pendingDunk = false;
           recomputeDerivedStats(game);
           saveState();
           renderStatEntry();
@@ -3538,6 +3603,7 @@ function renderBoxScore(game) {
           pendingOutOfBounds = false;
           pendingRebounder = null;
           pendingShotLocation = null;
+          pendingDunk = false;
           renderStatEntry();
         });
       } else {
@@ -3566,6 +3632,7 @@ function renderBoxScore(game) {
             pendingOutOfBounds = false;
             pendingRebounder = null;
             pendingShotLocation = null;
+            pendingDunk = false;
             renderStatEntry();
           });
         });
@@ -3578,6 +3645,7 @@ function renderBoxScore(game) {
             pendingOutOfBounds = false;
             pendingRebounder = null;
             pendingShotLocation = null;
+            pendingDunk = false;
             renderStatEntry();
           });
         });
@@ -8113,32 +8181,81 @@ document.getElementById("exportAllJsonBtn").addEventListener("click", () => {
 // frame, since across potentially hundreds of frames a full bounding-box editor would be far
 // slower than it needs to be -- the fine-tuning step this feeds can turn a center point plus a
 // fixed box size into a real training label on its own.
-let labelFrameFiles = [];
-let labelFrameUrls = [];
+let labelFrameNames = []; // e.g. ["frame_0001.png", "frame_0002.png", ...]
 let labelResults = {}; // filename -> {x, y} (labeled) | "no-ball" | absent (not yet visited)
 let labelFrameIndex = 0;
 let labelShotKey = "";
 let labelNaturalSize = null; // {w, h} of the first loaded frame, assumed constant across the set
+// Null means "not set, defaults to the whole clip" -- most shots are already a single clean
+// flight and don't need trimming. Set via Mark Shot Start/End once a clip turns out to contain
+// more than the shot itself (a pass or dribble before release, a bounce after) -- see
+// FINDINGS.md's "multi-touch window" note, caught from a fully-labeled real shot whose trajectory
+// swung back and forth across the frame instead of tracing one arc.
+let labelShotStartIndex = null;
+let labelShotEndIndex = null;
 
 function labelEntryFor(filename) {
   return Object.prototype.hasOwnProperty.call(labelResults, filename) ? labelResults[filename] : undefined;
 }
 
+function labelStepSize() {
+  return Math.max(1, parseInt(document.getElementById("labelStepSize").value, 10) || 1);
+}
+
+// Straight-line fill between two real clicks, for whatever step-size skipped over -- ball motion
+// over a gap this short (capped below) is close enough to linear that this beats spending a click
+// on every single frame. Only fills between two REAL clicks (not e.g. off the last one to the end
+// of the clip, where there's nothing to interpolate toward), and only within [rangeStart,
+// rangeEnd] so it never bleeds into frames Mark Shot Start/End excluded. A gap longer than
+// LABEL_INTERP_MAX_GAP is left alone rather than trusted -- long gaps are exactly where the ball
+// was doing something less predictable (why it went unlabeled that long in the first place).
+const LABEL_INTERP_MAX_GAP = 8;
+function interpolateLabelFrames(rangeStart, rangeEnd) {
+  const filled = {};
+  const anchors = [];
+  for (let i = rangeStart; i <= rangeEnd; i++) {
+    const entry = labelResults[labelFrameNames[i]];
+    if (entry && typeof entry === "object") anchors.push({ i, x: entry.x, y: entry.y });
+  }
+  for (let a = 0; a < anchors.length - 1; a++) {
+    const p0 = anchors[a], p1 = anchors[a + 1];
+    const gap = p1.i - p0.i;
+    if (gap <= 1 || gap > LABEL_INTERP_MAX_GAP) continue;
+    for (let i = p0.i + 1; i < p1.i; i++) {
+      const name = labelFrameNames[i];
+      const existing = labelResults[name];
+      if (existing && typeof existing === "object") continue; // a real click already covers it
+      const frac = (i - p0.i) / gap;
+      filled[name] = {
+        x: Math.round((p0.x + (p1.x - p0.x) * frac) * 10) / 10,
+        y: Math.round((p0.y + (p1.y - p0.y) * frac) * 10) / 10,
+      };
+    }
+  }
+  return filled;
+}
+
+function labelFrameUrl(filename) {
+  return `shot-arc/frames/${labelShotKey}/${filename}`;
+}
+
 function renderLabelFrame() {
   const wrap = document.getElementById("labelFrameWrap");
   const progressEl = document.getElementById("labelProgress");
-  if (labelFrameFiles.length === 0) {
+  if (labelFrameNames.length === 0) {
     wrap.innerHTML = "";
     progressEl.textContent = "";
     return;
   }
-  const file = labelFrameFiles[labelFrameIndex];
-  const url = labelFrameUrls[labelFrameIndex];
-  const entry = labelEntryFor(file.name);
-  const labeledCount = labelFrameFiles.filter(f => labelEntryFor(f.name) !== undefined).length;
-  progressEl.textContent = `Frame ${labelFrameIndex + 1} of ${labelFrameFiles.length} (${file.name}) -- ${labeledCount} of ${labelFrameFiles.length} labeled so far. Click the ball's center, or use "No ball visible."`;
+  const name = labelFrameNames[labelFrameIndex];
+  const entry = labelEntryFor(name);
+  const labeledCount = labelFrameNames.filter(n => labelEntryFor(n) !== undefined).length;
+  const rangeText = labelShotStartIndex === null && labelShotEndIndex === null
+    ? "Shot range: whole clip (not trimmed)."
+    : `Shot range: frame ${(labelShotStartIndex ?? 0) + 1} to ${(labelShotEndIndex ?? labelFrameNames.length - 1) + 1}.`;
+  progressEl.textContent = `Frame ${labelFrameIndex + 1} of ${labelFrameNames.length} (${name}) -- ${labeledCount} of ${labelFrameNames.length} labeled so far. ${rangeText} Click the ball's center, or use "No ball visible."`;
 
-  wrap.innerHTML = `<img id="labelFrameImg" src="${url}" style="display:block;max-width:100%;cursor:crosshair" draggable="false">`;
+  wrap.innerHTML = `<img id="labelFrameImg" src="${labelFrameUrl(name)}" style="display:block;max-width:100%;cursor:crosshair" draggable="false">`;
   const img = document.getElementById("labelFrameImg");
   img.addEventListener("load", () => {
     if (!labelNaturalSize) labelNaturalSize = { w: img.naturalWidth, h: img.naturalHeight };
@@ -8157,52 +8274,88 @@ function renderLabelFrame() {
     const scaleY = img.naturalHeight / rect.height;
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
-    labelResults[file.name] = { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
-    advanceLabelFrame(1);
+    labelResults[name] = { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
+    advanceLabelFrame(labelStepSize());
   });
 
   document.getElementById("labelPrevFrameBtn").disabled = labelFrameIndex === 0;
-  document.getElementById("labelNextFrameBtn").disabled = labelFrameIndex === labelFrameFiles.length - 1;
+  document.getElementById("labelNextFrameBtn").disabled = labelFrameIndex === labelFrameNames.length - 1;
 }
 
 function advanceLabelFrame(delta) {
   const next = labelFrameIndex + delta;
-  if (next < 0 || next >= labelFrameFiles.length) return;
+  if (next < 0 || next >= labelFrameNames.length) return;
   labelFrameIndex = next;
   renderLabelFrame();
 }
 
-document.getElementById("labelFramesInput").addEventListener("change", e => {
-  const files = Array.from(e.target.files).filter(f => /\.(png|jpe?g)$/i.test(f.name));
-  if (files.length === 0) return;
-  files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-  labelFrameUrls.forEach(u => URL.revokeObjectURL(u));
-  labelFrameFiles = files;
-  labelFrameUrls = files.map(f => URL.createObjectURL(f));
+// Populated from shot-arc/labeling-manifest.js (a plain <script>-loaded global, not fetch()'d --
+// see index.html's own comment on why: fetch() of a local file hits file:// CORS restrictions
+// in Chrome, a <script src> tag doesn't), which extract_frames.py regenerates from whatever's
+// actually sitting in shot-arc/frames/ every time it runs. Nothing to upload: picking a shot from
+// this list is enough, since the frame images themselves are just loaded by relative path.
+function populateLabelShotSelect() {
+  const select = document.getElementById("labelShotSelect");
+  const manifest = typeof SHOT_ARC_LABEL_MANIFEST !== "undefined" ? SHOT_ARC_LABEL_MANIFEST : null;
+  if (!manifest || manifest.length === 0) {
+    select.innerHTML = '<option value="">No frames available -- run shot-arc/extract_frames.py first</option>';
+    return;
+  }
+  select.innerHTML = '<option value="">Pick a shot to label…</option>' +
+    manifest.map(s => `<option value="${escapeHtml(s.key)}">${escapeHtml(s.key)} (${s.frameCount} frames)</option>`).join("");
+}
+
+document.getElementById("labelShotSelect").addEventListener("change", e => {
+  const manifest = typeof SHOT_ARC_LABEL_MANIFEST !== "undefined" ? SHOT_ARC_LABEL_MANIFEST : [];
+  const entry = manifest.find(s => s.key === e.target.value);
+  if (!entry) {
+    labelFrameNames = [];
+    renderLabelFrame();
+    ["labelPrevFrameBtn", "labelNoballBtn", "labelNextFrameBtn", "labelDownloadBtn"].forEach(id => {
+      document.getElementById(id).disabled = true;
+    });
+    return;
+  }
+  labelShotKey = entry.key;
+  labelFrameNames = Array.from({ length: entry.frameCount }, (_, i) => `frame_${String(i + 1).padStart(4, "0")}.png`);
   labelResults = {};
   labelFrameIndex = 0;
   labelNaturalSize = null;
-  // webkitdirectory gives paths like "00_Adam_make/frame_0001.png" -- the folder name is the
-  // shot's own key (see select_sample_shots.py/extract_frames.py), reused here so the exported
-  // labels file lines back up with the same shot without retyping it.
-  const relPath = files[0].webkitRelativePath || "";
-  labelShotKey = relPath.includes("/") ? relPath.split("/")[0] : "shot";
+  labelShotStartIndex = null;
+  labelShotEndIndex = null;
 
-  ["labelPrevFrameBtn", "labelNoballBtn", "labelNextFrameBtn", "labelDownloadBtn"].forEach(id => {
+  ["labelPrevFrameBtn", "labelNoballBtn", "labelNextFrameBtn", "labelDownloadBtn", "labelMarkStartBtn", "labelMarkEndBtn", "labelExcludeBtn"].forEach(id => {
     document.getElementById(id).disabled = false;
   });
   renderLabelFrame();
 });
 
+populateLabelShotSelect();
+
 document.getElementById("labelPrevFrameBtn").addEventListener("click", () => advanceLabelFrame(-1));
 document.getElementById("labelNextFrameBtn").addEventListener("click", () => advanceLabelFrame(1));
 document.getElementById("labelNoballBtn").addEventListener("click", () => {
-  if (labelFrameFiles.length === 0) return;
-  labelResults[labelFrameFiles[labelFrameIndex].name] = "no-ball";
-  advanceLabelFrame(1);
+  if (labelFrameNames.length === 0) return;
+  labelResults[labelFrameNames[labelFrameIndex]] = "no-ball";
+  advanceLabelFrame(labelStepSize());
+});
+document.getElementById("labelMarkStartBtn").addEventListener("click", () => {
+  if (labelFrameNames.length === 0) return;
+  labelShotStartIndex = labelFrameIndex;
+  renderLabelFrame();
+});
+document.getElementById("labelMarkEndBtn").addEventListener("click", () => {
+  if (labelFrameNames.length === 0) return;
+  labelShotEndIndex = labelFrameIndex;
+  renderLabelFrame();
+});
+document.getElementById("labelExcludeBtn").addEventListener("click", () => {
+  if (!labelShotKey) return;
+  const reason = prompt('Why exclude this shot? (e.g. "dunk", "multiple plays")', "dunk") || "unspecified";
+  download(`${labelShotKey}-excluded.json`, JSON.stringify({ shotKey: labelShotKey, excluded: true, reason }, null, 2), "application/json");
 });
 document.addEventListener("keydown", e => {
-  if (labelFrameFiles.length === 0) return;
+  if (labelFrameNames.length === 0) return;
   if (e.code !== "Space") return;
   const active = document.activeElement;
   if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable)) return;
@@ -8212,16 +8365,31 @@ document.addEventListener("keydown", e => {
 });
 
 document.getElementById("labelDownloadBtn").addEventListener("click", () => {
-  if (labelFrameFiles.length === 0) return;
+  if (labelFrameNames.length === 0) return;
+  const rangeStart = labelShotStartIndex ?? 0;
+  const rangeEnd = labelShotEndIndex ?? (labelFrameNames.length - 1);
+  const interpolated = interpolateLabelFrames(rangeStart, rangeEnd);
   const output = {
     shotKey: labelShotKey,
     frameWidth: labelNaturalSize ? labelNaturalSize.w : null,
     frameHeight: labelNaturalSize ? labelNaturalSize.h : null,
-    frames: labelFrameFiles.map(f => {
-      const entry = labelEntryFor(f.name);
-      if (entry === undefined) return { filename: f.name, status: "unlabeled" };
-      if (entry === "no-ball") return { filename: f.name, status: "no-ball" };
-      return { filename: f.name, status: "labeled", x: entry.x, y: entry.y };
+    shotStartFrame: rangeStart + 1, // 1-indexed to match frame_0001.png naming
+    shotEndFrame: rangeEnd + 1,
+    frames: labelFrameNames.map((name, i) => {
+      const inRange = i >= rangeStart && i <= rangeEnd;
+      if (!inRange) return { filename: name, status: "outside-shot" };
+      const entry = labelEntryFor(name);
+      if (entry === undefined) {
+        return interpolated[name]
+          ? { filename: name, status: "interpolated", x: interpolated[name].x, y: interpolated[name].y }
+          : { filename: name, status: "unlabeled" };
+      }
+      if (entry === "no-ball") {
+        return interpolated[name]
+          ? { filename: name, status: "interpolated", x: interpolated[name].x, y: interpolated[name].y }
+          : { filename: name, status: "no-ball" };
+      }
+      return { filename: name, status: "labeled", x: entry.x, y: entry.y };
     }),
   };
   download(`${labelShotKey}-labels.json`, JSON.stringify(output, null, 2), "application/json");
@@ -8480,6 +8648,80 @@ let backfillShowMarked = false;
 // on, a click instead redraws that row's dot in place, since the row needs to stay visible
 // either way. Undo always does a full re-render, since it's rare enough that losing another
 // group's playback position is an acceptable trade for simpler code.
+// Close/midrange 2PT field goals with no `dunk` field at all (undefined) -- everything logged
+// before that field existed. Once reviewed, dunk is explicitly true or false, so it drops off
+// this list either way; nothing new ever needs review again once the Stat Entry toggle is in use.
+function computeUnresolvedDunkCandidates() {
+  const rows = [];
+  state.games.forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 || ev.dunk !== undefined || !ev.shotLocation) return;
+      const band = shotBand(ev.shotLocation, ev.points);
+      if (band !== "close" && band !== "mid") return;
+      rows.push({ game, ev });
+    });
+  });
+  return rows.sort((a, b) => (a.game.date || "").localeCompare(b.game.date || ""));
+}
+
+// Resolving one row only ever removes that one <li> rather than re-rendering the whole panel --
+// same reason Backfill Shot Locations avoids a full re-render per click: the inline video player
+// (see ensureInlineVideoPlayer/loadInlineVideo above) lives in this same wrap, and a full
+// innerHTML rebuild would tear it down and stop playback every time a DIFFERENT row got resolved
+// while a clip was open.
+function renderDunkReview() {
+  const wrap = document.getElementById("dunkReview");
+  if (!wrap) return;
+  const rows = computeUnresolvedDunkCandidates();
+  if (rows.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">Every close/midrange field goal has been reviewed for dunks.</p>';
+    return;
+  }
+  wrap.innerHTML = `<p class="hint dunk-review-summary" style="margin-top:0">${rows.length} close/midrange field goal${rows.length === 1 ? "" : "s"} still unreviewed.</p>
+  <ul class="player-tips-list">${rows.map(({ game, ev }) => {
+    const scorer = state.players.find(p => p.id === ev.scorerId);
+    const hasTime = ev.videoTime !== null && ev.videoTime !== undefined;
+    const watchLinks = watchFilmLinksHtml(hasTime ? [{ id: game.id, date: game.date, videoTime: ev.videoTime }] : []);
+    return `<li data-event-id="${ev.id}">
+      <span>${scorer ? escapeHtml(scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt, ${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
+      <div class="button-row" style="margin-top:4px">
+        <button type="button" class="secondary-btn" data-mark-dunk="${ev.id}">🏀 Dunk</button>
+        <button type="button" class="secondary-btn" data-mark-notdunk="${ev.id}">Not a dunk</button>
+      </div>
+    </li>`;
+  }).join("")}</ul>`;
+  wireWatchFilmButtons(wrap);
+
+  const summaryEl = wrap.querySelector(".dunk-review-summary");
+  const listEl = wrap.querySelector("ul");
+  const resolveRow = (eventId, value) => {
+    const ev = state.games.flatMap(g => g.scoringEvents).find(e => e.id === eventId);
+    if (!ev) return;
+    ev.dunk = value;
+    saveState();
+    listEl.querySelector(`li[data-event-id="${eventId}"]`)?.remove();
+    const left = listEl.querySelectorAll("li").length;
+    if (left === 0) {
+      listEl.remove();
+      summaryEl.textContent = "";
+      if (!wrap.querySelector(".dunk-review-done-msg")) {
+        const doneMsg = document.createElement("p");
+        doneMsg.className = "empty-state dunk-review-done-msg";
+        doneMsg.textContent = "Every close/midrange field goal has been reviewed for dunks.";
+        wrap.appendChild(doneMsg);
+      }
+    } else {
+      summaryEl.textContent = `${left} close/midrange field goal${left === 1 ? "" : "s"} still unreviewed.`;
+    }
+  };
+  wrap.querySelectorAll("[data-mark-dunk]").forEach(btn => {
+    btn.addEventListener("click", () => resolveRow(btn.dataset.markDunk, true));
+  });
+  wrap.querySelectorAll("[data-mark-notdunk]").forEach(btn => {
+    btn.addEventListener("click", () => resolveRow(btn.dataset.markNotdunk, false));
+  });
+}
+
 function renderBackfillShotLocations() {
   const wrap = document.getElementById("backfillShotLocations");
   if (!wrap) return;

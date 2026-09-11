@@ -64,19 +64,27 @@ const GAME_VIDEO_FILES = {
     return btn;
   };
 
-  // Same absolute-vs-trimmed-timeline translation, for the "Watch film" links on Personalized
-  // Tips/Notable Matchups/Areas to Work On (openGameAtTime(gameId, videoTime) in app.js) — those
-  // pass the same kind of absolute videoTime createJumpButton above already has to translate, but
-  // reach the video element through their own path (openGame() -> the just-patched
-  // renderVideoPanel(), then a poll for currentVideoEl) instead of an existing Jump button's click
-  // listener, so there's no click event here to intercept — translate the argument itself instead.
-  const originalOpenGameAtTime = openGameAtTime;
-  openGameAtTime = function (gameId, videoTime) {
-    const hosted = GAME_VIDEO_FILES[gameId];
-    if (!hosted || videoTime === null || videoTime === undefined) {
-      originalOpenGameAtTime(gameId, videoTime);
-      return;
+  // Same absolute-vs-trimmed-timeline translation, for the inline "Watch film" players on
+  // Personalized Tips/Notable Matchups/Areas to Work On/Review Possible Dunks
+  // (loadInlineVideo(game, videoEl, videoTime) in app.js) — those pass the same kind of absolute
+  // videoTime createJumpButton above already has to translate, but load their own throwaway
+  // <video> element directly instead of going through renderVideoPanel/currentVideoEl, so this
+  // patches that source-resolution step itself rather than a click listener.
+  const originalLoadInlineVideo = loadInlineVideo;
+  loadInlineVideo = async function (game, videoEl, videoTime) {
+    const hosted = GAME_VIDEO_FILES[game.id];
+    if (!hosted) return originalLoadInlineVideo(game, videoEl, videoTime);
+    if (videoEl.dataset.loadedUrl !== hosted.file) {
+      videoEl.src = hosted.file;
+      videoEl.dataset.loadedUrl = hosted.file;
     }
-    originalOpenGameAtTime(gameId, Math.max(0, videoTime - hosted.videoStart));
+    const translated = videoTime === null || videoTime === undefined ? videoTime : Math.max(0, videoTime - hosted.videoStart);
+    const seekAndPlay = () => {
+      if (translated !== null && translated !== undefined) videoEl.currentTime = translated;
+      videoEl.play();
+    };
+    if (videoEl.readyState >= 1) seekAndPlay();
+    else videoEl.addEventListener("loadedmetadata", seekAndPlay, { once: true });
+    return true;
   };
 })();
