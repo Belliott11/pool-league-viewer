@@ -7636,6 +7636,12 @@ let currentPlayerId = null;
 function openPlayerDetail(playerId) {
   currentPlayerId = playerId;
   showTab("player");
+  // showTab("player") just highlighted the Me tab button, since it's the only .tab-btn with
+  // data-tab="player" -- correct that here to only when this really is the logged-in viewer's
+  // own page, not whenever ANY player's Player Detail happens to be open (e.g. tapping a name
+  // from the Leaderboard shouldn't make Me look selected for someone else's profile).
+  const meBtn = document.getElementById("meTabBtn");
+  if (meBtn) meBtn.classList.toggle("active", playerId === meTabPlayerId);
   renderPlayerDetail();
 }
 
@@ -9326,12 +9332,17 @@ renderGames();
 // page, since Leaderboard -> find your own name -> tap it is a lot of friction to redo on every
 // single visit just to check your own stats. Hidden entirely for a guest (no player id to jump
 // to) or if the id the PIN gate saved doesn't match anyone currently in the roster.
+// Which player id counts as "me" for the Me tab's own active-highlighting (see openPlayerDetail)
+// -- null for a guest, or before this IIFE below has actually run.
+let meTabPlayerId = null;
+
 (function setUpMeTab() {
   const btn = document.getElementById("meTabBtn");
   if (!btn) return;
   const playerId = localStorage.getItem("poolLeagueViewerPlayerId");
   const player = playerId ? state.players.find(p => p.id === playerId) : null;
   if (!player) return;
+  meTabPlayerId = player.id;
   btn.textContent = player.name;
   btn.hidden = false;
   btn.addEventListener("click", () => openPlayerDetail(player.id));
