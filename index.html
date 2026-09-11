@@ -314,6 +314,7 @@
 
     <div class="panel scoreboard-panel">
       <div id="statEntryScore" class="scoreboard"></div>
+      <div id="teamDirectionToggle" class="hint" style="margin-top:8px"></div>
     </div>
 
     <div class="tagging-area">
@@ -872,6 +873,12 @@
       <h2>Defensive Matchup Difficulty</h2>
       <p class="hint">Average season Off Rating/20 of whoever this player was tagged defending, game by game, with a dashed season-average line. The defensive-side counterpart to Teammate Quality above: does this player draw the tough offensive assignments, or get sheltered on weaker ones? Weighted per shot, not per opponent: facing the same tough scorer five times in one game counts five times, the same way Stops/Beaten/Pts Allowed already weight every tagged shot equally.</p>
       <div id="playerDefensiveMatchupDifficulty"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Shooting by Direction</h2>
+      <p class="hint">FG%/TS% split by which hoop this player's team was shooting at that game (set per game in Stat Entry: "Team A shoots"). Real question worth asking with an outdoor pool court: does the sun in one direction actually cost shooting, or is it just a feeling? Only counts games where the game's own direction has been set, and needs at least 5 attempts on a side before showing a number.</p>
+      <div id="playerShootingByDirection"></div>
     </div>
 
       <!-- Media -->

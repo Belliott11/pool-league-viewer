@@ -253,6 +253,12 @@ function normalizeGame(game) {
   game.foulEvents = game.foulEvents || [];
   game.plays = game.plays || [];
   if (game.winner !== "A" && game.winner !== "B") game.winner = null;
+  // Which screen-side hoop Team A shoots at this game (Team B is always the other one) — lets
+  // shots split by facing direction (e.g. sun/glare effects: does a player shoot worse staring
+  // into it one way than the other). null means not set (most existing games, before this field
+  // existed). Deliberately doesn't touch shotLocation's own x/y meaning at all — that stays
+  // exactly what it's always been, so heatmaps and shot charts are unaffected either way.
+  if (game.teamADirection !== "left" && game.teamADirection !== "right") game.teamADirection = null;
   // A game can either have its own video, or point into a shared "session" recording that
   // covers several games back-to-back — masterVideoId + videoStart/videoEnd cover that second
   // case. videoStart always has a value (playback needs somewhere to seek to); videoEnd is
@@ -2764,6 +2770,35 @@ let pendingDunk = false;
 // a turnover/steal/foul only ever involves one other player, no double-teams to account for).
 let pendingTag = null;
 
+// Which screen-side hoop Team A shoots at this game (Team B is always the other one) — set once
+// per game rather than per shot, since teams don't swap ends mid-game here. Purely additive:
+// doesn't touch shotLocation's own x/y meaning at all, so heatmaps and shot charts stay exactly
+// as they've always been either way — this only powers the separate Shooting by Direction split.
+function renderTeamDirectionToggle(game) {
+  const wrap = document.getElementById("teamDirectionToggle");
+  if (!wrap) return;
+  wrap.innerHTML = `Team A's hoop this game:
+    <button type="button" class="secondary-btn${game.teamADirection === "left" ? " selected" : ""}" data-team-direction="left">◀ Left</button>
+    <button type="button" class="secondary-btn${game.teamADirection === "right" ? " selected" : ""}" data-team-direction="right">Right ▶</button>
+  `;
+  wrap.querySelectorAll("[data-team-direction]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      game.teamADirection = game.teamADirection === btn.dataset.teamDirection ? null : btn.dataset.teamDirection;
+      saveState();
+      renderTeamDirectionToggle(game);
+    });
+  });
+}
+
+// Which screen-side hoop this player's own team is shooting at this game, or null if the game's
+// own direction hasn't been set (game.teamADirection) or the player isn't on either roster.
+function playerShotDirection(game, playerId) {
+  if (!game.teamADirection) return null;
+  if (game.teamA.includes(playerId)) return game.teamADirection;
+  if (game.teamB.includes(playerId)) return game.teamADirection === "left" ? "right" : "left";
+  return null;
+}
+
 function renderStatEntry() {
   const game = state.games.find(g => g.id === currentGameId);
   if (!game) return;
@@ -2783,6 +2818,7 @@ function renderStatEntry() {
     </span>
   `;
 
+  renderTeamDirectionToggle(game);
   renderVideoPanel(game);
   renderRosterAssignment(game);
   renderBoxScore(game);
@@ -7547,6 +7583,60 @@ function renderPlayerDetail() {
   renderDefensiveMatchupDifficultyChart(player.id);
   renderPlayerReel(player.id);
   renderAreasToWorkOn(player.id);
+  renderShootingByDirection(player.id);
+}
+
+const SHOOTING_BY_DIRECTION_MIN_FGA = 5;
+
+// FG%/TS% split by which hoop this player's own team was facing that game (see
+// playerShotDirection/game.teamADirection) -- e.g. checking whether the sun genuinely costs
+// shooting one direction more than the other on an outdoor court, not just a feeling. Only counts
+// games where the game's own direction has actually been set; most historical games won't have
+// this until it's set retroactively in Stat Entry.
+function computeShootingByDirection(playerId) {
+  const totals = { left: { fgm: 0, fga: 0, fta: 0, pts: 0 }, right: { fgm: 0, fga: 0, fta: 0, pts: 0 } };
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    const dir = playerShotDirection(game, playerId);
+    if (!dir) return;
+    const sh = shootingStats(game, playerId);
+    totals[dir].fgm += sh.fgm;
+    totals[dir].fga += sh.fga;
+    totals[dir].fta += sh.fta;
+    const s = game.stats.find(st => st.playerId === playerId);
+    if (s) totals[dir].pts += s.pts;
+  });
+  const build = t => t.fga < SHOOTING_BY_DIRECTION_MIN_FGA ? null : {
+    fga: t.fga, fgPct: pct(t.fgm, t.fga), tsPct: trueShootingPct(t.pts, t.fga, t.fta),
+  };
+  return { left: build(totals.left), right: build(totals.right) };
+}
+
+function renderShootingByDirection(playerId) {
+  const wrap = document.getElementById("playerShootingByDirection");
+  if (!wrap) return;
+  const { left, right } = computeShootingByDirection(playerId);
+  if (!left && !right) {
+    wrap.innerHTML = `<p class="empty-state">No games with a set direction yet (${SHOOTING_BY_DIRECTION_MIN_FGA}+ attempts on a side needed once there are). Set it per game in Stat Entry: "Team A's hoop this game."</p>`;
+    return;
+  }
+  const row = (label, t) => t
+    ? `<tr><td>${label}</td><td>${t.fga}</td><td>${formatPct(t.fgPct)}</td><td>${formatPct(t.tsPct)}</td></tr>`
+    : `<tr><td>${label}</td><td colspan="3" class="hint">Not enough attempts yet (${SHOOTING_BY_DIRECTION_MIN_FGA}+ needed)</td></tr>`;
+  let diffNote = "";
+  if (left && right) {
+    const diff = left.fgPct - right.fgPct;
+    if (Math.abs(diff) >= 8) {
+      const better = diff > 0 ? "Left" : "Right";
+      diffNote = `<p class="hint" style="margin:8px 0 0">${Math.abs(diff)} points better shooting ${escapeHtml(better)} so far, worth watching if it holds up as more games get set.</p>`;
+    }
+  }
+  wrap.innerHTML = `
+    <table class="matchup-table">
+      <thead><tr><th>Direction</th><th>FGA</th><th>FG%</th><th>TS%</th></tr></thead>
+      <tbody>${row("Left", left)}${row("Right", right)}</tbody>
+    </table>
+    ${diffNote}
+  `;
 }
 
 // Every highlight/lowlight clip tagged to this player, across every game — the per-clip
