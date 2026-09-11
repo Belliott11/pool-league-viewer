@@ -2776,15 +2776,25 @@ let pendingTag = null;
 // per game rather than per shot, since teams don't swap ends mid-game here. Purely additive:
 // doesn't touch shotLocation's own x/y meaning at all, so heatmaps and shot charts stay exactly
 // as they've always been either way — this only powers the separate Shooting by Direction split.
+//
+// Stored as "left"/"right" throughout (screen-relative, easy to derive consistently), but always
+// DISPLAYED by a real backyard landmark (which hoop is toward the deck vs. the bushes) instead —
+// anyone looking at a panel later, a friend on the viewer site included, has no way to know which
+// way this particular camera happens to be pointed, so a bare "Left"/"Right" would mean nothing
+// to them even though it's unambiguous to whoever's actively looking at the live video.
+function directionLabel(dir) {
+  return dir === "left" ? "Deck" : dir === "right" ? "Bushes" : "?";
+}
+
 function renderTeamDirectionToggle(game) {
   const wrap = document.getElementById("teamDirectionToggle");
   if (!wrap) return;
   const statusText = game.teamADirection
-    ? `✓ Set: Team A shoots ${game.teamADirection}`
+    ? `✓ Set: Team A shoots toward the ${directionLabel(game.teamADirection).toLowerCase()}`
     : "Not set yet";
   wrap.innerHTML = `<span>Where is Team A shooting?</span>
-    <button type="button" class="secondary-btn${game.teamADirection === "left" ? " selected" : ""}" data-team-direction="left">◀ Left</button>
-    <button type="button" class="secondary-btn${game.teamADirection === "right" ? " selected" : ""}" data-team-direction="right">Right ▶</button>
+    <button type="button" class="secondary-btn${game.teamADirection === "left" ? " selected" : ""}" data-team-direction="left">Deck</button>
+    <button type="button" class="secondary-btn${game.teamADirection === "right" ? " selected" : ""}" data-team-direction="right">Bushes</button>
     <span class="team-direction-status${game.teamADirection ? " team-direction-status-set" : ""}">${statusText}</span>
   `;
   wrap.querySelectorAll("[data-team-direction]").forEach(btn => {
@@ -5858,14 +5868,14 @@ function renderLeagueDirectionSplits() {
   if (left.winPct !== null && right.winPct !== null) {
     const diff = left.winPct - right.winPct;
     if (Math.abs(diff) >= 15) {
-      const better = diff > 0 ? "Left" : "Right";
-      note = `<p class="hint" style="margin:8px 0 0">${Math.abs(diff)} points higher win rate shooting ${escapeHtml(better)} so far, worth watching if it holds up as more games get a direction set.</p>`;
+      const better = diff > 0 ? directionLabel("left") : directionLabel("right");
+      note = `<p class="hint" style="margin:8px 0 0">${Math.abs(diff)} points higher win rate shooting toward the ${escapeHtml(better.toLowerCase())} so far, worth watching if it holds up as more games get a direction set.</p>`;
     }
   }
   wrap.innerHTML = `
     <table class="matchup-table">
       <thead><tr><th>Direction</th><th>FGA</th><th>FG%</th><th>TS%</th><th>Record</th><th>Win%</th></tr></thead>
-      <tbody>${row("Left", left)}${row("Right", right)}</tbody>
+      <tbody>${row(directionLabel("left"), left)}${row(directionLabel("right"), right)}</tbody>
     </table>
     ${note}
   `;
@@ -7716,14 +7726,14 @@ function renderShootingByDirection(playerId) {
   if (left && right) {
     const diff = left.fgPct - right.fgPct;
     if (Math.abs(diff) >= 8) {
-      const better = diff > 0 ? "Left" : "Right";
-      diffNote = `<p class="hint" style="margin:8px 0 0">${Math.abs(diff)} points better shooting ${escapeHtml(better)} so far, worth watching if it holds up as more games get set.</p>`;
+      const better = diff > 0 ? directionLabel("left") : directionLabel("right");
+      diffNote = `<p class="hint" style="margin:8px 0 0">${Math.abs(diff)} points better shooting toward the ${escapeHtml(better.toLowerCase())} so far, worth watching if it holds up as more games get set.</p>`;
     }
   }
   wrap.innerHTML = `
     <table class="matchup-table">
       <thead><tr><th>Direction</th><th>FGA</th><th>FG%</th><th>TS%</th></tr></thead>
-      <tbody>${row("Left", left)}${row("Right", right)}</tbody>
+      <tbody>${row(directionLabel("left"), left)}${row(directionLabel("right"), right)}</tbody>
     </table>
     ${diffNote}
   `;
