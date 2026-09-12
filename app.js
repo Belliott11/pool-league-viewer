@@ -2869,6 +2869,7 @@ function renderOtherEventsLog(game) {
   renderSortableHeader(headerRow, OTHER_EVENTS_COLUMNS, otherEventsSort, () => renderOtherEventsLog(game));
   headerRow.appendChild(document.createElement("th"));
   headerRow.appendChild(document.createElement("th"));
+  headerRow.appendChild(document.createElement("th"));
 
   // Merging turnovers/steals/fouls means there's no single natural order (each type is its own
   // array) — chronological order sorts by videoTime so the table reads in the order the plays
@@ -2892,7 +2893,7 @@ function renderOtherEventsLog(game) {
     rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), otherEventsSort.dir));
   }
   if (rows.length === 0) {
-    body.innerHTML = '<tr><td colspan="6" class="empty-state">No turnovers, steals, or fouls recorded yet.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty-state">No turnovers, steals, or fouls recorded yet.</td></tr>';
     return;
   }
   body.innerHTML = "";
@@ -2909,6 +2910,15 @@ function renderOtherEventsLog(game) {
     const tdJump = document.createElement("td");
     tdJump.appendChild(createJumpButton(ev.videoTime));
     tr.appendChild(tdJump);
+    const tdEdit = document.createElement("td");
+    tdEdit.appendChild(createEditTimeButton(t => {
+      const real = game[ev.cfg.eventsKey].find(e => e.id === ev.id);
+      if (!real) return;
+      real.videoTime = t;
+      saveState();
+      renderOtherEventsLog(game);
+    }));
+    tr.appendChild(tdEdit);
     const tdBtn = document.createElement("td");
     const delBtn = document.createElement("button");
     delBtn.className = "icon-btn";
@@ -3055,9 +3065,10 @@ function renderScoringLog(game) {
   renderSortableHeader(headerRow, SHOT_LOG_COLUMNS, shotLogSort, () => renderScoringLog(game));
   headerRow.appendChild(document.createElement("th"));
   headerRow.appendChild(document.createElement("th"));
+  headerRow.appendChild(document.createElement("th"));
   body.innerHTML = "";
   if (game.scoringEvents.length === 0) {
-    body.innerHTML = '<tr><td colspan="8" class="empty-state">No shots recorded yet.</td></tr>';
+    body.innerHTML = '<tr><td colspan="9" class="empty-state">No shots recorded yet.</td></tr>';
     return;
   }
   let rows = game.scoringEvents.map(ev => {
@@ -3102,6 +3113,13 @@ function renderScoringLog(game) {
     const tdJump = document.createElement("td");
     tdJump.appendChild(createJumpButton(ev.videoTime));
     tr.appendChild(tdJump);
+    const tdEdit = document.createElement("td");
+    tdEdit.appendChild(createEditTimeButton(t => {
+      ev.videoTime = t;
+      saveState();
+      renderScoringLog(game);
+    }));
+    tr.appendChild(tdEdit);
     const tdBtn = document.createElement("td");
     const editBtn = document.createElement("button");
     editBtn.className = "icon-btn";
@@ -3990,6 +4008,28 @@ function createJumpButton(videoTime) {
   return btn;
 }
 
+// A small companion to createJumpButton(), for the opposite direction: instead of seeking the
+// video TO an event's own timestamp, this corrects the event's timestamp FROM the video's current
+// position -- scrub to the real moment, click this, done. Exists because a logged videoTime isn't
+// always right (see shot-arc/FINDINGS.md's own window-timing findings: it can land well off the
+// real moment), and the only fix before this was deleting and re-logging the whole event just to
+// change when it happened. `onSet` receives the new time and is responsible for actually writing
+// it onto the real event object and re-rendering -- this button doesn't know that object's shape,
+// since callers differ (a direct mutable reference in some tables, an id lookup in others).
+function createEditTimeButton(onSet) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "icon-btn";
+  btn.title = "Set this event's timestamp to the video's current playback position";
+  btn.textContent = "✏️";
+  btn.disabled = !currentVideoEl;
+  btn.addEventListener("click", () => {
+    if (!currentVideoEl) return;
+    onSet(currentVideoEl.currentTime);
+  });
+  return btn;
+}
+
 function updateReelButtons() {
   const hBtn = document.getElementById("markHighlightBtn");
   const lBtn = document.getElementById("markLowlightBtn");
@@ -4031,9 +4071,9 @@ function computeSuggestedPlays(game) {
     if (ev.made !== false && ev.points === 3 && ev.shotLocation && shotBand(ev.shotLocation, 3) === "deep") {
       add(ev.scorerId, "highlight", ev.videoTime, "Deep 3");
     }
-    if (ev.made === false && ev.turnoverEventId) {
-      add(ev.scorerId, "lowlight", ev.videoTime, "Turnover (out of bounds)");
-    }
+    // An out-of-bounds turnover was tried here too, but it's just a routine missed shot most of
+    // the time -- not a real lowlight-worthy moment the way a blown dunk or getting blocked is,
+    // so it was pure noise in this list rather than something worth clipping.
   });
   game.stealEvents.forEach(ev => add(ev.playerId, "highlight", ev.videoTime, "Steal"));
   const gws = gameWinningShot(game);
@@ -4058,10 +4098,17 @@ function renderSuggestedPlays(game) {
     return `<li>
       <span class="player-tip-icon">${icon}</span>
       <span>${escapeHtml(player ? player.name : "?")}: ${escapeHtml(s.reason)} (${formatTime(s.videoTime)})
-      <div class="player-tip-watch"><button type="button" class="icon-btn secondary-btn suggested-play-add-btn" data-index="${i}">${label}</button></div>
+      <div class="player-tip-watch" data-jump-index="${i}"><button type="button" class="icon-btn secondary-btn suggested-play-add-btn" data-index="${i}">${label}</button></div>
       </span>
     </li>`;
   }).join("")}</ul>`;
+  // Reuses createJumpButton() as-is (same "▶ Jump" seek/play/scroll behavior the Shot Log/Other
+  // Events tables already use) rather than a second jump mechanism -- this only ever renders for
+  // the currently open game, so currentVideoEl is already the right video to seek.
+  wrap.querySelectorAll(".player-tip-watch").forEach(div => {
+    const s = suggestions[parseInt(div.dataset.jumpIndex, 10)];
+    div.prepend(createJumpButton(s.videoTime));
+  });
   wrap.querySelectorAll(".suggested-play-add-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const s = suggestions[parseInt(btn.dataset.index, 10)];
@@ -4504,9 +4551,10 @@ function renderMatchupTable(game) {
   renderSortableHeader(headerRow, MATCHUP_TABLE_COLUMNS, matchupTableSort, () => renderMatchupTable(game));
   headerRow.appendChild(document.createElement("th"));
   headerRow.appendChild(document.createElement("th"));
+  headerRow.appendChild(document.createElement("th"));
   body.innerHTML = "";
   if (game.matchups.length === 0) {
-    body.innerHTML = '<tr><td colspan="6" class="empty-state">No matchups recorded yet.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty-state">No matchups recorded yet.</td></tr>';
     return;
   }
   let rows = game.matchups.map(m => {
@@ -4529,6 +4577,13 @@ function renderMatchupTable(game) {
     const tdJump = document.createElement("td");
     tdJump.appendChild(createJumpButton(m.videoTime));
     tr.appendChild(tdJump);
+    const tdEdit = document.createElement("td");
+    tdEdit.appendChild(createEditTimeButton(t => {
+      m.videoTime = t;
+      saveState();
+      renderMatchupTable(game);
+    }));
+    tr.appendChild(tdEdit);
     const tdBtn = document.createElement("td");
     const delBtn = document.createElement("button");
     delBtn.className = "icon-btn";
@@ -4852,11 +4907,25 @@ function computeIndividualGamePerformances() {
       const s = getOrCreatePlayerStats(game, playerId);
       const sh = shootingStats(game, playerId);
       const def = gameDefenseStats(game, playerId);
-      rows.push({ player, game, pts: s.pts, twoWay: twoWayScore(s, sh, def) });
+      const offRtg = offensiveRating(s, sh);
+      const defRtg = defensiveRating(s, def);
+      rows.push({ player, game, pts: s.pts, offRtg, defRtg, twoWay: offRtg + defRtg });
     });
   });
   return rows;
 }
+
+// Best & Worst Individual Games can rank by any of the three scores that make up a game's own
+// box score line -- Two-Way (the default, offense and defense combined), or either half on its
+// own, since "best offensive game" and "best defensive game" are real, different questions a
+// single combined ranking can't answer (a huge scoring night can bury a genuinely dominant
+// defensive one, and vice versa).
+const INDIVIDUAL_GAMES_MODES = {
+  twoway: { label: "Overall", valueOf: r => r.twoWay, unit: "Two-Way" },
+  offense: { label: "Offense", valueOf: r => r.offRtg, unit: "Off Rating" },
+  defense: { label: "Defense", valueOf: r => r.defRtg, unit: "Def Rating" },
+};
+let individualGamesMode = "twoway";
 
 function renderIndividualGamePerformances() {
   const wrap = document.getElementById("individualGamePerformances");
@@ -4866,19 +4935,28 @@ function renderIndividualGamePerformances() {
     wrap.innerHTML = '<p class="empty-state">No games logged yet.</p>';
     return;
   }
-  const sorted = [...rows].sort((a, b) => b.twoWay - a.twoWay);
+  const mode = INDIVIDUAL_GAMES_MODES[individualGamesMode];
+  const sorted = [...rows].sort((a, b) => mode.valueOf(b) - mode.valueOf(a));
   // Capped so best/worst never overlap on a thin season — with few enough rows, showing the same
   // handful of games in both lists (just reversed) would read as a bug, not a real result.
   const n = Math.min(10, Math.max(1, Math.floor(sorted.length / 2)));
   const best = sorted.slice(0, n);
   const worst = sorted.slice(-n).reverse();
-  const li = r => `
+  const li = r => {
+    const val = mode.valueOf(r);
+    return `
     <li>
       <span class="award-standings-name"><button type="button" class="icon-btn indiv-game-player-btn" data-player-id="${r.player.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.player.name)}</button> <button type="button" class="icon-btn indiv-game-date-btn" data-game-id="${r.game.id}" style="padding:0;font-weight:600;color:var(--accent)">(${escapeHtml(formatDateDisplay(r.game.date))})</button></span>
-      <span>${r.twoWay >= 0 ? "+" : ""}${r.twoWay.toFixed(1)} Two-Way <span class="hint" style="margin:0">(${r.pts} pts)</span></span>
+      <span>${val >= 0 ? "+" : ""}${val.toFixed(1)} ${mode.unit} <span class="hint" style="margin:0">(${r.pts} pts)</span></span>
     </li>
   `;
+  };
   wrap.innerHTML = `
+    <div class="button-row" style="margin-bottom:10px">
+      ${Object.entries(INDIVIDUAL_GAMES_MODES).map(([key, m]) =>
+        `<button type="button" class="secondary-btn indiv-games-mode-btn${key === individualGamesMode ? " selected" : ""}" data-mode="${key}">${m.label}</button>`
+      ).join("")}
+    </div>
     <div class="award-standings-wrap">
       <div class="award-standings-col">
         <h4 class="award-standings-heading">Best</h4>
@@ -4890,6 +4968,12 @@ function renderIndividualGamePerformances() {
       </div>
     </div>
   `;
+  wrap.querySelectorAll(".indiv-games-mode-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      individualGamesMode = btn.dataset.mode;
+      renderIndividualGamePerformances();
+    });
+  });
   wrap.querySelectorAll(".indiv-game-player-btn").forEach(btn => {
     btn.addEventListener("click", () => openPlayerDetail(btn.dataset.playerId));
   });

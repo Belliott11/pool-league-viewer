@@ -1351,6 +1351,16 @@ button:disabled {
   content: "✓ ";
 }
 
+/* Same "picking one clearly did something" problem, generalized to any secondary-btn used as a
+   toggle/tab (team direction, Best & Worst Individual Games' mode switch) -- without this, the
+   `selected` class already added by several of these got no actual visual treatment at all. */
+.secondary-btn.selected {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
 .confirm-row {
   display: flex;
   gap: 10px;
