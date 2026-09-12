@@ -708,6 +708,17 @@
     </div>
 
     <details class="panel">
+      <summary><h2>Defensive Load</h2></summary>
+      <p class="hint">A companion to Def Rating, not a replacement: how much of the team's own tagged defensive workload each player is actually carrying, not just how well they handle what they get (see Def Rating/20 above). Every opponent field goal attempt with at least one tagged defender is divided evenly across the team's own roster that game for an "expected fair share"; Def Load is how many of those a player actually got tagged on, divided by that share. Above 1.0 is more than an even share, below 1.0 is less. A low number is genuinely ambiguous on its own (avoided as a tough matchup, genuinely uninvolved for other reasons, or just too small a sample), so <strong>Read</strong> always names what pairing it with this same player's own Opp FG% (leading) and Def Rating/20 (secondary context) suggests, never as a standalone verdict. Opp FG% leads deliberately: it means exactly one thing and needs no trust in Def Rating's own unvalidated formula weights. Click a player's name for their full page, or a column header to sort.</p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="defensiveLoadPanelTable">
+          <thead><tr id="defensiveLoadPanelHeaderRow"></tr></thead>
+          <tbody id="defensiveLoadPanelBody"></tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="panel">
       <summary><h2>Best &amp; Worst Individual Games</h2></summary>
       <p class="hint">Every player-game ranked by that single game's actual score, deliberately not a per-20 rate or a season total, since the rest of this page normalizes for fair player-to-player comparison and that averages away exactly the thing this panel exists to surface: one specific night's story, buried otherwise inside that game's own box score. <strong>Overall</strong> is Two-Way (Off Rating + Def Rating, the default); <strong>Offense</strong> and <strong>Defense</strong> rank by either half on its own, since a huge scoring night can bury a genuinely dominant defensive one in a combined score, and vice versa. Every player on either roster for a reviewed game gets a row, even a quiet one. On a thin season the two lists are capped so they never show the same handful of games twice, just reversed.</p>
       <div id="individualGamePerformances"></div>
@@ -884,7 +895,7 @@
 
     <div class="panel">
       <h2>Defensive Load</h2>
-      <p class="hint">A companion to Def Rating, not a replacement: how much of the team's tagged defensive workload this player is actually carrying, not just how well they handle what they get. Every opponent field goal attempt with at least one tagged defender is divided evenly across the team's own roster that game for an "expected fair share"; this is how many of those this player actually got tagged on, divided by that share. Above 1.0 is more than an even share, below 1.0 is less. A low number here is genuinely ambiguous on its own (avoided as a tough matchup, genuinely uninvolved for other reasons, or just too small a sample) and can't fully separate those, so it's always shown paired with this same player's Def Rating/20 and a plain-language read of what the two together suggest, never as a standalone verdict.</p>
+      <p class="hint">A companion to Def Rating, not a replacement: how much of the team's tagged defensive workload this player is actually carrying, not just how well they handle what they get. Every opponent field goal attempt with at least one tagged defender is divided evenly across the team's own roster that game for an "expected fair share"; this is how many of those this player actually got tagged on, divided by that share. Above 1.0 is more than an even share, below 1.0 is less. A low number here is genuinely ambiguous on its own (avoided as a tough matchup, genuinely uninvolved for other reasons, or just too small a sample) and can't fully separate those, so it's always shown paired with this same player's Opp FG% (leading) and Def Rating/20 (secondary context), never as a standalone verdict. Opp FG% leads deliberately: it means exactly one thing and needs no trust in Def Rating's own unvalidated formula weights.</p>
       <div id="defensiveLoad"></div>
     </div>
 

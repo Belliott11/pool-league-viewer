@@ -4681,23 +4681,28 @@ function computeDefensiveLoad(playerId) {
 // Mandatory interpretive framing, not optional color commentary -- a low Defensive Load is
 // genuinely ambiguous (avoided as a tough matchup, genuinely uninvolved for other reasons, or
 // just too small a sample) and this stat should never be shown without naming that ambiguity and
-// pairing it with the same player's own Def Rating/20. This still can't fully separate "avoided
-// out of respect" from "genuinely uninvolved," and can't account for scheme (a player deliberately
-// assigned to a team's weakest scorer shows a low load through no fault or credit of their own) --
-// a signal worth investigating further, never a standalone verdict.
+// pairing it with the same player's own Opp FG% (leading) and Def Rating/20 (secondary context).
+// Opp FG% leads deliberately, not Def Rating: Opp FG% means exactly one thing (shooting
+// percentage on the shots this player actually defended) and needs no trust in a formula's
+// weights, where Def Rating blends Stops/Beaten/Pts Allowed under weights that were never
+// validated against real outcomes (a properly regression-fit set looked meaningfully different
+// from the assumed GmSc-derived ones). This still can't fully separate "avoided out of respect"
+// from "genuinely uninvolved," and can't account for scheme (a player deliberately assigned to a
+// team's weakest scorer shows a low load through no fault or credit of their own) -- a signal
+// worth investigating further, never a standalone verdict.
 const DEFENSIVE_LOAD_LOW = 0.8;
 const DEFENSIVE_LOAD_HIGH = 1.2;
-const DEFENSIVE_LOAD_STRONG_IMPACT = 2; // Def Rating/20 -- a provisional starting guess, like every other threshold constant on this page, not a value backed by real distributional data yet
-function describeDefensiveLoad(load, defRatingPer20) {
-  if (load === null || load === undefined) return "";
-  const strong = defRatingPer20 >= DEFENSIVE_LOAD_STRONG_IMPACT;
+
+function describeDefensiveLoad(load, oppFgPct, leagueAvgOppFg) {
+  if (load === null || load === undefined || oppFgPct === null || leagueAvgOppFg === null) return "";
+  const low = oppFgPct < leagueAvgOppFg;
   if (load < DEFENSIVE_LOAD_LOW) {
-    return strong
+    return low
       ? "Faces few shots, and stops them well: possibly avoided as a tough matchup."
-      : "Faces few shots: not enough evidence yet to say whether that's a strength or just low defensive involvement.";
+      : "Faces few shots: not enough data to say whether this is a strength or just low defensive involvement.";
   }
   if (load > DEFENSIVE_LOAD_HIGH) {
-    return strong
+    return low
       ? "Takes on a heavy share of the defensive workload and handles it well: a real two-way contributor, not just efficient in a light role."
       : "Takes on a heavy defensive workload but is being scored on: likely a tough or heavily-targeted matchup.";
   }
@@ -4709,12 +4714,21 @@ function describeDefensiveLoad(load, defRatingPer20) {
 // behind a hover, since the spec this implements is explicit that the framing has to ship WITH
 // the number, not as an afterthought. The full sentence still lives in Player Detail and in this
 // column's own tooltip.
-function defensiveLoadShortTag(load, defRatingPer20) {
-  if (load === null || load === undefined) return "";
-  const strong = defRatingPer20 >= DEFENSIVE_LOAD_STRONG_IMPACT;
-  if (load < DEFENSIVE_LOAD_LOW) return strong ? "possibly avoided" : "low involvement, unclear";
-  if (load > DEFENSIVE_LOAD_HIGH) return strong ? "heavy & effective" : "heavy & targeted";
+function defensiveLoadShortTag(load, oppFgPct, leagueAvgOppFg) {
+  if (load === null || load === undefined || oppFgPct === null || leagueAvgOppFg === null) return "";
+  const low = oppFgPct < leagueAvgOppFg;
+  if (load < DEFENSIVE_LOAD_LOW) return low ? "possibly avoided" : "low involvement, unclear";
+  if (load > DEFENSIVE_LOAD_HIGH) return low ? "heavy & effective" : "heavy & targeted";
   return "even share";
+}
+
+// League-average Opp FG% among every qualifying player, the baseline describeDefensiveLoad()/
+// defensiveLoadShortTag() compare a given player's own Opp FG% against -- same "compare to the
+// league, not a fixed constant" convention Areas to Work On and the Personalized Tips already use
+// elsewhere, rather than an arbitrary hardcoded percentage.
+function computeLeagueAvgOppFg(board) {
+  const vals = board.map(r => pct(r.defense.timesBeaten, r.defense.timesBeaten + r.defense.stops)).filter(v => v !== null);
+  return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 }
 
 // ---------- Leaderboard ----------
@@ -4942,6 +4956,57 @@ function renderGameWinningBucketsPanel() {
   body.innerHTML = rows.length === 0
     ? '<tr><td colspan="2" class="empty-state">No game-winning buckets identified yet. Needs a timestamped make that closes out a decided game.</td></tr>'
     : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.count}</td></tr>`).join("");
+}
+
+// League-wide Defensive Load table (see computeDefensiveLoad()/describeDefensiveLoad() above) --
+// its own panel rather than one more cramped column on the giant Season Rates table, since the
+// spec's own mandatory framing sentence needs real room, not a truncated tag.
+function computeDefensiveLoadPanelRows() {
+  const board = computeLeaderboard();
+  const leagueAvgOppFg = computeLeagueAvgOppFg(board);
+  return board
+    .filter(r => r.defensiveLoad !== null)
+    .map(r => {
+      const oppFgPct = pct(r.defense.timesBeaten, r.defense.timesBeaten + r.defense.stops);
+      const defRtg = defensiveRating(r.rate, r.rateDefense);
+      return {
+        player: r.player, load: r.defensiveLoad, oppFgPct, defRtg,
+        sentence: describeDefensiveLoad(r.defensiveLoad, oppFgPct, leagueAvgOppFg),
+      };
+    });
+}
+
+const DEFENSIVE_LOAD_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "load", label: "Def Load", accessor: r => r.load, display: r => `${r.load.toFixed(2)}x` },
+  { key: "oppfg", label: "Opp FG%", accessor: r => r.oppFgPct, display: r => formatPct(r.oppFgPct) },
+  { key: "defrtg", label: "Def Rating/20", accessor: r => r.defRtg, display: r => r.defRtg.toFixed(1) },
+  { key: "read", label: "Read", accessor: r => r.sentence },
+];
+let defensiveLoadPanelSort = { key: "load", dir: "desc" };
+
+function renderDefensiveLoadPanel() {
+  const headerRow = document.getElementById("defensiveLoadPanelHeaderRow");
+  const body = document.getElementById("defensiveLoadPanelBody");
+  if (!body) return;
+  renderSortableHeader(headerRow, DEFENSIVE_LOAD_COLUMNS, defensiveLoadPanelSort, renderDefensiveLoadPanel);
+  const rows = computeDefensiveLoadPanelRows();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">Nobody has enough tagged defensive volume yet (needs ${DEFENSIVE_LOAD_MIN_SHARE}+ expected tagged possessions across enough games).</td></tr>`;
+    return;
+  }
+  const sortCol = DEFENSIVE_LOAD_COLUMNS.find(c => c.key === defensiveLoadPanelSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), defensiveLoadPanelSort.dir));
+  body.innerHTML = rows.map(r => `<tr>
+    <td><button type="button" class="icon-btn defload-player-btn" data-player-id="${r.player.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.player.name)}</button></td>
+    <td>${r.load.toFixed(2)}x</td>
+    <td>${formatPct(r.oppFgPct)}</td>
+    <td>${r.defRtg.toFixed(1)}</td>
+    <td>${escapeHtml(r.sentence)}</td>
+  </tr>`).join("");
+  body.querySelectorAll(".defload-player-btn").forEach(btn => {
+    btn.addEventListener("click", () => openPlayerDetail(btn.dataset.playerId));
+  });
 }
 
 // Close-Game Shooting — a margin-aware alternative to Game-Winning Buckets for the Clutch
@@ -7437,21 +7502,24 @@ function renderDefensiveMatchupDifficultyChart(playerId) {
 }
 
 // See poolean-defensive-load-spec.md and computeDefensiveLoad()/describeDefensiveLoad() above --
-// always shown paired with this same player's own Def Rating/20 and the full interpretive
-// sentence, never the ratio alone, since a low Defensive Load is genuinely ambiguous on its own.
-function renderDefensiveLoadPanel(playerId) {
+// always shown paired with this same player's own Opp FG% (leading) and Def Rating/20 (secondary
+// context), never the ratio alone, since a low Defensive Load is genuinely ambiguous on its own.
+function renderPlayerDefensiveLoadPanel(playerId) {
   const wrap = document.getElementById("defensiveLoad");
   if (!wrap) return;
-  const row = computeLeaderboard().find(r => r.player.id === playerId);
+  const board = computeLeaderboard();
+  const row = board.find(r => r.player.id === playerId);
   const load = row ? row.defensiveLoad : null;
   if (!row || load === null) {
     wrap.innerHTML = `<p class="empty-state">Not enough tagged defensive volume yet across enough games to show this (needs ${DEFENSIVE_LOAD_MIN_SHARE}+ expected tagged possessions season-to-date).</p>`;
     return;
   }
+  const oppFgPct = pct(row.defense.timesBeaten, row.defense.timesBeaten + row.defense.stops);
   const defRtg = defensiveRating(row.rate, row.rateDefense);
+  const leagueAvgOppFg = computeLeagueAvgOppFg(board);
   wrap.innerHTML = `
-    <p class="score-display">${load.toFixed(2)}x <span class="hint" style="margin:0">(Def Rating/20: ${defRtg.toFixed(1)})</span></p>
-    <p class="hint" style="margin:8px 0 0">${escapeHtml(describeDefensiveLoad(load, defRtg))}</p>
+    <p class="score-display">${load.toFixed(2)}x <span class="hint" style="margin:0">(Opp FG%: ${formatPct(oppFgPct)}, Def Rating/20: ${defRtg.toFixed(1)})</span></p>
+    <p class="hint" style="margin:8px 0 0">${escapeHtml(describeDefensiveLoad(load, oppFgPct, leagueAvgOppFg))}</p>
   `;
 }
 
@@ -7603,9 +7671,6 @@ const LEADERBOARD_COLUMNS = [
   { key: "beaten", label: "Beaten/20", accessor: r => r.rateDefense.timesBeaten, display: r => r.rateDefense.timesBeaten.toFixed(1), tooltip: "Times scored on while tagged as the defender on a made shot, per 20 combined points." },
   { key: "stops", label: "Stops/20", accessor: r => r.rateDefense.stops, display: r => r.rateDefense.stops.toFixed(1), tooltip: "Times tagged as the defender on a missed shot, per 20 combined points." },
   { key: "defrtg20", label: "Def Rating/20", accessor: r => defensiveRating(r.rate, r.rateDefense), display: r => defensiveRating(r.rate, r.rateDefense).toFixed(1), tooltip: "This tool's Defensive Rating: STL, plus BLK (only when it isn't already one of this player's own Stops, so a blocked-and-tagged shot isn't credited twice), plus Stops minus Beaten minus 0.4×Pts Allowed, all per 20 combined points. Not points-allowed-per-100-possessions like the NBA stat of the same name; possessions aren't tracked here, so combined points stands in as the pace proxy, same as every other per-20 rate on this board. 0 for anyone never tagged as a defender with no steals or blocks, not a penalty for conservative tagging." },
-  { key: "defload", label: "Def Load", advanced: true, accessor: r => r.defensiveLoad,
-    display: r => r.defensiveLoad === null ? "—" : `${r.defensiveLoad.toFixed(2)}x · ${defensiveLoadShortTag(r.defensiveLoad, defensiveRating(r.rate, r.rateDefense))}`,
-    tooltip: "Defensive Load: every opponent field goal attempt with at least one tagged defender, divided evenly across the team's own roster that game for an \"expected fair share,\" compared against how many of those this player actually got tagged on. Above 1.0 means carrying more than an even share of the team's tagged defensive workload; below 1.0 means less. Untagged shots are deliberately excluded from this calculation entirely (including them drags every player's ratio below 1.0, a data artifact, not a real finding). A companion to Def Rating, not a replacement: a low Defensive Load is genuinely ambiguous on its own (avoided as a tough matchup, genuinely uninvolved for other reasons, or just too small a sample), so the short tag next to the number always names what pairing it with this same row's own Def Rating/20 suggests, and should never be read as a standalone verdict. Needs real tagged-defensive-possession volume across enough games before this shows at all." },
   { key: "offrtg20", label: "Off Rating/20", accessor: r => r.offRatingPer20, display: r => r.offRatingPer20.toFixed(1), tooltip: "Offense-only Game Score: PTS, shooting efficiency, rebounds, assists, TOV, and fouls, adapted from the standard basketball Game Score formula, minus its STL and BLK terms, which live in Def Rating instead, per 20 combined points." },
   { key: "twoway20", label: "Two-Way/20", accessor: r => r.twoWayPer20, display: r => r.twoWayPer20.toFixed(1), tooltip: "Off Rating plus Def Rating, per 20 combined points." },
   { key: "last5", label: "Last 5", accessor: r => r.last5OffRatingPer20, display: r => r.last5Gp > 0 ? `${r.last5Trend} ${r.last5OffRatingPer20.toFixed(1)}` : "—", tooltip: "Off Rating/20 over their last 5 games with real shots logged (fewer if they haven't played 5 yet). ▲/▼ shows whether that's above or below their season Off Rating/20; within ±0.5 counts as flat (–)." }
@@ -7793,6 +7858,7 @@ function renderLeaderboard() {
   renderOutOfBoundsPanel();
   renderSecondChancePanel();
   renderGameWinningBucketsPanel();
+  renderDefensiveLoadPanel();
   renderCloseGameShootingPanel();
   renderIndividualGamePerformances();
   renderLeagueHighlights();
@@ -7989,7 +8055,7 @@ function renderPlayerDetail() {
   renderAssistedByPanel(player.id);
   renderOffensiveMatchupDifficultyChart(player.id);
   renderDefensiveMatchupDifficultyChart(player.id);
-  renderDefensiveLoadPanel(player.id);
+  renderPlayerDefensiveLoadPanel(player.id);
   renderPlayerReel(player.id);
   renderAreasToWorkOn(player.id);
   renderShootingByDirection(player.id);
