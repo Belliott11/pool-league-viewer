@@ -4837,6 +4837,7 @@ function computeLeaderboard() {
       defensiveLoad: computeDefensiveLoad(p.id),
       expectedPoints: computeExpectedPoints(p.id, zonePpa),
       shotAttemptDiff: computeShotAttemptDifferential(p.id),
+      paceAndPpp: computePaceAndPpp(p.id),
       shotPct: pct(shooting.fga, teamFgaTotal),
       astPct: pct(totals.ast, teamAstTotal),
       orebPct: pct(totals.oreb, orebPoolTotal),
@@ -6440,6 +6441,38 @@ function computeShotAttemptDifferential(playerId) {
   return { gp: games.length, forTotal: forSum, againstTotal: againstSum, diffPerGame: (forSum - againstSum) / games.length };
 }
 
+// ---------- Pace and PPP (see poolean-additional-metrics-spec.md, section 2) ----------
+// Real Pace measures possessions per game; this tool has always substituted combined final score
+// as the "how much game happened" proxy for every per-20 rate, reasonable but imperfect -- a
+// fast, sloppy 21-point game and a slow, efficient 21-point game get treated identically by that
+// normalization even though very different numbers of actual plays happened. Total logged plays
+// (every scoringEvent + turnoverEvent + stealEvent, summed literally per the spec's own stated
+// formula -- a steal paired with its own linked turnover record counts as two logged plays here,
+// not deduplicated to one) is a genuine count of how much game actually happened, closer to a
+// real possession count than points ever could be. Computed per player from their own team's own
+// totals across the games they played, same reasoning as Shot Attempt Differential: teams aren't
+// persistent entities across a season here, so there's no single "team's" Pace independent of who
+// was on it that night.
+function computePaceAndPpp(playerId) {
+  const games = qualifyingGamesForPlayer(playerId);
+  if (games.length === 0) return null;
+  let totalPlays = 0, totalPts = 0;
+  games.forEach(game => {
+    const myTeam = game.teamA.includes(playerId) ? game.teamA : game.teamB;
+    const plays = game.scoringEvents.filter(ev => myTeam.includes(ev.scorerId)).length
+      + game.turnoverEvents.filter(ev => myTeam.includes(ev.playerId)).length
+      + game.stealEvents.filter(ev => myTeam.includes(ev.playerId)).length;
+    const pts = myTeam.reduce((sum, pid) => {
+      const s = game.stats.find(st => st.playerId === pid);
+      return sum + (s ? s.pts : 0);
+    }, 0);
+    totalPlays += plays;
+    totalPts += pts;
+  });
+  if (totalPlays === 0) return null;
+  return { gp: games.length, pace: totalPlays / games.length, ppp: totalPts / totalPlays };
+}
+
 function computeLeagueTsByZone() {
   const totals = {};
   LEAGUE_TS_ZONES.forEach(z => totals[z.key] = { pts: 0, fga: 0 });
@@ -7758,6 +7791,14 @@ const LEADERBOARD_COLUMNS = [
       return `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
     },
     tooltip: "Shot Attempt Differential, per game: this player's own team's total field goal attempts (made or missed, regardless of outcome) minus the opponent's, averaged across the games they played. A real, separate signal from shooting efficiency (TS%/eFG% already cover that) -- closer to shot creation and tempo control, whether this player's side tends to generate (or allow) more total looks. Deliberately a plain per-game differential, not a normalized /20 rate, matching the real stat's own simplicity: count every attempt equally, don't weight by quality." },
+  { key: "pace", label: "Pace", advanced: true,
+    accessor: r => r.paceAndPpp ? r.paceAndPpp.pace : null,
+    display: r => r.paceAndPpp ? r.paceAndPpp.pace.toFixed(1) : "—",
+    tooltip: "Total logged plays per game (every scoring attempt, turnover, and steal combined, across their own team, in games they played): a real count of how much game actually happened, closer to a true possession count than the combined-points normalization every other rate stat here uses." },
+  { key: "ppp", label: "PPP", advanced: true,
+    accessor: r => r.paceAndPpp ? r.paceAndPpp.ppp : null,
+    display: r => r.paceAndPpp ? r.paceAndPpp.ppp.toFixed(2) : "—",
+    tooltip: "Points per total play (their own team's points divided by Pace's play count): scoring efficiency measured against actual plays rather than combined score." },
   { key: "dunks", label: "Dunks", advanced: true, accessor: r => r.dunks, tooltip: "Made dunks, season total (not per-20: a counting stat, not a rate). Only counts shots tagged as a dunk in Stat Entry; games logged before that field existed need a manual pass (Export, Review Possible Dunks) before they count here." },
   { key: "dunkpct", label: "Dunk%", advanced: true, accessor: r => r.dunkPct, display: r => formatPct(r.dunkPct), tooltip: "Share of this player's own field goal attempts (2s and 3s combined) that were tagged as a dunk, make or miss: how much of their offense is above the rim. Same Review Possible Dunks caveat as Dunks: undercounts until older games are backfilled." },
   { key: "oreb", label: "OREB/20", accessor: r => r.rate.oreb, display: r => r.rate.oreb.toFixed(1), tooltip: "Offensive rebounds (grabbed by a teammate of the shooter), per 20 combined points." },
