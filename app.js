@@ -4733,6 +4733,11 @@ function computeLeagueAvgOppFg(board) {
 
 // ---------- Leaderboard ----------
 function computeLeaderboard() {
+  // Computed once, not once per player -- computeLeagueZonePointsPerAttempt() is a league-wide
+  // constant that doesn't depend on which player is being looked at, so calling it fresh inside
+  // the per-player map below (once for every one of ~20 players) would redo the exact same
+  // full-league scan 20 times over for no reason.
+  const zonePpa = computeLeagueZonePointsPerAttempt();
   return state.players.map(p => {
     // Only games actually logged with real shots count toward GP/averages — a game that's
     // just been rostered (or only carries a historical winner imported with no shot-level
@@ -4830,6 +4835,8 @@ function computeLeaderboard() {
       dunks: shooting.dunkM,
       dunkPct: pct(shooting.dunkA, shooting.fga),
       defensiveLoad: computeDefensiveLoad(p.id),
+      expectedPoints: computeExpectedPoints(p.id, zonePpa),
+      shotAttemptDiff: computeShotAttemptDifferential(p.id),
       shotPct: pct(shooting.fga, teamFgaTotal),
       astPct: pct(totals.ast, teamAstTotal),
       orebPct: pct(totals.oreb, orebPoolTotal),
@@ -6354,6 +6361,85 @@ const LEAGUE_TS_ZONES = [
   { key: "deep", label: "3PT Deep" }
 ];
 
+// ---------- Expected Points (see poolean-additional-metrics-spec.md, section 3) ----------
+// The xG equivalent: every shot already has a real, empirical zone-based conversion rate (this
+// tool's own League TS% by Shot Distance, just expressed as points-per-attempt instead of TS%
+// -- pts/fga, not pts/(2*fga)). Assigning each attempt its own zone's league-average value and
+// comparing a player's actual points against the sum separates "scored efficiently because of
+// real skill" from "got hot" or "ran cold" relative to the shots they actually took: a player who
+// outscores their own shot-selection-based expectation is shooting better than average from
+// those exact shots, not just taking easier ones.
+function computeLeagueZonePointsPerAttempt() {
+  const totals = {};
+  LEAGUE_TS_ZONES.forEach(z => totals[z.key] = { pts: 0, fga: 0 });
+  let allPts = 0, allFga = 0;
+  state.games.filter(isQualifyingGame).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 && ev.points !== 3) return;
+      const pts = ev.made !== false ? ev.points : 0;
+      allPts += pts;
+      allFga++;
+      if (!ev.shotLocation) return;
+      const bucket = totals[shotBand(ev.shotLocation, ev.points)];
+      if (!bucket) return;
+      bucket.fga++;
+      bucket.pts += pts;
+    });
+  });
+  const byZone = {};
+  LEAGUE_TS_ZONES.forEach(z => { byZone[z.key] = totals[z.key].fga > 0 ? totals[z.key].pts / totals[z.key].fga : null; });
+  // Overall league points-per-attempt (all zoned attempts pooled) is the fallback for a made/miss
+  // shot with no marked location -- it still needs an expected value to be counted at all, and
+  // "the league's overall average" is a more honest stand-in than silently dropping it, which
+  // would just understate both a player's actual AND expected points by the same missing shots.
+  return { byZone, overall: allFga > 0 ? allPts / allFga : null };
+}
+
+// Free throws are excluded entirely -- no shot location, no zone, and uncontested by rule, same
+// exclusion Wide-Open Shooting/Close-Game Shooting already make elsewhere in this tool. Takes
+// zonePpa (computeLeagueZonePointsPerAttempt()'s own result) as a parameter rather than computing
+// it fresh each call -- see computeLeaderboard()'s own comment on why.
+function computeExpectedPoints(playerId, zonePpa) {
+  let actualPts = 0, expectedPts = 0, fga = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.scorerId !== playerId || (ev.points !== 2 && ev.points !== 3)) return;
+      fga++;
+      actualPts += ev.made !== false ? ev.points : 0;
+      const xppa = ev.shotLocation && zonePpa.byZone[shotBand(ev.shotLocation, ev.points)] !== null
+        ? zonePpa.byZone[shotBand(ev.shotLocation, ev.points)]
+        : zonePpa.overall;
+      if (xppa !== null && xppa !== undefined) expectedPts += xppa;
+    });
+  });
+  if (fga === 0) return null;
+  return { fga, actualPts, expectedPts, pointsOverExpected: actualPts - expectedPts };
+}
+
+// ---------- Shot Attempt Differential (see poolean-additional-metrics-spec.md, section 4) ----------
+// The Corsi/Fenwick equivalent: total shot attempts for vs. against, regardless of outcome -- a
+// real, separate signal from shooting efficiency (TS%/eFG% already cover that), closer to shot
+// creation and tempo control. Deliberately a plain differential, not a rate: matches Corsi's own
+// simplicity (count everything, don't weight by quality -- that's what Expected Points is for).
+// Teams aren't persistent entities across a season here (rosters are picked fresh each game), so
+// this is tracked per player using their own team's shots in each game they played, per-game
+// average rather than a season total -- comparable across players regardless of how many games
+// they've played, without turning it into a normalized /20-style rate the spec explicitly didn't
+// want.
+function computeShotAttemptDifferential(playerId) {
+  const games = qualifyingGamesForPlayer(playerId);
+  if (games.length === 0) return null;
+  let forSum = 0, againstSum = 0;
+  games.forEach(game => {
+    const myTeam = game.teamA.includes(playerId) ? game.teamA : game.teamB;
+    const oppTeam = game.teamA.includes(playerId) ? game.teamB : game.teamA;
+    const isFga = ev => ev.points === 2 || ev.points === 3;
+    forSum += game.scoringEvents.filter(ev => myTeam.includes(ev.scorerId) && isFga(ev)).length;
+    againstSum += game.scoringEvents.filter(ev => oppTeam.includes(ev.scorerId) && isFga(ev)).length;
+  });
+  return { gp: games.length, forTotal: forSum, againstTotal: againstSum, diffPerGame: (forSum - againstSum) / games.length };
+}
+
 function computeLeagueTsByZone() {
   const totals = {};
   LEAGUE_TS_ZONES.forEach(z => totals[z.key] = { pts: 0, fga: 0 });
@@ -7656,6 +7742,22 @@ const LEADERBOARD_COLUMNS = [
   { key: "ft", label: "FT", accessor: r => pct(r.shooting.ftm, r.shooting.fta), display: r => formatShootingSplit(r.rateShooting.ftm, r.rateShooting.fta, true), tooltip: "Free throws made/attempted, per 20 combined points, with FT%." },
   { key: "efg", label: "eFG%", accessor: r => effectiveFgPct(r.shooting.fgm, r.shooting.tpm, r.shooting.fga), display: r => formatPct(effectiveFgPct(r.shooting.fgm, r.shooting.tpm, r.shooting.fga)), tooltip: "Effective FG%: field goal percentage weighted so a made 3 counts as 1.5 made 2s." },
   { key: "ts", label: "TS%", accessor: r => trueShootingPct(r.totals.pts, r.shooting.fga, r.shooting.fta), display: r => formatPct(trueShootingPct(r.totals.pts, r.shooting.fga, r.shooting.fta)), tooltip: "True Shooting %: overall scoring efficiency across field goals and free throws combined." },
+  { key: "ptsoverxp", label: "Pts +/- Exp", advanced: true,
+    accessor: r => r.expectedPoints ? r.expectedPoints.pointsOverExpected : null,
+    display: r => {
+      if (!r.expectedPoints) return "—";
+      const v = r.expectedPoints.pointsOverExpected;
+      return `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
+    },
+    tooltip: "Points Over Expected: every field goal attempt gets an expected value from its own zone's real, empirical league-average points-per-attempt (this season's own League TS% by Shot Distance, expressed as points instead of a percentage) -- an unmarked shot location falls back to the league's overall average rather than being dropped. This player's actual points scored on those same attempts, minus that sum, across the whole season (a total, not a per-20 rate). Positive means outscoring what an average shooter would on the exact same shot selection: real shooting skill on those specific shots, not just an easier shot diet. Free throws excluded entirely (no shot location, no zone, uncontested by rule)." },
+  { key: "shotdiff", label: "Shot Diff/G", advanced: true,
+    accessor: r => r.shotAttemptDiff ? r.shotAttemptDiff.diffPerGame : null,
+    display: r => {
+      if (!r.shotAttemptDiff) return "—";
+      const v = r.shotAttemptDiff.diffPerGame;
+      return `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
+    },
+    tooltip: "Shot Attempt Differential, per game: this player's own team's total field goal attempts (made or missed, regardless of outcome) minus the opponent's, averaged across the games they played. A real, separate signal from shooting efficiency (TS%/eFG% already cover that) -- closer to shot creation and tempo control, whether this player's side tends to generate (or allow) more total looks. Deliberately a plain per-game differential, not a normalized /20 rate, matching the real stat's own simplicity: count every attempt equally, don't weight by quality." },
   { key: "dunks", label: "Dunks", advanced: true, accessor: r => r.dunks, tooltip: "Made dunks, season total (not per-20: a counting stat, not a rate). Only counts shots tagged as a dunk in Stat Entry; games logged before that field existed need a manual pass (Export, Review Possible Dunks) before they count here." },
   { key: "dunkpct", label: "Dunk%", advanced: true, accessor: r => r.dunkPct, display: r => formatPct(r.dunkPct), tooltip: "Share of this player's own field goal attempts (2s and 3s combined) that were tagged as a dunk, make or miss: how much of their offense is above the rim. Same Review Possible Dunks caveat as Dunks: undercounts until older games are backfilled." },
   { key: "oreb", label: "OREB/20", accessor: r => r.rate.oreb, display: r => r.rate.oreb.toFixed(1), tooltip: "Offensive rebounds (grabbed by a teammate of the shooter), per 20 combined points." },
