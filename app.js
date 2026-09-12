@@ -4792,7 +4792,7 @@ function renderIndividualGamePerformances() {
   const worst = sorted.slice(-n).reverse();
   const li = r => `
     <li>
-      <span class="award-standings-name">${escapeHtml(r.player.name)} <span class="hint" style="margin:0">(${escapeHtml(formatDateDisplay(r.game.date))})</span></span>
+      <span class="award-standings-name"><button type="button" class="icon-btn indiv-game-player-btn" data-player-id="${r.player.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.player.name)}</button> <button type="button" class="icon-btn indiv-game-date-btn" data-game-id="${r.game.id}" style="padding:0;font-weight:600;color:var(--accent)">(${escapeHtml(formatDateDisplay(r.game.date))})</button></span>
       <span>${r.twoWay >= 0 ? "+" : ""}${r.twoWay.toFixed(1)} Two-Way <span class="hint" style="margin:0">(${r.pts} pts)</span></span>
     </li>
   `;
@@ -4808,6 +4808,12 @@ function renderIndividualGamePerformances() {
       </div>
     </div>
   `;
+  wrap.querySelectorAll(".indiv-game-player-btn").forEach(btn => {
+    btn.addEventListener("click", () => openPlayerDetail(btn.dataset.playerId));
+  });
+  wrap.querySelectorAll(".indiv-game-date-btn").forEach(btn => {
+    btn.addEventListener("click", () => openGame(btn.dataset.gameId));
+  });
 }
 
 // Summer 2026's voted awards, straight from that season's closed ballot (award_results in the
@@ -7636,12 +7642,6 @@ let currentPlayerId = null;
 function openPlayerDetail(playerId) {
   currentPlayerId = playerId;
   showTab("player");
-  // showTab("player") just highlighted the Me tab button, since it's the only .tab-btn with
-  // data-tab="player" -- correct that here to only when this really is the logged-in viewer's
-  // own page, not whenever ANY player's Player Detail happens to be open (e.g. tapping a name
-  // from the Leaderboard shouldn't make Me look selected for someone else's profile).
-  const meBtn = document.getElementById("meTabBtn");
-  if (meBtn) meBtn.classList.toggle("active", playerId === meTabPlayerId);
   renderPlayerDetail();
 }
 
@@ -8179,7 +8179,7 @@ function renderPlayerGameLog(playerId) {
         ? ' <span class="badge badge-lowlight" title="Worst individual game this season by Two-Way score.">👎</span>'
         : "";
     tr.innerHTML = `
-      <td>${formatDateDisplay(r.game.date)}</td>
+      <td><button type="button" class="icon-btn game-log-date-btn" data-game-id="${r.game.id}" style="padding:0;font-weight:600;color:var(--accent)">${formatDateDisplay(r.game.date)}</button></td>
       <td>${r.result || "—"}</td>
       <td>${r.s.pts}</td>
       <td>${formatShootingSplit(r.sh.fgm, r.sh.fga)}</td>
@@ -8203,6 +8203,9 @@ function renderPlayerGameLog(playerId) {
       <td>${r.twoWay.toFixed(1)}${twoWayBadge}</td>
     `;
     body.appendChild(tr);
+  });
+  body.querySelectorAll(".game-log-date-btn").forEach(btn => {
+    btn.addEventListener("click", () => openGame(btn.dataset.gameId));
   });
 }
 
@@ -9328,26 +9331,6 @@ renderGames();
 
 // Land back on whatever was in view last time, instead of always resetting to Games — a
 // browser refresh (or just reopening the file) shouldn't feel like navigating to a new page.
-// "Me" tab: a direct shortcut back to whoever's logged in on this device's own Player Detail
-// page, since Leaderboard -> find your own name -> tap it is a lot of friction to redo on every
-// single visit just to check your own stats. Hidden entirely for a guest (no player id to jump
-// to) or if the id the PIN gate saved doesn't match anyone currently in the roster.
-// Which player id counts as "me" for the Me tab's own active-highlighting (see openPlayerDetail)
-// -- null for a guest, or before this IIFE below has actually run.
-let meTabPlayerId = null;
-
-(function setUpMeTab() {
-  const btn = document.getElementById("meTabBtn");
-  if (!btn) return;
-  const playerId = localStorage.getItem("poolLeagueViewerPlayerId");
-  const player = playerId ? state.players.find(p => p.id === playerId) : null;
-  if (!player) return;
-  meTabPlayerId = player.id;
-  btn.textContent = player.name;
-  btn.hidden = false;
-  btn.addEventListener("click", () => openPlayerDetail(player.id));
-})();
-
 (function restoreLastView() {
   // A shared link (#game=<id> or #player=<id>, see the Share buttons on the Games list and
   // Player Detail) always wins over whatever this browser last happened to have open — someone
