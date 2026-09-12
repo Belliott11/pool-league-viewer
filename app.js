@@ -259,6 +259,12 @@ function normalizeGame(game) {
   // existed). Deliberately doesn't touch shotLocation's own x/y meaning at all — that stays
   // exactly what it's always been, so heatmaps and shot charts are unaffected either way.
   if (game.teamADirection !== "left" && game.teamADirection !== "right") game.teamADirection = null;
+  // Human-confirmed only (see poolean-stopped-early-spec.md), same "can't be inferred from the
+  // box score" reasoning as dunk -- defaults false for every game logged before this field
+  // existed, exactly like dunk defaults to undefined until reviewed, except here "not yet
+  // reviewed" and "wasn't stopped early" are the same starting assumption, so false is fine as
+  // the default rather than needing its own three-state backlog like dunk's undefined/true/false.
+  game.stoppedEarly = game.stoppedEarly === true;
   // A game can either have its own video, or point into a shared "session" recording that
   // covers several games back-to-back — masterVideoId + videoStart/videoEnd cover that second
   // case. videoStart always has a value (playback needs somewhere to seek to); videoEnd is
@@ -556,7 +562,7 @@ function showTab(tab) {
   document.getElementById("tab-" + tab).classList.add("active");
   const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
   if (btn) btn.classList.add("active");
-  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); }
+  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderStoppedEarlyReview(); }
   if (tab === "leaderboard") renderLeaderboard();
   // Refreshes the attendee picker against the current roster — cheap, and a player added while
   // on a different tab shouldn't require a page reload to show up here.
@@ -1171,6 +1177,9 @@ function renderGames() {
     const pastSeasonBadge = isCurrentSeasonGame(game)
       ? ""
       : ` <span class="badge badge-past-season" title="From a season closed out before this one. Excluded from Leaderboard rates and every other computed comparison unless the Include Past Seasons toggle on the Leaderboard is on. See Player Detail's Past Seasons panel for that season's own final numbers.">📅 Past Season</span>`;
+    const stoppedEarlyBadge = game.stoppedEarly
+      ? ` <span class="badge badge-lowlight" title="This game ended early. Not comparable to a complete game -- excluded from Best/Worst Games, Power Ranking vs. Performance, Shot Attempt Differential, Pace/PPP, and Win Shares. Season-total rates still include it.">🛑 Stopped Early</span>`
+      : "";
     // Best/worst-of-the-game badge — same Two-Way score Best & Worst Individual Games ranks by
     // (Off Rating + Def Rating for that one game, not a per-20 rate or season number), just
     // scoped to this specific game's own roster instead of pooled across the whole season. Only
@@ -1202,7 +1211,7 @@ function renderGames() {
     card.innerHTML = `
       <div>
         <div class="matchup-line">${escapeHtml(teamANames)} ${scoreA} - ${scoreB} ${escapeHtml(teamBNames)}</div>
-        <div class="date-line">${formatDateDisplay(game.date)} · ${game.teamA.length + game.teamB.length} players${game.notes ? " · " + escapeHtml(game.notes) : ""}${videoBadge}${reviewBadge}${imbalancedBadge}${pastSeasonBadge}${starBadge}${coldBadge}</div>
+        <div class="date-line">${formatDateDisplay(game.date)} · ${game.teamA.length + game.teamB.length} players${game.notes ? " · " + escapeHtml(game.notes) : ""}${videoBadge}${reviewBadge}${imbalancedBadge}${pastSeasonBadge}${stoppedEarlyBadge}${starBadge}${coldBadge}</div>
       </div>
     `;
     const shareBtn = document.createElement("button");
@@ -2829,6 +2838,25 @@ function renderTeamDirectionToggle(game) {
   });
 }
 
+// Same pattern as the dunk flag: a simple human-confirmed checkbox, not something inferred from
+// the box score (see poolean-stopped-early-spec.md) -- a naturally short, fast, complete game and
+// a stopped-early one can look identical in raw counts, so this needs someone who was there.
+function renderStoppedEarlyToggle(game) {
+  const wrap = document.getElementById("stoppedEarlyToggle");
+  if (!wrap) return;
+  wrap.innerHTML = `
+    <button type="button" class="secondary-btn${game.stoppedEarly ? " selected" : ""}" data-toggle-stopped-early="1">
+      ${game.stoppedEarly ? "🛑 Stopped early" : "Mark as stopped early"}
+    </button>
+    ${game.stoppedEarly ? '<span class="hint" style="margin:0">Excluded from per-game comparisons (Best/Worst Games, Power Ranking vs. Performance, Shot Attempt Differential, Pace/PPP, Win Shares). Season-total rates still include it.</span>' : ""}
+  `;
+  wrap.querySelector("[data-toggle-stopped-early]").addEventListener("click", () => {
+    game.stoppedEarly = !game.stoppedEarly;
+    saveState();
+    renderStoppedEarlyToggle(game);
+  });
+}
+
 // Which screen-side hoop this player's own team is shooting at this game, or null if the game's
 // own direction hasn't been set (game.teamADirection) or the player isn't on either roster.
 function playerShotDirection(game, playerId) {
@@ -2858,6 +2886,7 @@ function renderStatEntry() {
   `;
 
   renderTeamDirectionToggle(game);
+  renderStoppedEarlyToggle(game);
   renderVideoPanel(game);
   renderRosterAssignment(game);
   renderBoxScore(game);
@@ -5089,9 +5118,11 @@ function renderCloseGameShootingPanel() {
 // exception on purpose, since the whole point is surfacing a specific game's own story (a real
 // 16.7 Two-Way night), which per-20 and season aggregates both average away. Every player on
 // either roster for a reviewed game gets a row, even a quiet one with almost nothing recorded.
+// Excludes stoppedEarly games: a partial game's Two-Way score shouldn't compete for a spot on
+// this leaderboard against complete ones (see poolean-stopped-early-spec.md).
 function computeIndividualGamePerformances() {
   const rows = [];
-  state.games.filter(isQualifyingGame).forEach(game => {
+  state.games.filter(g => isQualifyingGame(g) && !g.stoppedEarly).forEach(game => {
     [...game.teamA, ...game.teamB].forEach(playerId => {
       const player = state.players.find(p => p.id === playerId);
       if (!player) return;
@@ -5431,7 +5462,9 @@ const PARTY_RANKINGS = [
 // yet is dropped entirely — it would otherwise render as an all-"—" table telling you nothing.
 function computePowerRankingVsPerformance() {
   return PARTY_RANKINGS.map(party => {
-    const gamesThatNight = state.games.filter(g => g.date === party.date && isQualifyingGame(g));
+    // Excludes stoppedEarly games: "that night's Two-Way/20" is exactly the single-game case a
+    // partial game would distort undiluted (see poolean-stopped-early-spec.md).
+    const gamesThatNight = state.games.filter(g => g.date === party.date && isQualifyingGame(g) && !g.stoppedEarly);
     const rows = party.players.map(pr => {
       const player = state.players.find(p => p.id === pr.slug);
       const gamesPlayed = player ? gamesThatNight.filter(g => g.teamA.includes(pr.slug) || g.teamB.includes(pr.slug)) : [];
@@ -6431,8 +6464,11 @@ function computeExpectedPoints(playerId, zonePpa) {
 // average rather than a season total -- comparable across players regardless of how many games
 // they've played, without turning it into a normalized /20-style rate the spec explicitly didn't
 // want.
+// Excludes stoppedEarly games (see poolean-stopped-early-spec.md): this is inherently a per-game
+// stat, not a season aggregate blended across many games, so a partial game's undiluted
+// distortion would show up directly instead of being averaged down to something modest.
 function computeShotAttemptDifferential(playerId) {
-  const games = qualifyingGamesForPlayer(playerId);
+  const games = qualifyingGamesForPlayer(playerId).filter(g => !g.stoppedEarly);
   if (games.length === 0) return null;
   let forSum = 0, againstSum = 0;
   games.forEach(game => {
@@ -6457,8 +6493,11 @@ function computeShotAttemptDifferential(playerId) {
 // totals across the games they played, same reasoning as Shot Attempt Differential: teams aren't
 // persistent entities across a season here, so there's no single "team's" Pace independent of who
 // was on it that night.
+// Excludes stoppedEarly games, same reasoning as Shot Attempt Differential above: Pace/PPP are
+// per-game stats, so a partial game's undercount of plays would distort them directly rather
+// than being blended away like it is in a season-total per-20 rate.
 function computePaceAndPpp(playerId) {
-  const games = qualifyingGamesForPlayer(playerId);
+  const games = qualifyingGamesForPlayer(playerId).filter(g => !g.stoppedEarly);
   if (games.length === 0) return null;
   let totalPlays = 0, totalPts = 0;
   games.forEach(game => {
@@ -6492,7 +6531,10 @@ const WIN_SHARES_FEATURES = ["pts", "oreb", "dreb", "ast", "stl", "blk", "tov", 
 function winSharesRegressionRows() {
   const rows = [];
   state.games.filter(isQualifyingGame).forEach(game => {
-    if (game.scoringEvents.length === 0) return;
+    // A stopped-early game's margin isn't a real outcome to fit against (see
+    // poolean-stopped-early-spec.md), so it doesn't belong in the regression's own training data
+    // any more than it belongs in the per-player win-shares calculation below.
+    if (game.scoringEvents.length === 0 || game.stoppedEarly) return;
     const scoreA = teamScore(game, game.teamA);
     const scoreB = teamScore(game, game.teamB);
     [...game.teamA.map(id => ({ id, own: scoreA, opp: scoreB })),
@@ -6556,9 +6598,12 @@ function playerMarginContribution(s, weights) {
 // non-negative, so a player the model says actively hurt their team gets none of it rather than
 // a negative share); a loss contributes zero, matching the real Win Shares convention. Falls back
 // to an even split if every contribution on a winning team clips to zero.
+// Excludes stoppedEarly games: this is fit and split per-game, not aggregated across a season
+// the way rate stats are, and a margin from an incomplete game isn't a real outcome to credit
+// wins against (see poolean-stopped-early-spec.md).
 function computeWinShares(playerId, weights) {
   if (!weights) return null;
-  const games = qualifyingGamesForPlayer(playerId).filter(g => g.scoringEvents.length > 0);
+  const games = qualifyingGamesForPlayer(playerId).filter(g => g.scoringEvents.length > 0 && !g.stoppedEarly);
   if (games.length === 0) return null;
   let total = 0;
   games.forEach(game => {
@@ -7895,19 +7940,19 @@ const LEADERBOARD_COLUMNS = [
       const v = r.shotAttemptDiff.diffPerGame;
       return `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
     },
-    tooltip: "Shot Attempt Differential, per game: this player's own team's total field goal attempts (made or missed, regardless of outcome) minus the opponent's, averaged across the games they played. A real, separate signal from shooting efficiency (TS%/eFG% already cover that) -- closer to shot creation and tempo control, whether this player's side tends to generate (or allow) more total looks. Deliberately a plain per-game differential, not a normalized /20 rate, matching the real stat's own simplicity: count every attempt equally, don't weight by quality." },
+    tooltip: "Shot Attempt Differential, per game: this player's own team's total field goal attempts (made or missed, regardless of outcome) minus the opponent's, averaged across the games they played. A real, separate signal from shooting efficiency (TS%/eFG% already cover that) -- closer to shot creation and tempo control, whether this player's side tends to generate (or allow) more total looks. Deliberately a plain per-game differential, not a normalized /20 rate, matching the real stat's own simplicity: count every attempt equally, don't weight by quality. Excludes any game flagged Stopped Early (Export, Review Stopped-Early Games): a partial game's shot count isn't comparable to a complete one." },
   { key: "pace", label: "Pace", advanced: true,
     accessor: r => r.paceAndPpp ? r.paceAndPpp.pace : null,
     display: r => r.paceAndPpp ? r.paceAndPpp.pace.toFixed(1) : "—",
-    tooltip: "Total logged plays per game (every scoring attempt, turnover, and steal combined, across their own team, in games they played): a real count of how much game actually happened, closer to a true possession count than the combined-points normalization every other rate stat here uses." },
+    tooltip: "Total logged plays per game (every scoring attempt, turnover, and steal combined, across their own team, in games they played): a real count of how much game actually happened, closer to a true possession count than the combined-points normalization every other rate stat here uses. Excludes any game flagged Stopped Early (Export, Review Stopped-Early Games): a partial game's play count isn't comparable to a complete one." },
   { key: "ppp", label: "PPP", advanced: true,
     accessor: r => r.paceAndPpp ? r.paceAndPpp.ppp : null,
     display: r => r.paceAndPpp ? r.paceAndPpp.ppp.toFixed(2) : "—",
-    tooltip: "Points per total play (their own team's points divided by Pace's play count): scoring efficiency measured against actual plays rather than combined score." },
+    tooltip: "Points per total play (their own team's points divided by Pace's play count): scoring efficiency measured against actual plays rather than combined score. Same Stopped Early exclusion as Pace." },
   { key: "winshares", label: "Win Shares (beta)", advanced: true,
     accessor: r => r.winShares ? r.winShares.winShares : null,
     display: r => r.winShares ? r.winShares.winShares.toFixed(2) : "—",
-    tooltip: "Experimental, provisional: this season's share of actual team wins credited to this player, from a regression fit fresh against real game margins (not an assumed points scale like GmSc/Two-Way). With the amount of data logged so far, some of the fitted weights can still come out with an implausible sign (e.g. fouls scoring positive) due to collinearity in a small sample, so treat this as a number to watch, not a settled read, until it's been refit on meaningfully more games." },
+    tooltip: "Experimental, provisional: this season's share of actual team wins credited to this player, from a regression fit fresh against real game margins (not an assumed points scale like GmSc/Two-Way). With the amount of data logged so far, some of the fitted weights can still come out with an implausible sign (e.g. fouls scoring positive) due to collinearity in a small sample, so treat this as a number to watch, not a settled read, until it's been refit on meaningfully more games. Excludes any game flagged Stopped Early: a margin from an incomplete game isn't a real outcome to fit against." },
   { key: "dunks", label: "Dunks", advanced: true, accessor: r => r.dunks, tooltip: "Made dunks, season total (not per-20: a counting stat, not a rate). Only counts shots tagged as a dunk in Stat Entry; games logged before that field existed need a manual pass (Export, Review Possible Dunks) before they count here." },
   { key: "dunkpct", label: "Dunk%", advanced: true, accessor: r => r.dunkPct, display: r => formatPct(r.dunkPct), tooltip: "Share of this player's own field goal attempts (2s and 3s combined) that were tagged as a dunk, make or miss: how much of their offense is above the rim. Same Review Possible Dunks caveat as Dunks: undercounts until older games are backfilled." },
   { key: "oreb", label: "OREB/20", accessor: r => r.rate.oreb, display: r => r.rate.oreb.toFixed(1), tooltip: "Offensive rebounds (grabbed by a teammate of the shooter), per 20 combined points." },
@@ -8783,7 +8828,7 @@ function renderPlayerGameLog(playerId) {
   // best/worst-this-game badges — only among games with real shots logged, so an unreviewed
   // 0-everything game can never wrongly "win" either title, and only when there are at least 2
   // reviewed games (with just 1, best and worst would trivially be the same game).
-  const reviewed = rows.filter(r => r.game.scoringEvents.length > 0);
+  const reviewed = rows.filter(r => r.game.scoringEvents.length > 0 && !r.game.stoppedEarly);
   let bestGameId = null, worstGameId = null;
   if (reviewed.length >= 2) {
     bestGameId = reviewed.reduce((a, b) => b.twoWay > a.twoWay ? b : a).game.id;
@@ -8799,8 +8844,11 @@ function renderPlayerGameLog(playerId) {
       : r.game.id === worstGameId
         ? ' <span class="badge badge-lowlight" title="Worst individual game this season by Two-Way score.">👎</span>'
         : "";
+    const stoppedEarlyBadge = r.game.stoppedEarly
+      ? ' <span class="badge badge-lowlight" title="This game ended early. Not comparable to a complete game -- excluded from Best/Worst Games, Power Ranking vs. Performance, Shot Attempt Differential, Pace/PPP, and Win Shares.">🛑</span>'
+      : "";
     tr.innerHTML = `
-      <td><button type="button" class="icon-btn game-log-date-btn" data-game-id="${r.game.id}" style="padding:0;font-weight:600;color:var(--accent)">${formatDateDisplay(r.game.date)}</button></td>
+      <td><button type="button" class="icon-btn game-log-date-btn" data-game-id="${r.game.id}" style="padding:0;font-weight:600;color:var(--accent)">${formatDateDisplay(r.game.date)}</button>${stoppedEarlyBadge}</td>
       <td>${r.result || "—"}</td>
       <td>${r.s.pts}</td>
       <td>${formatShootingSplit(r.sh.fgm, r.sh.fga)}</td>
@@ -9539,6 +9587,47 @@ function renderDunkReview() {
   });
   wrap.querySelectorAll("[data-mark-notdunk]").forEach(btn => {
     btn.addEventListener("click", () => resolveRow(btn.dataset.markNotdunk, false));
+  });
+}
+
+// Backlog review for the stoppedEarly flag (see poolean-stopped-early-spec.md) -- same pattern as
+// Review Possible Dunks, but there's no "unresolved" state to filter down to the way dunk has
+// (undefined vs. true/false): every game defaults to stoppedEarly === false, since that's the
+// correct assumption for the vast majority logged before this field existed. So this lists every
+// reviewed game (one with real shots logged -- an unreviewed game has no stats to distort yet)
+// for a human to scan and flag any they remember being cut short, most recent first since that's
+// what people actually remember.
+function renderStoppedEarlyReview() {
+  const wrap = document.getElementById("stoppedEarlyReview");
+  if (!wrap) return;
+  const games = state.games
+    .filter(g => g.scoringEvents.length > 0)
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  if (games.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">No reviewed games yet.</p>';
+    return;
+  }
+  wrap.innerHTML = `<ul class="player-tips-list">${games.map(game => {
+    const scoreA = teamScore(game, game.teamA);
+    const scoreB = teamScore(game, game.teamB);
+    const teamANames = game.teamA.map(id => state.players.find(p => p.id === id)?.name).filter(Boolean).join(", ") || "Team A";
+    const teamBNames = game.teamB.map(id => state.players.find(p => p.id === id)?.name).filter(Boolean).join(", ") || "Team B";
+    return `<li data-game-id="${game.id}">
+      <span>${escapeHtml(formatDateDisplay(game.date))}: ${escapeHtml(teamANames)} ${scoreA} - ${scoreB} ${escapeHtml(teamBNames)}</span>
+      <div class="button-row" style="margin-top:4px">
+        <button type="button" class="secondary-btn${game.stoppedEarly ? " selected" : ""}" data-toggle-stopped-early-review="${game.id}">${game.stoppedEarly ? "🛑 Stopped early" : "Mark as stopped early"}</button>
+      </div>
+    </li>`;
+  }).join("")}</ul>`;
+  wrap.querySelectorAll("[data-toggle-stopped-early-review]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const game = state.games.find(g => g.id === btn.dataset.toggleStoppedEarlyReview);
+      if (!game) return;
+      game.stoppedEarly = !game.stoppedEarly;
+      saveState();
+      btn.classList.toggle("selected", game.stoppedEarly);
+      btn.textContent = game.stoppedEarly ? "🛑 Stopped early" : "Mark as stopped early";
+    });
   });
 }
 

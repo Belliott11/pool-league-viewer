@@ -316,6 +316,7 @@
     <div class="panel scoreboard-panel">
       <div id="statEntryScore" class="scoreboard"></div>
       <div id="teamDirectionToggle" class="team-direction-toggle"></div>
+      <div id="stoppedEarlyToggle" class="team-direction-toggle"></div>
     </div>
 
     <div class="tagging-area">
@@ -526,7 +527,7 @@
 
       <details class="panel">
         <summary><h2>Power Ranking vs. Performance</h2></summary>
-        <p class="hint">A "power ranking" isn't voted or tracked by this tool: it's the real site's own per-night rank/percentile for each party (rank 1 = best that night, percentile field-size-normalized: 100 = first, 0 = last), pulled from the season spreadsheet as a frozen historical record. Paired here with that same player's actual Two-Way/20 in just the games logged for that date, computed live. Only nights with at least one reviewed game show up here at all. The other 10 real parties predate any footage existing, and a night with footage nobody's gotten to reviewing yet is left out too, rather than showing a table of nothing but dashes. A player with no games logged for that specific night still shows "—", not a zero.</p>
+        <p class="hint">A "power ranking" isn't voted or tracked by this tool: it's the real site's own per-night rank/percentile for each party (rank 1 = best that night, percentile field-size-normalized: 100 = first, 0 = last), pulled from the season spreadsheet as a frozen historical record. Paired here with that same player's actual Two-Way/20 in just the games logged for that date, computed live. Only nights with at least one reviewed game show up here at all. The other 10 real parties predate any footage existing, and a night with footage nobody's gotten to reviewing yet is left out too, rather than showing a table of nothing but dashes. A player with no games logged for that specific night still shows "—", not a zero. A game flagged Stopped Early (Export, Review Stopped-Early Games) is left out of that night's Two-Way/20 too: it's exactly the single-game case a partial game would distort undiluted.</p>
         <div id="powerRankingVsPerformance"></div>
       </details>
     </div>
@@ -720,7 +721,7 @@
 
     <details class="panel">
       <summary><h2>Best &amp; Worst Individual Games</h2></summary>
-      <p class="hint">Every player-game ranked by that single game's actual score, deliberately not a per-20 rate or a season total, since the rest of this page normalizes for fair player-to-player comparison and that averages away exactly the thing this panel exists to surface: one specific night's story, buried otherwise inside that game's own box score. <strong>Overall</strong> is Two-Way (Off Rating + Def Rating, the default); <strong>Offense</strong> and <strong>Defense</strong> rank by either half on its own, since a huge scoring night can bury a genuinely dominant defensive one in a combined score, and vice versa. Every player on either roster for a reviewed game gets a row, even a quiet one. On a thin season the two lists are capped so they never show the same handful of games twice, just reversed.</p>
+      <p class="hint">Every player-game ranked by that single game's actual score, deliberately not a per-20 rate or a season total, since the rest of this page normalizes for fair player-to-player comparison and that averages away exactly the thing this panel exists to surface: one specific night's story, buried otherwise inside that game's own box score. <strong>Overall</strong> is Two-Way (Off Rating + Def Rating, the default); <strong>Offense</strong> and <strong>Defense</strong> rank by either half on its own, since a huge scoring night can bury a genuinely dominant defensive one in a combined score, and vice versa. Every player on either roster for a reviewed game gets a row, even a quiet one. On a thin season the two lists are capped so they never show the same handful of games twice, just reversed. A game flagged Stopped Early (Export, Review Stopped-Early Games) never gets a row here: a partial game's score shouldn't compete for a spot against complete ones.</p>
       <div id="individualGamePerformances"></div>
     </details>
 
@@ -1004,6 +1005,12 @@
       <h2>Review Possible Dunks</h2>
       <p class="hint">Close/midrange 2PT field goals logged before the Dunk field existed, so Shot Arc's ball-flight fitting can exclude real dunks. Click Watch film to check, then Dunk or Not a dunk; either answer removes it from this list.</p>
       <div id="dunkReview"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Review Stopped-Early Games</h2>
+      <p class="hint">A game stopped before completion breaks every stat that treats a game as a standardized, comparable unit (Best/Worst Games, Power Ranking vs. Performance, Shot Attempt Differential, Pace/PPP, Win Shares). This can't be detected from the box score alone, the same way <code>dunk</code> needed a human to watch the clip instead of being inferred: if you remember a game being cut short, flag it here. Season-total rate stats are unaffected either way.</p>
+      <div id="stoppedEarlyReview"></div>
     </div>
 
     <div class="panel">
