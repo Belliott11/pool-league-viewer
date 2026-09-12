@@ -2843,6 +2843,7 @@ function renderStatEntry() {
   renderOtherEventsLog(game);
   renderMatchupForm(game);
   renderMatchupTable(game);
+  renderSuggestedPlays(game);
   renderReel(game);
 }
 
@@ -3996,6 +3997,87 @@ function updateReelButtons() {
   const enabled = !!currentVideoEl;
   hBtn.disabled = !enabled;
   lBtn.disabled = !enabled;
+}
+
+// Auto-suggests candidate Highlight/Lowlight clips for the open game from stat signal that's
+// already logged -- dunks, blocks, contested makes, deep 3s, steals, out-of-bounds turnovers, the
+// game-winning shot -- instead of requiring someone to scrub the whole video by eye looking for
+// moments worth clipping. Purely suggestions: nothing is added to game.plays until a real click,
+// same 5-second pad either side of the event's own videoTime markPlay() already uses for a
+// manually-marked clip. Only events with a real videoTime can be suggested at all; an
+// already-added suggestion (a play of the same type, for the same player, within a few seconds of
+// the same timestamp) is filtered back out so re-rendering never re-offers something just added.
+function computeSuggestedPlays(game) {
+  const suggestions = [];
+  const alreadyAdded = (playerId, type, videoTime) => game.plays.some(p =>
+    p.playerId === playerId && p.type === type && Math.abs((p.start + 5) - videoTime) < 3
+  );
+  const add = (playerId, type, videoTime, reason) => {
+    if (!playerId || videoTime === null || videoTime === undefined) return;
+    if (alreadyAdded(playerId, type, videoTime)) return;
+    suggestions.push({ playerId, type, videoTime, reason });
+  };
+
+  game.scoringEvents.forEach(ev => {
+    if (ev.dunk && ev.made !== false) add(ev.scorerId, "highlight", ev.videoTime, "Dunk");
+    if (ev.dunk && ev.made === false) add(ev.scorerId, "lowlight", ev.videoTime, "Missed dunk attempt");
+    if (ev.made !== false && (ev.defenderIds || []).length >= 2) {
+      add(ev.scorerId, "highlight", ev.videoTime, `Contested make (${ev.defenderIds.length} defenders)`);
+    }
+    if (ev.blockerId) {
+      add(ev.blockerId, "highlight", ev.videoTime, "Block");
+      add(ev.scorerId, "lowlight", ev.videoTime, "Shot blocked");
+    }
+    if (ev.made !== false && ev.points === 3 && ev.shotLocation && shotBand(ev.shotLocation, 3) === "deep") {
+      add(ev.scorerId, "highlight", ev.videoTime, "Deep 3");
+    }
+    if (ev.made === false && ev.turnoverEventId) {
+      add(ev.scorerId, "lowlight", ev.videoTime, "Turnover (out of bounds)");
+    }
+  });
+  game.stealEvents.forEach(ev => add(ev.playerId, "highlight", ev.videoTime, "Steal"));
+  const gws = gameWinningShot(game);
+  if (gws) add(gws.scorerId, "highlight", gws.videoTime, "Game-winning bucket");
+
+  suggestions.sort((a, b) => a.videoTime - b.videoTime);
+  return suggestions;
+}
+
+function renderSuggestedPlays(game) {
+  const wrap = document.getElementById("suggestedPlaysList");
+  if (!wrap) return;
+  const suggestions = computeSuggestedPlays(game);
+  if (suggestions.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">Nothing suggested yet -- either nothing in this game\'s log fits, or every suggestion has already been added.</p>';
+    return;
+  }
+  wrap.innerHTML = `<ul class="player-tips-list">${suggestions.map((s, i) => {
+    const player = state.players.find(p => p.id === s.playerId);
+    const icon = s.type === "highlight" ? "🔥" : "👎";
+    const label = s.type === "highlight" ? "Add as Highlight" : "Add as Lowlight";
+    return `<li>
+      <span class="player-tip-icon">${icon}</span>
+      <span>${escapeHtml(player ? player.name : "?")}: ${escapeHtml(s.reason)} (${formatTime(s.videoTime)})
+      <div class="player-tip-watch"><button type="button" class="icon-btn secondary-btn suggested-play-add-btn" data-index="${i}">${label}</button></div>
+      </span>
+    </li>`;
+  }).join("")}</ul>`;
+  wrap.querySelectorAll(".suggested-play-add-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const s = suggestions[parseInt(btn.dataset.index, 10)];
+      game.plays.push({
+        id: uid("play"),
+        type: s.type,
+        start: Math.max(0, s.videoTime - 5),
+        end: s.videoTime + 5,
+        playerId: s.playerId,
+        note: s.reason
+      });
+      saveState();
+      renderSuggestedPlays(game);
+      renderReel(game);
+    });
+  });
 }
 
 function markPlay(type) {
