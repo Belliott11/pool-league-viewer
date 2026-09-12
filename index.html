@@ -720,6 +720,12 @@
     </details>
 
     <details class="panel">
+      <summary><h2>Win Shares Model (beta)</h2></summary>
+      <p class="hint">Diagnostics for the regression behind the Win Shares column below (advanced columns), refit fresh from this season's own logged games every time this page loads. Each stat is sign-constrained to only push in its basketball-plausible direction (points can only help, turnovers can only hurt, etc.), then the data determines the size of that effect within those bounds; the regularization strength (alpha) is picked by leave-one-out cross-validation, not a fixed guess. A weight sitting at exactly 0 isn't a failure: it means that stat isn't adding independent signal once its correlated neighbors are already in the model, given how little data exists so far. <strong>Leave-one-out R&sup2;</strong> and <strong>correlation</strong> are the two numbers worth watching across future refits: report them alongside any change to this model so improvement (or regression) is directly comparable over time. Not enough data yet to trust for anything with real stakes (awards, "who's actually better" claims).</p>
+      <div id="winSharesModelPanel"></div>
+    </details>
+
+    <details class="panel">
       <summary><h2>Best &amp; Worst Individual Games</h2></summary>
       <p class="hint">Every player-game ranked by that single game's actual score, deliberately not a per-20 rate or a season total, since the rest of this page normalizes for fair player-to-player comparison and that averages away exactly the thing this panel exists to surface: one specific night's story, buried otherwise inside that game's own box score. <strong>Overall</strong> is Two-Way (Off Rating + Def Rating, the default); <strong>Offense</strong> and <strong>Defense</strong> rank by either half on its own, since a huge scoring night can bury a genuinely dominant defensive one in a combined score, and vice versa. Every player on either roster for a reviewed game gets a row, even a quiet one. On a thin season the two lists are capped so they never show the same handful of games twice, just reversed. A game flagged Stopped Early (Export, Review Stopped-Early Games) never gets a row here: a partial game's score shouldn't compete for a spot against complete ones.</p>
       <div id="individualGamePerformances"></div>

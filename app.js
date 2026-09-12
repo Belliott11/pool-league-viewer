@@ -6516,17 +6516,41 @@ function computePaceAndPpp(playerId) {
   return { gp: games.length, pace: totalPlays / games.length, ppp: totalPts / totalPlays };
 }
 
-// ---------- Win Shares (see poolean-additional-metrics-spec.md, section 1) ----------
+// ---------- Win Shares: sign-constrained ridge regression (see
+// poolean-winshares-signconstrained-spec.md) ----------
 // BETA/PROVISIONAL, not a finished stat: real NBA Win Shares apportions credit for actual team
 // wins using regression-fit weights against real game margin, rather than an assumed scale like
-// GmSc/Two-Way. This fits that regression fresh from Poolean's own current season data (one row
-// per player-game, ordinary least squares predicting that player's own team margin from their
-// box stats), instead of reusing any earlier fit. With the amount of data logged so far, some
-// coefficients can still come out with an implausible sign (e.g. fouls positive, stops negative)
-// because of collinearity in a still-small sample -- that's expected and doesn't mean the code is
-// wrong, it means the number isn't trustworthy yet. Ship it as an explicitly experimental read,
-// not a finished stat, until it's been refit against meaningfully more games.
-const WIN_SHARES_FEATURES = ["pts", "oreb", "dreb", "ast", "stl", "blk", "tov", "pf"];
+// GmSc/Two-Way. This fits that regression fresh from Poolean's own current season data every time
+// it's computed (one row per player-game, this season's own box stats), instead of reusing any
+// earlier fit.
+//
+// Supersedes an earlier unconstrained fit that produced basketball-impossible signs (fouls
+// positive, defensive stats negative): with only ~38 player-games and several highly correlated
+// defensive predictors (stops/beaten/points-allowed all measure closely related things), an
+// unconstrained fit can assign a paradoxical sign to one variable just to balance the math, not
+// because it found anything real. The fix is NOT hand-picking weights that "look right" -- that
+// would just recreate GmSc's own unvalidated-weights problem under a new name. Instead, each
+// stat is told up front which DIRECTION it can move in (basic, uncontroversial basketball logic:
+// a stop cannot reduce a team's chances, a turnover cannot increase them), and the data determines
+// the actual SIZE of that effect within those bounds. Direction is domain knowledge; magnitude
+// stays fully data-driven.
+//
+// Personal fouls are dropped as a predictor entirely (not just sign-constrained): near-zero
+// information in this sample (most player-games log 0 fouls), and the source of the worst sign
+// violation in the original fit. Safe to reintroduce once there's enough foul data to fit
+// meaningfully. `sign: 1` means this stat can only help (weight >= 0); `sign: -1` means it can
+// only hurt (weight <= 0).
+const WIN_SHARES_FEATURES = [
+  { key: "pts", label: "Points", sign: 1, extract: (s, sh, def) => s.pts },
+  { key: "fga", label: "Shot Attempts", sign: -1, extract: (s, sh, def) => sh.fga },
+  { key: "oreb", label: "Off Rebounds", sign: 1, extract: (s, sh, def) => s.oreb },
+  { key: "dreb", label: "Def Rebounds", sign: 1, extract: (s, sh, def) => s.dreb },
+  { key: "ast", label: "Assists", sign: 1, extract: (s, sh, def) => s.ast },
+  { key: "tov", label: "Turnovers", sign: -1, extract: (s, sh, def) => s.tov },
+  { key: "stops", label: "Stops", sign: 1, extract: (s, sh, def) => def.stops },
+  { key: "beaten", label: "Beaten", sign: -1, extract: (s, sh, def) => def.timesBeaten },
+  { key: "ptsAllowed", label: "Pts Allowed", sign: -1, extract: (s, sh, def) => def.ptsAllowed },
+];
 
 function winSharesRegressionRows() {
   const rows = [];
@@ -6540,57 +6564,160 @@ function winSharesRegressionRows() {
     [...game.teamA.map(id => ({ id, own: scoreA, opp: scoreB })),
      ...game.teamB.map(id => ({ id, own: scoreB, opp: scoreA }))].forEach(({ id, own, opp }) => {
       const s = getOrCreatePlayerStats(game, id);
-      rows.push({ features: WIN_SHARES_FEATURES.map(key => s[key]), margin: own - opp });
+      const sh = shootingStats(game, id);
+      const def = gameDefenseStats(game, id);
+      rows.push({ features: WIN_SHARES_FEATURES.map(f => f.extract(s, sh, def)), margin: own - opp });
     });
   });
   return rows;
 }
 
-// Ordinary least squares via the normal equations (X^T X) w = X^T y, solved by Gaussian
-// elimination with partial pivoting -- a small, fixed feature count, no need for a library.
-function fitLinearRegression(rows) {
-  const n = rows.length;
-  const k = WIN_SHARES_FEATURES.length + 1; // + intercept
-  if (n < k) return null; // not enough player-games yet to fit this many terms at all
-  const X = rows.map(r => [1, ...r.features]);
-  const y = rows.map(r => r.margin);
-
-  const XtX = Array.from({ length: k }, () => new Array(k).fill(0));
-  const Xty = new Array(k).fill(0);
-  for (let i = 0; i < n; i++) {
-    for (let a = 0; a < k; a++) {
-      Xty[a] += X[i][a] * y[i];
-      for (let b = 0; b < k; b++) XtX[a][b] += X[i][a] * X[i][b];
-    }
-  }
-
-  const aug = XtX.map((row, i) => [...row, Xty[i]]);
-  for (let col = 0; col < k; col++) {
-    let pivot = col;
-    for (let row = col + 1; row < k; row++) {
-      if (Math.abs(aug[row][col]) > Math.abs(aug[pivot][col])) pivot = row;
-    }
-    if (Math.abs(aug[pivot][col]) < 1e-9) return null; // singular: not enough independent data yet
-    [aug[col], aug[pivot]] = [aug[pivot], aug[col]];
-    for (let row = 0; row < k; row++) {
-      if (row === col) continue;
-      const factor = aug[row][col] / aug[col][col];
-      for (let c = col; c <= k; c++) aug[row][c] -= factor * aug[col][c];
-    }
-  }
-  const coeffs = aug.map((row, i) => row[k] / row[i]);
-  return {
-    intercept: coeffs[0],
-    weights: WIN_SHARES_FEATURES.reduce((acc, key, i) => { acc[key] = coeffs[i + 1]; return acc; }, {}),
-  };
+function matVec(M, v) {
+  return M.map(row => row.reduce((sum, x, j) => sum + x * v[j], 0));
 }
+
+function dotProduct(a, b) {
+  return a.reduce((sum, x, i) => sum + x * b[i], 0);
+}
+
+// Largest eigenvalue of a small symmetric matrix via power iteration -- used to pick a safe,
+// guaranteed-convergent step size for the projected gradient descent below. A real eigensolver
+// would be overkill for a fixed 9x9 matrix; a few dozen iterations of power iteration gets close
+// enough for that purpose.
+function largestEigenvalue(M, iterations = 200) {
+  let v = M.map(() => 1);
+  for (let it = 0; it < iterations; it++) {
+    const Mv = matVec(M, v);
+    const norm = Math.sqrt(dotProduct(Mv, Mv)) || 1;
+    v = Mv.map(x => x / norm);
+  }
+  return dotProduct(v, matVec(M, v));
+}
+
+// Zero-mean, unit-variance per column. Fitting in this space keeps gradient descent
+// well-conditioned regardless of each stat's raw scale (points vs. turnovers), and doesn't change
+// any coefficient's SIGN -- dividing by a standard deviation (always positive) can't flip a sign
+// constraint's direction, so the same bounds apply unchanged in either space.
+function standardizeColumns(X) {
+  const n = X.length, k = X[0].length;
+  const means = new Array(k).fill(0), stds = new Array(k).fill(0);
+  for (let j = 0; j < k; j++) means[j] = X.reduce((sum, row) => sum + row[j], 0) / n;
+  for (let j = 0; j < k; j++) {
+    const variance = X.reduce((sum, row) => sum + (row[j] - means[j]) ** 2, 0) / n;
+    stds[j] = Math.sqrt(variance) || 1; // guards a column with zero variance (e.g. all-zero stat)
+  }
+  return { Z: X.map(row => row.map((x, j) => (x - means[j]) / stds[j])), means, stds };
+}
+
+// Ridge regression (squared error + alpha * sum(weights^2)) subject to a per-feature sign bound,
+// solved by projected gradient descent -- exact for this convex quadratic problem, just found
+// iteratively instead of via a closed-form normal-equation solve, since box constraints have no
+// closed form the way plain ridge does. Z/yc must already be standardized/mean-centered (see
+// fitSignConstrainedRidge below); bounds are [lo, hi] pairs in that same standardized space.
+function projectedRidge(Z, yc, bounds, alpha, iterations = 1500) {
+  const n = Z.length, k = bounds.length;
+  const ZtZ = Array.from({ length: k }, (_, a) =>
+    Array.from({ length: k }, (_, b) => {
+      let sum = 0;
+      for (let i = 0; i < n; i++) sum += Z[i][a] * Z[i][b];
+      return sum;
+    })
+  );
+  const Zty = new Array(k).fill(0);
+  for (let i = 0; i < n; i++) for (let a = 0; a < k; a++) Zty[a] += Z[i][a] * yc[i];
+
+  const step = 1 / (2 * (largestEigenvalue(ZtZ) + alpha)); // Lipschitz-safe step size
+  let w = new Array(k).fill(0);
+  for (let it = 0; it < iterations; it++) {
+    const ZtZw = matVec(ZtZ, w);
+    w = w.map((wj, j) => {
+      const grad = 2 * (ZtZw[j] - Zty[j]) + 2 * alpha * wj;
+      return Math.min(bounds[j][1], Math.max(bounds[j][0], wj - step * grad));
+    });
+  }
+  return w;
+}
+
+function fitSignConstrainedRidge(rows, alpha) {
+  const n = rows.length;
+  const k = WIN_SHARES_FEATURES.length;
+  if (n < k + 1) return null;
+  const X = rows.map(r => r.features);
+  const y = rows.map(r => r.margin);
+  const { Z, means, stds } = standardizeColumns(X);
+  const yMean = y.reduce((a, b) => a + b, 0) / n;
+  const yc = y.map(v => v - yMean);
+  const bounds = WIN_SHARES_FEATURES.map(f => f.sign > 0 ? [0, Infinity] : [-Infinity, 0]);
+  const wStd = projectedRidge(Z, yc, bounds, alpha);
+  // Un-standardize: z_j = (x_j - mean_j)/std_j, so a fit of y ~ b0std + sum(wStd_j * z_j) is
+  // equivalent to y ~ (b0std - sum(wStd_j * mean_j/std_j)) + sum((wStd_j/std_j) * x_j).
+  const weights = {};
+  WIN_SHARES_FEATURES.forEach((f, j) => { weights[f.key] = wStd[j] / stds[j]; });
+  const intercept = yMean - WIN_SHARES_FEATURES.reduce((sum, f, j) => sum + weights[f.key] * means[j], 0);
+  return { intercept, weights };
+}
+
+function predictMargin(features, fit) {
+  return WIN_SHARES_FEATURES.reduce((sum, f, j) => sum + fit.weights[f.key] * features[j], fit.intercept);
+}
+
+function computeR2(actual, predicted) {
+  const n = actual.length;
+  const mean = actual.reduce((a, b) => a + b, 0) / n;
+  const ssTot = actual.reduce((sum, v) => sum + (v - mean) ** 2, 0);
+  const ssRes = actual.reduce((sum, v, i) => sum + (v - predicted[i]) ** 2, 0);
+  return ssTot > 0 ? 1 - ssRes / ssTot : 0;
+}
+
+function pearsonCorrelation(a, b) {
+  const n = a.length;
+  const meanA = a.reduce((x, y) => x + y, 0) / n;
+  const meanB = b.reduce((x, y) => x + y, 0) / n;
+  let num = 0, denA = 0, denB = 0;
+  for (let i = 0; i < n; i++) {
+    const da = a[i] - meanA, db = b[i] - meanB;
+    num += da * db; denA += da * da; denB += db * db;
+  }
+  const den = Math.sqrt(denA * denB);
+  return den > 0 ? num / den : 0;
+}
+
+// Honest, not in-sample: refits on all-but-one player-game, predicts the held-out one, repeats
+// for every row -- required on every refit per the spec, since in-sample fit always looks
+// artificially good and would hide exactly the instability this whole redesign exists to catch.
+function leaveOneOutDiagnostics(rows, alpha) {
+  const n = rows.length;
+  const predicted = [];
+  for (let i = 0; i < n; i++) {
+    const trainRows = rows.slice(0, i).concat(rows.slice(i + 1));
+    const fit = fitSignConstrainedRidge(trainRows, alpha);
+    if (!fit) return null;
+    predicted.push(predictMargin(rows[i].features, fit));
+  }
+  const actual = rows.map(r => r.margin);
+  return { r2: computeR2(actual, predicted), correlation: pearsonCorrelation(actual, predicted) };
+}
+
+// Alpha (regularization strength) is chosen by the same leave-one-out validation the spec asks
+// for, not a fixed guess: whichever grid value gives the best honest out-of-sample R² wins.
+const WIN_SHARES_ALPHA_GRID = [0.1, 1, 3, 10, 30, 100];
 
 function computeWinSharesWeights() {
-  return fitLinearRegression(winSharesRegressionRows());
+  const rows = winSharesRegressionRows();
+  if (rows.length < WIN_SHARES_FEATURES.length + 1) return null;
+  let best = null;
+  WIN_SHARES_ALPHA_GRID.forEach(alpha => {
+    const diag = leaveOneOutDiagnostics(rows, alpha);
+    if (diag && (!best || diag.r2 > best.diag.r2)) best = { alpha, diag };
+  });
+  if (!best) return null;
+  const fit = fitSignConstrainedRidge(rows, best.alpha);
+  if (!fit) return null;
+  return { ...fit, alpha: best.alpha, looR2: best.diag.r2, looCorrelation: best.diag.correlation, n: rows.length };
 }
 
-function playerMarginContribution(s, weights) {
-  return WIN_SHARES_FEATURES.reduce((sum, key) => sum + weights.weights[key] * s[key], weights.intercept);
+function playerMarginContribution(s, sh, def, fit) {
+  return WIN_SHARES_FEATURES.reduce((sum, f) => sum + fit.weights[f.key] * f.extract(s, sh, def), fit.intercept);
 }
 
 // Per the spec: a win contributes a fixed 1.0 "win" to be split across that team's own roster,
@@ -6614,13 +6741,43 @@ function computeWinShares(playerId, weights) {
     const won = onA ? scoreA > scoreB : scoreB > scoreA;
     if (!won) return;
     const contribs = myTeam.map(pid => ({
-      pid, c: Math.max(0, playerMarginContribution(getOrCreatePlayerStats(game, pid), weights)),
+      pid, c: Math.max(0, playerMarginContribution(
+        getOrCreatePlayerStats(game, pid), shootingStats(game, pid), gameDefenseStats(game, pid), weights,
+      )),
     }));
     const sum = contribs.reduce((acc, c) => acc + c.c, 0);
     const mine = contribs.find(c => c.pid === playerId).c;
     total += sum > 0 ? mine / sum : 1 / myTeam.length;
   });
   return { gp: games.length, winShares: total };
+}
+
+// See poolean-winshares-signconstrained-spec.md's own "what a weight landing at exactly 0 means"
+// section: this isn't a failure of the method, it means that stat isn't adding independent
+// predictive information once other, correlated stats are already in the model. Purely a display
+// helper for the Win Shares Model panel below.
+function renderWinSharesModelPanel() {
+  const wrap = document.getElementById("winSharesModelPanel");
+  if (!wrap) return;
+  const weights = computeWinSharesWeights();
+  if (!weights) {
+    wrap.innerHTML = '<p class="empty-state">Not enough reviewed, non-stopped-early games yet to fit this model.</p>';
+    return;
+  }
+  const rows = WIN_SHARES_FEATURES.map(f => {
+    const w = weights.weights[f.key];
+    const atFloor = Math.abs(w) < 1e-6;
+    return `<tr><td>${escapeHtml(f.label)}</td><td>${w >= 0 ? "+" : ""}${w.toFixed(3)}${atFloor ? ' <span class="hint" style="margin:0">(0: no independent signal yet)</span>' : ""}</td></tr>`;
+  }).join("");
+  wrap.innerHTML = `
+    <p class="hint" style="margin-top:0">Fit from <strong>${weights.n}</strong> player-games. Alpha (regularization strength): <strong>${weights.alpha}</strong>. Leave-one-out R&sup2;: <strong>${weights.looR2.toFixed(2)}</strong>. Leave-one-out correlation (predicted vs. actual margin): <strong>${weights.looCorrelation.toFixed(2)}</strong>.</p>
+    <div class="table-scroll">
+      <table class="matchup-table">
+        <thead><tr><th>Stat</th><th>Fitted Weight</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 function computeLeagueTsByZone() {
@@ -7952,7 +8109,7 @@ const LEADERBOARD_COLUMNS = [
   { key: "winshares", label: "Win Shares (beta)", advanced: true,
     accessor: r => r.winShares ? r.winShares.winShares : null,
     display: r => r.winShares ? r.winShares.winShares.toFixed(2) : "—",
-    tooltip: "Experimental, provisional: this season's share of actual team wins credited to this player, from a regression fit fresh against real game margins (not an assumed points scale like GmSc/Two-Way). With the amount of data logged so far, some of the fitted weights can still come out with an implausible sign (e.g. fouls scoring positive) due to collinearity in a small sample, so treat this as a number to watch, not a settled read, until it's been refit on meaningfully more games. Excludes any game flagged Stopped Early: a margin from an incomplete game isn't a real outcome to fit against." },
+    tooltip: "Experimental, provisional: this season's share of actual team wins credited to this player, from a regression fit fresh against real game margins (not an assumed points scale like GmSc/Two-Way), sign-constrained so each stat can only push in its basketball-plausible direction. See the Win Shares Model panel below for this fit's current sample size, alpha, and leave-one-out validation numbers. Not enough data yet to trust for anything with real stakes. Excludes any game flagged Stopped Early: a margin from an incomplete game isn't a real outcome to fit against." },
   { key: "dunks", label: "Dunks", advanced: true, accessor: r => r.dunks, tooltip: "Made dunks, season total (not per-20: a counting stat, not a rate). Only counts shots tagged as a dunk in Stat Entry; games logged before that field existed need a manual pass (Export, Review Possible Dunks) before they count here." },
   { key: "dunkpct", label: "Dunk%", advanced: true, accessor: r => r.dunkPct, display: r => formatPct(r.dunkPct), tooltip: "Share of this player's own field goal attempts (2s and 3s combined) that were tagged as a dunk, make or miss: how much of their offense is above the rim. Same Review Possible Dunks caveat as Dunks: undercounts until older games are backfilled." },
   { key: "oreb", label: "OREB/20", accessor: r => r.rate.oreb, display: r => r.rate.oreb.toFixed(1), tooltip: "Offensive rebounds (grabbed by a teammate of the shooter), per 20 combined points." },
@@ -8156,6 +8313,7 @@ function renderLeaderboard() {
   renderSecondChancePanel();
   renderGameWinningBucketsPanel();
   renderDefensiveLoadPanel();
+  renderWinSharesModelPanel();
   renderCloseGameShootingPanel();
   renderIndividualGamePerformances();
   renderLeagueHighlights();
