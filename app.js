@@ -6628,16 +6628,21 @@ function standardizeColumns(X) {
   return { Z: X.map(row => row.map((x, j) => (x - means[j]) / stds[j])), means, stds };
 }
 
-// Ridge regression (squared error + alpha * sum((weight - prior)^2)) subject to a per-feature
-// sign bound, solved by projected gradient descent -- exact for this convex quadratic problem,
-// just found iteratively instead of via a closed-form normal-equation solve, since box
+// Ridge regression (squared error + sum(alpha_j * (weight_j - prior_j)^2)) subject to a
+// per-feature sign bound, solved by projected gradient descent -- exact for this convex quadratic
+// problem, just found iteratively instead of via a closed-form normal-equation solve, since box
 // constraints have no closed form the way plain ridge does. Standard ridge is the special case
 // prior = 0 for every feature (shrink toward "no effect"); a nonzero prior (assists, see
 // WIN_SHARES_FEATURES above) shrinks toward that value instead, a weakly-informative Bayesian
 // prior rather than a hard-coded weight -- the data can still override it given enough signal.
-// Z/yc must already be standardized/mean-centered (see fitSignConstrainedRidge below); bounds and
-// priorsStd are both in that same standardized space.
-function projectedRidge(Z, yc, bounds, priorsStd, alpha, iterations = 1500) {
+// alphaVec lets each feature have its OWN regularization strength rather than sharing one global
+// value -- assists gets its own (see computeWinSharesWeights below), a standard technique (
+// feature-specific shrinkage), since sharing the global alpha left the assist prior technically
+// present but functionally inert: the data's own pull dominated a shrinkage strength tuned for
+// every OTHER feature, not specifically for how hard to lean on this one prior. Z/yc must already
+// be standardized/mean-centered (see fitSignConstrainedRidge below); bounds and priorsStd are
+// both in that same standardized space.
+function projectedRidge(Z, yc, bounds, priorsStd, alphaVec, iterations = 1500) {
   const n = Z.length, k = bounds.length;
   const ZtZ = Array.from({ length: k }, (_, a) =>
     Array.from({ length: k }, (_, b) => {
@@ -6649,20 +6654,20 @@ function projectedRidge(Z, yc, bounds, priorsStd, alpha, iterations = 1500) {
   const Zty = new Array(k).fill(0);
   for (let i = 0; i < n; i++) for (let a = 0; a < k; a++) Zty[a] += Z[i][a] * yc[i];
 
-  const step = 1 / (2 * (largestEigenvalue(ZtZ) + alpha)); // Lipschitz-safe step size
+  const step = 1 / (2 * (largestEigenvalue(ZtZ) + Math.max(...alphaVec))); // Lipschitz-safe step size
   let w = priorsStd.slice(); // start from the prior rather than 0 -- purely an initialization,
                               // doesn't change what the optimizer converges to
   for (let it = 0; it < iterations; it++) {
     const ZtZw = matVec(ZtZ, w);
     w = w.map((wj, j) => {
-      const grad = 2 * (ZtZw[j] - Zty[j]) + 2 * alpha * (wj - priorsStd[j]);
+      const grad = 2 * (ZtZw[j] - Zty[j]) + 2 * alphaVec[j] * (wj - priorsStd[j]);
       return Math.min(bounds[j][1], Math.max(bounds[j][0], wj - step * grad));
     });
   }
   return w;
 }
 
-function fitSignConstrainedRidge(rows, alpha) {
+function fitSignConstrainedRidge(rows, alphaVec) {
   const n = rows.length;
   const k = WIN_SHARES_FEATURES.length;
   if (n < k + 1) return null;
@@ -6676,7 +6681,7 @@ function fitSignConstrainedRidge(rows, alpha) {
   // space the optimizer actually runs in: since w_raw = w_std/std, the equivalent w_std is
   // prior_raw * std.
   const priorsStd = WIN_SHARES_FEATURES.map((f, j) => (f.prior || 0) * stds[j]);
-  const wStd = projectedRidge(Z, yc, bounds, priorsStd, alpha);
+  const wStd = projectedRidge(Z, yc, bounds, priorsStd, alphaVec);
   // Un-standardize: z_j = (x_j - mean_j)/std_j, so a fit of y ~ b0std + sum(wStd_j * z_j) is
   // equivalent to y ~ (b0std - sum(wStd_j * mean_j/std_j)) + sum((wStd_j/std_j) * x_j).
   const weights = {};
@@ -6713,12 +6718,12 @@ function pearsonCorrelation(a, b) {
 // Honest, not in-sample: refits on all-but-one player-game, predicts the held-out one, repeats
 // for every row -- required on every refit per the spec, since in-sample fit always looks
 // artificially good and would hide exactly the instability this whole redesign exists to catch.
-function leaveOneOutDiagnostics(rows, alpha) {
+function leaveOneOutDiagnostics(rows, alphaVec) {
   const n = rows.length;
   const predicted = [];
   for (let i = 0; i < n; i++) {
     const trainRows = rows.slice(0, i).concat(rows.slice(i + 1));
-    const fit = fitSignConstrainedRidge(trainRows, alpha);
+    const fit = fitSignConstrainedRidge(trainRows, alphaVec);
     if (!fit) return null;
     predicted.push(predictMargin(rows[i].features, fit));
   }
@@ -6729,19 +6734,52 @@ function leaveOneOutDiagnostics(rows, alpha) {
 // Alpha (regularization strength) is chosen by the same leave-one-out validation the spec asks
 // for, not a fixed guess: whichever grid value gives the best honest out-of-sample R² wins.
 const WIN_SHARES_ALPHA_GRID = [0.1, 1, 3, 10, 30, 100];
+// A wider grid, tried only for assists (see below), including values well above the global grid
+// -- a strong enough pull toward the prior is exactly the thing a shared global alpha couldn't
+// reach, since anything that strong would over-shrink every OTHER feature too.
+const WIN_SHARES_AST_ALPHA_GRID = [0.1, 1, 3, 10, 30, 100, 300, 1000, 3000];
+
+function alphaVectorFor(globalAlpha, astAlpha) {
+  return WIN_SHARES_FEATURES.map(f => f.key === "ast" ? astAlpha : globalAlpha);
+}
 
 function computeWinSharesWeights() {
   const rows = winSharesRegressionRows();
   if (rows.length < WIN_SHARES_FEATURES.length + 1) return null;
-  let best = null;
+
+  // Stage 1: one shared alpha for every feature (assists included, at this stage) -- same search
+  // as before the feature-specific refinement below.
+  let bestGlobal = null;
   WIN_SHARES_ALPHA_GRID.forEach(alpha => {
-    const diag = leaveOneOutDiagnostics(rows, alpha);
-    if (diag && (!best || diag.r2 > best.diag.r2)) best = { alpha, diag };
+    const diag = leaveOneOutDiagnostics(rows, alphaVectorFor(alpha, alpha));
+    if (diag && (!bestGlobal || diag.r2 > bestGlobal.diag.r2)) bestGlobal = { alpha, diag };
   });
-  if (!best) return null;
-  const fit = fitSignConstrainedRidge(rows, best.alpha);
+  if (!bestGlobal) return null;
+
+  // Stage 2: assists gets its OWN regularization strength (feature-specific shrinkage, a standard
+  // technique -- not the same move as hand-picking a weight), holding every other feature's alpha
+  // fixed at the stage-1 global value. Chosen the same honest way: whichever value gives the best
+  // leave-one-out R², so a stronger pull toward the assist prior only wins if cross-validation
+  // actually supports it -- if the data genuinely doesn't support shrinking assists harder, this
+  // stage will land back near the global value on its own, which is itself an honest result, not
+  // a failure of the mechanism.
+  let bestAst = null;
+  WIN_SHARES_AST_ALPHA_GRID.forEach(astAlpha => {
+    const diag = leaveOneOutDiagnostics(rows, alphaVectorFor(bestGlobal.alpha, astAlpha));
+    if (diag && (!bestAst || diag.r2 > bestAst.diag.r2)) bestAst = { astAlpha, diag };
+  });
+  if (!bestAst) return null;
+
+  const fit = fitSignConstrainedRidge(rows, alphaVectorFor(bestGlobal.alpha, bestAst.astAlpha));
   if (!fit) return null;
-  return { ...fit, alpha: best.alpha, looR2: best.diag.r2, looCorrelation: best.diag.correlation, n: rows.length };
+  return {
+    ...fit,
+    alpha: bestGlobal.alpha,
+    astAlpha: bestAst.astAlpha,
+    looR2: bestAst.diag.r2,
+    looCorrelation: bestAst.diag.correlation,
+    n: rows.length,
+  };
 }
 
 function playerMarginContribution(s, sh, def, fit) {
@@ -6798,7 +6836,7 @@ function renderWinSharesModelPanel() {
     return `<tr><td>${escapeHtml(f.label)}</td><td>${w >= 0 ? "+" : ""}${w.toFixed(3)}${atFloor ? ' <span class="hint" style="margin:0">(0: no independent signal yet)</span>' : ""}</td></tr>`;
   }).join("");
   wrap.innerHTML = `
-    <p class="hint" style="margin-top:0">Fit from <strong>${weights.n}</strong> player-games. Alpha (regularization strength): <strong>${weights.alpha}</strong>. Leave-one-out R&sup2;: <strong>${weights.looR2.toFixed(2)}</strong>. Leave-one-out correlation (predicted vs. actual margin): <strong>${weights.looCorrelation.toFixed(2)}</strong>.</p>
+    <p class="hint" style="margin-top:0">Fit from <strong>${weights.n}</strong> player-games. Alpha (regularization strength): <strong>${weights.alpha}</strong>, except Assists, which gets its own separately-tuned strength (<strong>${weights.astAlpha}</strong>) so its prior can have real pull rather than being technically present but functionally inert. Leave-one-out R&sup2;: <strong>${weights.looR2.toFixed(2)}</strong>. Leave-one-out correlation (predicted vs. actual margin): <strong>${weights.looCorrelation.toFixed(2)}</strong>.</p>
     <div class="table-scroll">
       <table class="matchup-table">
         <thead><tr><th>Stat</th><th>Fitted Weight</th></tr></thead>
