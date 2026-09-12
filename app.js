@@ -6540,15 +6540,34 @@ function computePaceAndPpp(playerId) {
 // violation in the original fit. Safe to reintroduce once there's enough foul data to fit
 // meaningfully. `sign: 1` means this stat can only help (weight >= 0); `sign: -1` means it can
 // only hurt (weight <= 0).
+//
+// Beaten is also dropped, for a checked (not guessed) reason: beaten and points-allowed correlate
+// at 0.987 in this season's own data, essentially perfect redundancy, since points allowed is
+// mostly just beaten count times average shot value. Stops only correlates weakly with either
+// (0.17), so the real problem behind stops landing at 0 wasn't stops being redundant, it was
+// beaten/points-allowed fighting each other over the same credit and eating the model's limited
+// capacity to properly separate stops out. Keeping points-allowed over beaten (not the reverse):
+// points-allowed also captures shot value, a 3 beaten hurts more than a 2, which a raw beaten
+// count can't distinguish.
+//
+// `prior` on assists is a weakly-informative Bayesian prior, not a hand-picked weight: assists and
+// points only correlate at 0.24 here, not nearly enough to explain assists landing implausibly
+// close to points' own weight through redundancy the way beaten/points-allowed did -- with only
+// ~38 rows, a real but modest signal like assists can land almost anywhere by chance. Real
+// basketball analytics generally treats an assist as worth something like a third to half of a
+// point; telling the fit to start there (rather than at 0, ridge's usual default) while still
+// letting the data override it if it strongly disagrees is a real, defensible Bayesian technique,
+// meaningfully different from overriding a coefficient because it looks wrong. This is a
+// stopgap, not a fix -- more data is still the real answer for assists (see
+// poolean-winshares-signconstrained-spec.md's own "known remaining issue").
 const WIN_SHARES_FEATURES = [
   { key: "pts", label: "Points", sign: 1, extract: (s, sh, def) => s.pts },
   { key: "fga", label: "Shot Attempts", sign: -1, extract: (s, sh, def) => sh.fga },
   { key: "oreb", label: "Off Rebounds", sign: 1, extract: (s, sh, def) => s.oreb },
   { key: "dreb", label: "Def Rebounds", sign: 1, extract: (s, sh, def) => s.dreb },
-  { key: "ast", label: "Assists", sign: 1, extract: (s, sh, def) => s.ast },
+  { key: "ast", label: "Assists", sign: 1, prior: 0.4, extract: (s, sh, def) => s.ast },
   { key: "tov", label: "Turnovers", sign: -1, extract: (s, sh, def) => s.tov },
   { key: "stops", label: "Stops", sign: 1, extract: (s, sh, def) => def.stops },
-  { key: "beaten", label: "Beaten", sign: -1, extract: (s, sh, def) => def.timesBeaten },
   { key: "ptsAllowed", label: "Pts Allowed", sign: -1, extract: (s, sh, def) => def.ptsAllowed },
 ];
 
@@ -6609,12 +6628,16 @@ function standardizeColumns(X) {
   return { Z: X.map(row => row.map((x, j) => (x - means[j]) / stds[j])), means, stds };
 }
 
-// Ridge regression (squared error + alpha * sum(weights^2)) subject to a per-feature sign bound,
-// solved by projected gradient descent -- exact for this convex quadratic problem, just found
-// iteratively instead of via a closed-form normal-equation solve, since box constraints have no
-// closed form the way plain ridge does. Z/yc must already be standardized/mean-centered (see
-// fitSignConstrainedRidge below); bounds are [lo, hi] pairs in that same standardized space.
-function projectedRidge(Z, yc, bounds, alpha, iterations = 1500) {
+// Ridge regression (squared error + alpha * sum((weight - prior)^2)) subject to a per-feature
+// sign bound, solved by projected gradient descent -- exact for this convex quadratic problem,
+// just found iteratively instead of via a closed-form normal-equation solve, since box
+// constraints have no closed form the way plain ridge does. Standard ridge is the special case
+// prior = 0 for every feature (shrink toward "no effect"); a nonzero prior (assists, see
+// WIN_SHARES_FEATURES above) shrinks toward that value instead, a weakly-informative Bayesian
+// prior rather than a hard-coded weight -- the data can still override it given enough signal.
+// Z/yc must already be standardized/mean-centered (see fitSignConstrainedRidge below); bounds and
+// priorsStd are both in that same standardized space.
+function projectedRidge(Z, yc, bounds, priorsStd, alpha, iterations = 1500) {
   const n = Z.length, k = bounds.length;
   const ZtZ = Array.from({ length: k }, (_, a) =>
     Array.from({ length: k }, (_, b) => {
@@ -6627,11 +6650,12 @@ function projectedRidge(Z, yc, bounds, alpha, iterations = 1500) {
   for (let i = 0; i < n; i++) for (let a = 0; a < k; a++) Zty[a] += Z[i][a] * yc[i];
 
   const step = 1 / (2 * (largestEigenvalue(ZtZ) + alpha)); // Lipschitz-safe step size
-  let w = new Array(k).fill(0);
+  let w = priorsStd.slice(); // start from the prior rather than 0 -- purely an initialization,
+                              // doesn't change what the optimizer converges to
   for (let it = 0; it < iterations; it++) {
     const ZtZw = matVec(ZtZ, w);
     w = w.map((wj, j) => {
-      const grad = 2 * (ZtZw[j] - Zty[j]) + 2 * alpha * wj;
+      const grad = 2 * (ZtZw[j] - Zty[j]) + 2 * alpha * (wj - priorsStd[j]);
       return Math.min(bounds[j][1], Math.max(bounds[j][0], wj - step * grad));
     });
   }
@@ -6648,7 +6672,11 @@ function fitSignConstrainedRidge(rows, alpha) {
   const yMean = y.reduce((a, b) => a + b, 0) / n;
   const yc = y.map(v => v - yMean);
   const bounds = WIN_SHARES_FEATURES.map(f => f.sign > 0 ? [0, Infinity] : [-Infinity, 0]);
-  const wStd = projectedRidge(Z, yc, bounds, alpha);
+  // A raw-scale prior (e.g. 0.4 points per assist) needs converting into the same standardized
+  // space the optimizer actually runs in: since w_raw = w_std/std, the equivalent w_std is
+  // prior_raw * std.
+  const priorsStd = WIN_SHARES_FEATURES.map((f, j) => (f.prior || 0) * stds[j]);
+  const wStd = projectedRidge(Z, yc, bounds, priorsStd, alpha);
   // Un-standardize: z_j = (x_j - mean_j)/std_j, so a fit of y ~ b0std + sum(wStd_j * z_j) is
   // equivalent to y ~ (b0std - sum(wStd_j * mean_j/std_j)) + sum((wStd_j/std_j) * x_j).
   const weights = {};
