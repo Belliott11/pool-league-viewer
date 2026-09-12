@@ -4738,6 +4738,9 @@ function computeLeaderboard() {
   // the per-player map below (once for every one of ~20 players) would redo the exact same
   // full-league scan 20 times over for no reason.
   const zonePpa = computeLeagueZonePointsPerAttempt();
+  // Same one-time-not-per-player reasoning as zonePpa above: the regression is fit once against
+  // the whole league's current player-games, not refit fresh for each player being scored by it.
+  const winSharesWeights = computeWinSharesWeights();
   return state.players.map(p => {
     // Only games actually logged with real shots count toward GP/averages — a game that's
     // just been rostered (or only carries a historical winner imported with no shot-level
@@ -4838,6 +4841,7 @@ function computeLeaderboard() {
       expectedPoints: computeExpectedPoints(p.id, zonePpa),
       shotAttemptDiff: computeShotAttemptDifferential(p.id),
       paceAndPpp: computePaceAndPpp(p.id),
+      winShares: computeWinShares(p.id, winSharesWeights),
       shotPct: pct(shooting.fga, teamFgaTotal),
       astPct: pct(totals.ast, teamAstTotal),
       orebPct: pct(totals.oreb, orebPoolTotal),
@@ -6473,6 +6477,107 @@ function computePaceAndPpp(playerId) {
   return { gp: games.length, pace: totalPlays / games.length, ppp: totalPts / totalPlays };
 }
 
+// ---------- Win Shares (see poolean-additional-metrics-spec.md, section 1) ----------
+// BETA/PROVISIONAL, not a finished stat: real NBA Win Shares apportions credit for actual team
+// wins using regression-fit weights against real game margin, rather than an assumed scale like
+// GmSc/Two-Way. This fits that regression fresh from Poolean's own current season data (one row
+// per player-game, ordinary least squares predicting that player's own team margin from their
+// box stats), instead of reusing any earlier fit. With the amount of data logged so far, some
+// coefficients can still come out with an implausible sign (e.g. fouls positive, stops negative)
+// because of collinearity in a still-small sample -- that's expected and doesn't mean the code is
+// wrong, it means the number isn't trustworthy yet. Ship it as an explicitly experimental read,
+// not a finished stat, until it's been refit against meaningfully more games.
+const WIN_SHARES_FEATURES = ["pts", "oreb", "dreb", "ast", "stl", "blk", "tov", "pf"];
+
+function winSharesRegressionRows() {
+  const rows = [];
+  state.games.filter(isQualifyingGame).forEach(game => {
+    if (game.scoringEvents.length === 0) return;
+    const scoreA = teamScore(game, game.teamA);
+    const scoreB = teamScore(game, game.teamB);
+    [...game.teamA.map(id => ({ id, own: scoreA, opp: scoreB })),
+     ...game.teamB.map(id => ({ id, own: scoreB, opp: scoreA }))].forEach(({ id, own, opp }) => {
+      const s = getOrCreatePlayerStats(game, id);
+      rows.push({ features: WIN_SHARES_FEATURES.map(key => s[key]), margin: own - opp });
+    });
+  });
+  return rows;
+}
+
+// Ordinary least squares via the normal equations (X^T X) w = X^T y, solved by Gaussian
+// elimination with partial pivoting -- a small, fixed feature count, no need for a library.
+function fitLinearRegression(rows) {
+  const n = rows.length;
+  const k = WIN_SHARES_FEATURES.length + 1; // + intercept
+  if (n < k) return null; // not enough player-games yet to fit this many terms at all
+  const X = rows.map(r => [1, ...r.features]);
+  const y = rows.map(r => r.margin);
+
+  const XtX = Array.from({ length: k }, () => new Array(k).fill(0));
+  const Xty = new Array(k).fill(0);
+  for (let i = 0; i < n; i++) {
+    for (let a = 0; a < k; a++) {
+      Xty[a] += X[i][a] * y[i];
+      for (let b = 0; b < k; b++) XtX[a][b] += X[i][a] * X[i][b];
+    }
+  }
+
+  const aug = XtX.map((row, i) => [...row, Xty[i]]);
+  for (let col = 0; col < k; col++) {
+    let pivot = col;
+    for (let row = col + 1; row < k; row++) {
+      if (Math.abs(aug[row][col]) > Math.abs(aug[pivot][col])) pivot = row;
+    }
+    if (Math.abs(aug[pivot][col]) < 1e-9) return null; // singular: not enough independent data yet
+    [aug[col], aug[pivot]] = [aug[pivot], aug[col]];
+    for (let row = 0; row < k; row++) {
+      if (row === col) continue;
+      const factor = aug[row][col] / aug[col][col];
+      for (let c = col; c <= k; c++) aug[row][c] -= factor * aug[col][c];
+    }
+  }
+  const coeffs = aug.map((row, i) => row[k] / row[i]);
+  return {
+    intercept: coeffs[0],
+    weights: WIN_SHARES_FEATURES.reduce((acc, key, i) => { acc[key] = coeffs[i + 1]; return acc; }, {}),
+  };
+}
+
+function computeWinSharesWeights() {
+  return fitLinearRegression(winSharesRegressionRows());
+}
+
+function playerMarginContribution(s, weights) {
+  return WIN_SHARES_FEATURES.reduce((sum, key) => sum + weights.weights[key] * s[key], weights.intercept);
+}
+
+// Per the spec: a win contributes a fixed 1.0 "win" to be split across that team's own roster,
+// proportional to each player's regression-weighted contribution that game (clipped to
+// non-negative, so a player the model says actively hurt their team gets none of it rather than
+// a negative share); a loss contributes zero, matching the real Win Shares convention. Falls back
+// to an even split if every contribution on a winning team clips to zero.
+function computeWinShares(playerId, weights) {
+  if (!weights) return null;
+  const games = qualifyingGamesForPlayer(playerId).filter(g => g.scoringEvents.length > 0);
+  if (games.length === 0) return null;
+  let total = 0;
+  games.forEach(game => {
+    const onA = game.teamA.includes(playerId);
+    const myTeam = onA ? game.teamA : game.teamB;
+    const scoreA = teamScore(game, game.teamA);
+    const scoreB = teamScore(game, game.teamB);
+    const won = onA ? scoreA > scoreB : scoreB > scoreA;
+    if (!won) return;
+    const contribs = myTeam.map(pid => ({
+      pid, c: Math.max(0, playerMarginContribution(getOrCreatePlayerStats(game, pid), weights)),
+    }));
+    const sum = contribs.reduce((acc, c) => acc + c.c, 0);
+    const mine = contribs.find(c => c.pid === playerId).c;
+    total += sum > 0 ? mine / sum : 1 / myTeam.length;
+  });
+  return { gp: games.length, winShares: total };
+}
+
 function computeLeagueTsByZone() {
   const totals = {};
   LEAGUE_TS_ZONES.forEach(z => totals[z.key] = { pts: 0, fga: 0 });
@@ -7799,6 +7904,10 @@ const LEADERBOARD_COLUMNS = [
     accessor: r => r.paceAndPpp ? r.paceAndPpp.ppp : null,
     display: r => r.paceAndPpp ? r.paceAndPpp.ppp.toFixed(2) : "—",
     tooltip: "Points per total play (their own team's points divided by Pace's play count): scoring efficiency measured against actual plays rather than combined score." },
+  { key: "winshares", label: "Win Shares (beta)", advanced: true,
+    accessor: r => r.winShares ? r.winShares.winShares : null,
+    display: r => r.winShares ? r.winShares.winShares.toFixed(2) : "—",
+    tooltip: "Experimental, provisional: this season's share of actual team wins credited to this player, from a regression fit fresh against real game margins (not an assumed points scale like GmSc/Two-Way). With the amount of data logged so far, some of the fitted weights can still come out with an implausible sign (e.g. fouls scoring positive) due to collinearity in a small sample, so treat this as a number to watch, not a settled read, until it's been refit on meaningfully more games." },
   { key: "dunks", label: "Dunks", advanced: true, accessor: r => r.dunks, tooltip: "Made dunks, season total (not per-20: a counting stat, not a rate). Only counts shots tagged as a dunk in Stat Entry; games logged before that field existed need a manual pass (Export, Review Possible Dunks) before they count here." },
   { key: "dunkpct", label: "Dunk%", advanced: true, accessor: r => r.dunkPct, display: r => formatPct(r.dunkPct), tooltip: "Share of this player's own field goal attempts (2s and 3s combined) that were tagged as a dunk, make or miss: how much of their offense is above the rim. Same Review Possible Dunks caveat as Dunks: undercounts until older games are backfilled." },
   { key: "oreb", label: "OREB/20", accessor: r => r.rate.oreb, display: r => r.rate.oreb.toFixed(1), tooltip: "Offensive rebounds (grabbed by a teammate of the shooter), per 20 combined points." },
