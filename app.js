@@ -6553,19 +6553,32 @@ function computePaceAndPpp(playerId) {
 // `prior` on assists is a weakly-informative Bayesian prior, not a hand-picked weight: assists and
 // points only correlate at 0.24 here, not nearly enough to explain assists landing implausibly
 // close to points' own weight through redundancy the way beaten/points-allowed did -- with only
-// ~38 rows, a real but modest signal like assists can land almost anywhere by chance. Real
-// basketball analytics generally treats an assist as worth something like a third to half of a
-// point; telling the fit to start there (rather than at 0, ridge's usual default) while still
-// letting the data override it if it strongly disagrees is a real, defensible Bayesian technique,
-// meaningfully different from overriding a coefficient because it looks wrong. This is a
-// stopgap, not a fix -- more data is still the real answer for assists (see
-// poolean-winshares-signconstrained-spec.md's own "known remaining issue").
+// ~38 rows, a real but modest signal like assists can land almost anywhere by chance.
+//
+// The prior's VALUE (0.5) is sourced, not guessed: an earlier version of this prior used 0.4 as a
+// round, self-described "somewhere between a third and a half a point" estimate. This is now
+// Basketball-Reference's own published Points Produced formula (Dean Oliver's methodology; see
+// poolean-nba-informed-prior-spec.md) -- specifically its simplified pre-1973-74 form, since the
+// full modern version (qAST) needs per-player and per-team minutes-played data Poolean has no
+// equivalent of at all (verified directly against Basketball-Reference's own methodology before
+// writing this, not assumed from memory): AST_Part = 0.5 * assists, a flat points-per-assist
+// credit already denominated in the same "points" units this whole model's target (game margin)
+// already uses -- no NBA-scale rescaling needed, unlike the formula's FG_Part (which scales a
+// made shot's own credit by the team's assist rate, and isn't used here: it isn't part of the
+// specific implausible-weight problem being fixed, and folding it in would need verifying a
+// second piece of the formula this change didn't need to touch). Telling the fit to start at this
+// sourced value (rather than 0, ridge's usual default) while still letting the data override it
+// if it strongly disagrees is a real, defensible Bayesian technique, meaningfully different from
+// overriding a coefficient because it looks wrong. This is a stopgap, not a fix -- more data is
+// still the real answer for assists (see poolean-winshares-signconstrained-spec.md's own "known
+// remaining issue"), and swapping a guessed constant for a sourced one doesn't change that; it
+// only makes the starting point defensible instead of arbitrary.
 const WIN_SHARES_FEATURES = [
   { key: "pts", label: "Points", sign: 1, extract: (s, sh, def) => s.pts },
   { key: "fga", label: "Shot Attempts", sign: -1, extract: (s, sh, def) => sh.fga },
   { key: "oreb", label: "Off Rebounds", sign: 1, extract: (s, sh, def) => s.oreb },
   { key: "dreb", label: "Def Rebounds", sign: 1, extract: (s, sh, def) => s.dreb },
-  { key: "ast", label: "Assists", sign: 1, prior: 0.4, extract: (s, sh, def) => s.ast },
+  { key: "ast", label: "Assists", sign: 1, prior: 0.5, extract: (s, sh, def) => s.ast },
   { key: "tov", label: "Turnovers", sign: -1, extract: (s, sh, def) => s.tov },
   { key: "stops", label: "Stops", sign: 1, extract: (s, sh, def) => def.stops },
   { key: "ptsAllowed", label: "Pts Allowed", sign: -1, extract: (s, sh, def) => def.ptsAllowed },
