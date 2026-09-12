@@ -2228,6 +2228,29 @@ function openGame(gameId) {
   }
 }
 
+// Same as openGame(), but also seeks to one specific moment once the video's actually loaded --
+// for links reached from OUTSIDE Stat Entry (the Highlights & Lowlights tables' own "▶ Jump"),
+// where there's no video on screen yet the instant this is clicked, unlike the plain createJumpButton()
+// used inside Stat Entry's own tables (Shot Log, Other Events, Matchups, Reel), which only ever
+// need to seek a video that's already loaded. The video loads asynchronously (from IndexedDB,
+// possibly a large blob), so this polls briefly for currentVideoEl to appear rather than assuming
+// it's there the instant openGame() returns.
+function openGameAndSeek(gameId, videoTime) {
+  openGame(gameId);
+  if (videoTime === null || videoTime === undefined) return;
+  const tryJump = attemptsLeft => {
+    if (currentGameId !== gameId) return; // navigated elsewhere before the video was ready
+    if (currentVideoEl) {
+      currentVideoEl.currentTime = videoTime;
+      currentVideoEl.play();
+      currentVideoEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    if (attemptsLeft > 0) setTimeout(() => tryJump(attemptsLeft - 1), 200);
+  };
+  tryJump(25);
+}
+
 // Loads a game's video into an arbitrary <video> element and seeks to one moment, for the inline
 // players "Watch film" buttons open right where they're clicked (Personalized Tips, Notable
 // Matchups, Areas to Work On, Review Possible Dunks) instead of switching away to Stat Entry.
@@ -7940,8 +7963,8 @@ function renderPlayerReel(playerId) {
     const goBtn = document.createElement("button");
     goBtn.type = "button";
     goBtn.className = "secondary-btn";
-    goBtn.textContent = "Go to game";
-    goBtn.addEventListener("click", () => openGame(clip.gameId));
+    goBtn.textContent = "▶ Jump";
+    goBtn.addEventListener("click", () => openGameAndSeek(clip.gameId, clip.start));
     tdBtn.appendChild(goBtn);
     tr.appendChild(tdBtn);
     body.appendChild(tr);
@@ -7986,8 +8009,8 @@ function renderLeagueHighlights() {
     const goBtn = document.createElement("button");
     goBtn.type = "button";
     goBtn.className = "secondary-btn";
-    goBtn.textContent = "Go to game";
-    goBtn.addEventListener("click", () => openGame(clip.gameId));
+    goBtn.textContent = "▶ Jump";
+    goBtn.addEventListener("click", () => openGameAndSeek(clip.gameId, clip.start));
     tdBtn.appendChild(goBtn);
     tr.appendChild(tdBtn);
     body.appendChild(tr);
