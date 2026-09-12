@@ -2931,7 +2931,7 @@ function renderOtherEventsLog(game) {
       <td>${formatVideoTime(ev.videoTime)}</td>
     `;
     const tdJump = document.createElement("td");
-    tdJump.appendChild(createJumpButton(ev.videoTime));
+    tdJump.appendChild(createJumpButton(padJumpTime(ev.videoTime)));
     tr.appendChild(tdJump);
     const tdEdit = document.createElement("td");
     tdEdit.appendChild(createEditTimeButton(t => {
@@ -3134,7 +3134,7 @@ function renderScoringLog(game) {
       <td>${formatVideoTime(ev.videoTime)}</td>
     `;
     const tdJump = document.createElement("td");
-    tdJump.appendChild(createJumpButton(ev.videoTime));
+    tdJump.appendChild(createJumpButton(padJumpTime(ev.videoTime)));
     tr.appendChild(tdJump);
     const tdEdit = document.createElement("td");
     tdEdit.appendChild(createEditTimeButton(t => {
@@ -4010,6 +4010,17 @@ function formatVideoTime(videoTime) {
   return videoTime === null || videoTime === undefined ? "—" : formatTime(videoTime);
 }
 
+// A logged event's own videoTime is the moment itself, not a lead-in -- jumping to it exactly
+// starts playback right as the action is already happening. Shot Log/Other Events/Matchups pass
+// their own raw event time through this before handing it to createJumpButton(), so Jump instead
+// starts a few seconds ahead of the moment, same as every play/highlight already does (their own
+// start is already videoTime-5 by construction; this gives the same lead-in to a plain logged
+// event that has no separately-stored start of its own).
+const JUMP_LEAD_SECONDS = 5;
+function padJumpTime(videoTime) {
+  return videoTime === null || videoTime === undefined ? videoTime : Math.max(0, videoTime - JUMP_LEAD_SECONDS);
+}
+
 // A small "▶ Jump" button for any logged event's timestamp — disabled when there's no video
 // loaded right now, or the event predates timestamp capture and has no time to jump to. Scrolls
 // the video into view on click, not just seeks/plays it — these buttons live in tables (Shot Log,
@@ -4598,7 +4609,7 @@ function renderMatchupTable(game) {
       <td>${formatVideoTime(m.videoTime)}</td>
     `;
     const tdJump = document.createElement("td");
-    tdJump.appendChild(createJumpButton(m.videoTime));
+    tdJump.appendChild(createJumpButton(padJumpTime(m.videoTime)));
     tr.appendChild(tdJump);
     const tdEdit = document.createElement("td");
     tdEdit.appendChild(createEditTimeButton(t => {
