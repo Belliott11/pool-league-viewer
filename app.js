@@ -286,9 +286,14 @@ function normalizeGame(game) {
     // Who was boxing out / contesting position against the rebounder specifically -- the
     // rebound equivalent of defenderIds, see poolean-rebound-battles-spec.md. A real, new
     // per-play tagging step (who was actually matched up on the rebounder at the moment of the
-    // rebound), not inferred from anything already logged -- defaults empty (not yet tagged)
-    // the same way defenderIds does, no separate "unreviewed" state needed.
+    // rebound), not inferred from anything already logged -- defaults empty (not yet tagged).
     if (!ev.reboundContesterIds) ev.reboundContesterIds = [];
+    // Distinct from "not yet reviewed" (empty contesterIds, reboundNoBoxOut false): this is the
+    // explicit, reviewed answer "nobody was actually contesting this rebound at all" -- a real,
+    // informative tag in its own right (an uncontested/leaked-out rebound), not the same as
+    // "didn't look." Needed so the backfill panel can tell the two apart and stop re-surfacing a
+    // shot that's genuinely been reviewed and had nothing to tag.
+    if (ev.reboundNoBoxOut === undefined) ev.reboundNoBoxOut = false;
     if (ev.shotLocation === undefined) ev.shotLocation = null;
   });
   // Turnovers logged before steals (or misses ruled out of bounds) auto-created a linked one
@@ -3041,6 +3046,7 @@ let editAssist = null;
 let editBlocker = null;
 let editRebounder = null;
 let editReboundContesters = new Set();
+let editNoBoxOut = false;
 
 function renderShotEditRow(game, ev) {
   const scorerOnA = game.teamA.includes(ev.scorerId);
@@ -3091,10 +3097,14 @@ function renderShotEditRow(game, ev) {
             const rebounderOnScorerSide = editRebounder === ev.scorerId || teammateIds.includes(editRebounder);
             const contesterIds = rebounderOnScorerSide ? opponentIds : [ev.scorerId, ...teammateIds];
             const contesters = contesterIds.map(id => state.players.find(p => p.id === id)).filter(Boolean);
+            // "Not tagged" (haven't looked / unsure) and "No box out" (looked, confirmed nobody
+            // was actually contesting it -- a genuine, uncontested/leaked-out rebound) are two
+            // different, real answers, not the same blank state -- see reboundNoBoxOut above.
             return `
               <div class="stat-label" style="margin-top:6px">Boxing out the rebounder (Rebound Battles -- tag only if you're sure)</div>
               <div class="defender-pick-list">
-                <button type="button" class="secondary-btn${editReboundContesters.size === 0 ? " selected" : ""}" data-edit-nocontester="1">Not tagged</button>
+                <button type="button" class="secondary-btn${editReboundContesters.size === 0 && !editNoBoxOut ? " selected" : ""}" data-edit-nocontester="1">Not tagged</button>
+                <button type="button" class="secondary-btn${editNoBoxOut ? " selected" : ""}" data-edit-noboxout="1">No box out (uncontested)</button>
                 ${contesters.map(c => `<button type="button" class="secondary-btn${editReboundContesters.has(c.id) ? " selected" : ""}" data-edit-contester="${c.id}">${escapeHtml(c.name)}</button>`).join("")}
               </div>
             `;
@@ -3129,20 +3139,24 @@ function renderShotEditRow(game, ev) {
       // Changing (or clearing) the rebounder invalidates any already-picked contesters -- the
       // candidate side flips depending on who the rebounder is, so a stale pick from before the
       // change could silently point at the wrong team.
-      tr.querySelector("[data-edit-norebound]").addEventListener("click", () => { editRebounder = null; editReboundContesters.clear(); renderScoringLog(game); });
+      tr.querySelector("[data-edit-norebound]").addEventListener("click", () => { editRebounder = null; editReboundContesters.clear(); editNoBoxOut = false; renderScoringLog(game); });
       tr.querySelectorAll("[data-edit-rebound]").forEach(b => {
         b.addEventListener("click", () => {
           editRebounder = editRebounder === b.dataset.editRebound ? null : b.dataset.editRebound;
           editReboundContesters.clear();
+          editNoBoxOut = false;
           renderScoringLog(game);
         });
       });
       const noContesterBtn = tr.querySelector("[data-edit-nocontester]");
-      if (noContesterBtn) noContesterBtn.addEventListener("click", () => { editReboundContesters.clear(); renderScoringLog(game); });
+      if (noContesterBtn) noContesterBtn.addEventListener("click", () => { editReboundContesters.clear(); editNoBoxOut = false; renderScoringLog(game); });
+      const noBoxOutBtn = tr.querySelector("[data-edit-noboxout]");
+      if (noBoxOutBtn) noBoxOutBtn.addEventListener("click", () => { editReboundContesters.clear(); editNoBoxOut = !editNoBoxOut; renderScoringLog(game); });
       tr.querySelectorAll("[data-edit-contester]").forEach(b => {
         b.addEventListener("click", () => {
           const id = b.dataset.editContester;
           if (editReboundContesters.has(id)) editReboundContesters.delete(id); else editReboundContesters.add(id);
+          editNoBoxOut = false;
           renderScoringLog(game);
         });
       });
@@ -3157,6 +3171,7 @@ function renderShotEditRow(game, ev) {
       if (!ev.turnoverEventId) {
         ev.rebounderId = editRebounder;
         ev.reboundContesterIds = editRebounder ? [...editReboundContesters] : [];
+        ev.reboundNoBoxOut = editRebounder ? editNoBoxOut : false;
       }
     }
     editingShotId = null;
@@ -3225,6 +3240,8 @@ function renderScoringLog(game) {
       if ((ev.reboundContesterIds || []).length > 0) {
         const contesterNames = ev.reboundContesterIds.map(id => state.players.find(p => p.id === id)?.name).filter(Boolean).join(" + ");
         resultBadge += ` <span class="badge" title="Rebound Battles: who was boxing out ${escapeHtml(rebounder.name)}">Boxed by: ${escapeHtml(contesterNames)}</span>`;
+      } else if (ev.reboundNoBoxOut) {
+        resultBadge += ` <span class="badge" title="Rebound Battles: reviewed, nobody was actually contesting this rebound">No box out</span>`;
       }
     }
     if (ev.shotLocation) {
@@ -3263,6 +3280,7 @@ function renderScoringLog(game) {
       editBlocker = ev.blockerId;
       editRebounder = ev.rebounderId;
       editReboundContesters = new Set(ev.reboundContesterIds || []);
+      editNoBoxOut = ev.reboundNoBoxOut === true;
       renderScoringLog(game);
     });
     tdBtn.appendChild(editBtn);
@@ -10387,21 +10405,21 @@ function renderDunkReview() {
 }
 
 // ---------- Rebound Battles backfill (see poolean-rebound-battles-spec.md) ----------
-// Every miss with a real rebounder tracked but no box-out contester tagged yet -- a lightweight
-// scan list for piloting the tag on a small batch, same "human judgment, not inferred" stance the
-// picker in Stat Entry's own Shot Log Edit flow uses. One click tags a single contester and
-// resolves the row (the common case -- a genuine double-team box-out is rarer; use Shot Log's own
-// Edit flow for that, which supports tagging more than one). Skip only hides a row for THIS
-// session: unlike dunk's real undefined/true/false tri-state, nothing downstream currently
-// depends on distinguishing "never looked at" from "looked and genuinely unclear," so nothing is
-// written to state for a skip -- a page reload brings skipped rows back. Meant for one focused
-// batch-tagging session at a time, not a permanent, persistent queue.
+// Every miss with a real rebounder tracked but no box-out answer yet -- a lightweight scan list
+// for piloting the tag on a small batch, same "human judgment, not inferred" stance the picker in
+// Stat Entry's own Shot Log Edit flow uses. One click tags a single contester and resolves the
+// row (the common case -- a genuine double-team box-out is rarer; use Shot Log's own Edit flow
+// for that, which supports tagging more than one). "No box out" is a real, persisted answer
+// (reviewed, confirmed nobody was actually contesting it -- an uncontested/leaked-out rebound),
+// distinct from Skip, which only hides a row for THIS session and writes nothing to state (a page
+// reload brings a skipped row back). Meant for one focused batch-tagging session at a time, not a
+// permanent, persistent queue.
 function computeReboundBattleCandidates() {
   const rows = [];
   state.games.forEach(game => {
     game.scoringEvents.forEach(ev => {
       if (ev.made !== false || !ev.rebounderId || ev.turnoverEventId) return;
-      if ((ev.reboundContesterIds || []).length > 0) return;
+      if ((ev.reboundContesterIds || []).length > 0 || ev.reboundNoBoxOut) return;
       rows.push({ game, ev });
     });
   });
@@ -10432,6 +10450,7 @@ function renderReboundBattleReview() {
       <span>${scorer ? escapeHtml(scorer.name) : "?"} miss, ${kind} by ${rebounder ? escapeHtml(rebounder.name) : "?"} (${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
       <div class="button-row" style="margin-top:4px">
         ${contesters.map(c => `<button type="button" class="secondary-btn" data-tag-contester="${ev.id}" data-contester-id="${c.id}">${escapeHtml(c.name)} boxed out</button>`).join("")}
+        <button type="button" class="secondary-btn" data-no-boxout="${ev.id}">No box out</button>
         <button type="button" class="secondary-btn" data-skip-contester="${ev.id}">Skip (unclear)</button>
       </div>
     </li>`;
@@ -10463,6 +10482,15 @@ function renderReboundBattleReview() {
       ev.reboundContesterIds = [btn.dataset.contesterId];
       saveState();
       removeRow(btn.dataset.tagContester);
+    });
+  });
+  wrap.querySelectorAll("[data-no-boxout]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const ev = state.games.flatMap(g => g.scoringEvents).find(e => e.id === btn.dataset.noBoxout);
+      if (!ev) return;
+      ev.reboundNoBoxOut = true;
+      saveState();
+      removeRow(btn.dataset.noBoxout);
     });
   });
   wrap.querySelectorAll("[data-skip-contester]").forEach(btn => {
