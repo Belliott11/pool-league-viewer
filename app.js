@@ -283,6 +283,12 @@ function normalizeGame(game) {
     if (ev.blockerId === undefined) ev.blockerId = null;
     if (ev.turnoverEventId === undefined) ev.turnoverEventId = null;
     if (ev.rebounderId === undefined) ev.rebounderId = null;
+    // Who was boxing out / contesting position against the rebounder specifically -- the
+    // rebound equivalent of defenderIds, see poolean-rebound-battles-spec.md. A real, new
+    // per-play tagging step (who was actually matched up on the rebounder at the moment of the
+    // rebound), not inferred from anything already logged -- defaults empty (not yet tagged)
+    // the same way defenderIds does, no separate "unreviewed" state needed.
+    if (!ev.reboundContesterIds) ev.reboundContesterIds = [];
     if (ev.shotLocation === undefined) ev.shotLocation = null;
   });
   // Turnovers logged before steals (or misses ruled out of bounds) auto-created a linked one
@@ -567,7 +573,7 @@ function showTab(tab) {
   document.getElementById("tab-" + tab).classList.add("active");
   const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
   if (btn) btn.classList.add("active");
-  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderStoppedEarlyReview(); }
+  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); }
   if (tab === "leaderboard") renderLeaderboard();
   // Refreshes the attendee picker against the current roster — cheap, and a player added while
   // on a different tab shouldn't require a page reload to show up here.
@@ -3034,6 +3040,7 @@ let editDefenders = new Set();
 let editAssist = null;
 let editBlocker = null;
 let editRebounder = null;
+let editReboundContesters = new Set();
 
 function renderShotEditRow(game, ev) {
   const scorerOnA = game.teamA.includes(ev.scorerId);
@@ -3073,6 +3080,25 @@ function renderShotEditRow(game, ev) {
             ${teammates.map(t => `<button type="button" class="secondary-btn${editRebounder === t.id ? " selected" : ""}" data-edit-rebound="${t.id}">${escapeHtml(t.name)}</button>`).join("")}
             ${opponents.map(o => `<button type="button" class="secondary-btn${editRebounder === o.id ? " selected" : ""}" data-edit-rebound="${o.id}">${escapeHtml(o.name)} (opp)</button>`).join("")}
           </div>
+          ${editRebounder ? (() => {
+            // Who was boxing out / contesting position against the rebounder specifically --
+            // the rebound equivalent of defenderIds, see poolean-rebound-battles-spec.md. A real
+            // new per-play tagging step, not inferred: leave it blank rather than guess, same
+            // "tag whoever's genuinely contesting" stance shot defense already uses. Candidates
+            // are always the team OPPOSITE the rebounder, not the shooter -- a teammate rebounding
+            // (offensive board) gets contested by the shooter's opponents; an opponent rebounding
+            // (defensive board) gets contested by the shooter's own side.
+            const rebounderOnScorerSide = editRebounder === ev.scorerId || teammateIds.includes(editRebounder);
+            const contesterIds = rebounderOnScorerSide ? opponentIds : [ev.scorerId, ...teammateIds];
+            const contesters = contesterIds.map(id => state.players.find(p => p.id === id)).filter(Boolean);
+            return `
+              <div class="stat-label" style="margin-top:6px">Boxing out the rebounder (Rebound Battles -- tag only if you're sure)</div>
+              <div class="defender-pick-list">
+                <button type="button" class="secondary-btn${editReboundContesters.size === 0 ? " selected" : ""}" data-edit-nocontester="1">Not tagged</button>
+                ${contesters.map(c => `<button type="button" class="secondary-btn${editReboundContesters.has(c.id) ? " selected" : ""}" data-edit-contester="${c.id}">${escapeHtml(c.name)}</button>`).join("")}
+              </div>
+            `;
+          })() : ""}
         `}
       `}
       <div class="confirm-row">
@@ -3100,9 +3126,25 @@ function renderShotEditRow(game, ev) {
       b.addEventListener("click", () => { editBlocker = editBlocker === b.dataset.editBlock ? null : b.dataset.editBlock; renderScoringLog(game); });
     });
     if (!ev.turnoverEventId) {
-      tr.querySelector("[data-edit-norebound]").addEventListener("click", () => { editRebounder = null; renderScoringLog(game); });
+      // Changing (or clearing) the rebounder invalidates any already-picked contesters -- the
+      // candidate side flips depending on who the rebounder is, so a stale pick from before the
+      // change could silently point at the wrong team.
+      tr.querySelector("[data-edit-norebound]").addEventListener("click", () => { editRebounder = null; editReboundContesters.clear(); renderScoringLog(game); });
       tr.querySelectorAll("[data-edit-rebound]").forEach(b => {
-        b.addEventListener("click", () => { editRebounder = editRebounder === b.dataset.editRebound ? null : b.dataset.editRebound; renderScoringLog(game); });
+        b.addEventListener("click", () => {
+          editRebounder = editRebounder === b.dataset.editRebound ? null : b.dataset.editRebound;
+          editReboundContesters.clear();
+          renderScoringLog(game);
+        });
+      });
+      const noContesterBtn = tr.querySelector("[data-edit-nocontester]");
+      if (noContesterBtn) noContesterBtn.addEventListener("click", () => { editReboundContesters.clear(); renderScoringLog(game); });
+      tr.querySelectorAll("[data-edit-contester]").forEach(b => {
+        b.addEventListener("click", () => {
+          const id = b.dataset.editContester;
+          if (editReboundContesters.has(id)) editReboundContesters.delete(id); else editReboundContesters.add(id);
+          renderScoringLog(game);
+        });
       });
     }
   }
@@ -3112,7 +3154,10 @@ function renderShotEditRow(game, ev) {
       ev.assistId = editAssist;
     } else {
       ev.blockerId = editBlocker;
-      if (!ev.turnoverEventId) ev.rebounderId = editRebounder;
+      if (!ev.turnoverEventId) {
+        ev.rebounderId = editRebounder;
+        ev.reboundContesterIds = editRebounder ? [...editReboundContesters] : [];
+      }
     }
     editingShotId = null;
     recomputeDerivedStats(game);
@@ -3177,6 +3222,10 @@ function renderScoringLog(game) {
     if (rebounder) {
       const kind = sameTeam(game, ev.scorerId, rebounder.id) ? "OREB" : "DREB";
       resultBadge += ` <span class="badge">${kind}: ${escapeHtml(rebounder.name)}</span>`;
+      if ((ev.reboundContesterIds || []).length > 0) {
+        const contesterNames = ev.reboundContesterIds.map(id => state.players.find(p => p.id === id)?.name).filter(Boolean).join(" + ");
+        resultBadge += ` <span class="badge" title="Rebound Battles: who was boxing out ${escapeHtml(rebounder.name)}">Boxed by: ${escapeHtml(contesterNames)}</span>`;
+      }
     }
     if (ev.shotLocation) {
       const zone = ev.shotLocation.y >= 60 ? "3PT range" : "2PT range";
@@ -3213,6 +3262,7 @@ function renderScoringLog(game) {
       editAssist = ev.assistId;
       editBlocker = ev.blockerId;
       editRebounder = ev.rebounderId;
+      editReboundContesters = new Set(ev.reboundContesterIds || []);
       renderScoringLog(game);
     });
     tdBtn.appendChild(editBtn);
@@ -10333,6 +10383,90 @@ function renderDunkReview() {
   });
   wrap.querySelectorAll("[data-mark-notdunk]").forEach(btn => {
     btn.addEventListener("click", () => resolveRow(btn.dataset.markNotdunk, false));
+  });
+}
+
+// ---------- Rebound Battles backfill (see poolean-rebound-battles-spec.md) ----------
+// Every miss with a real rebounder tracked but no box-out contester tagged yet -- a lightweight
+// scan list for piloting the tag on a small batch, same "human judgment, not inferred" stance the
+// picker in Stat Entry's own Shot Log Edit flow uses. One click tags a single contester and
+// resolves the row (the common case -- a genuine double-team box-out is rarer; use Shot Log's own
+// Edit flow for that, which supports tagging more than one). Skip only hides a row for THIS
+// session: unlike dunk's real undefined/true/false tri-state, nothing downstream currently
+// depends on distinguishing "never looked at" from "looked and genuinely unclear," so nothing is
+// written to state for a skip -- a page reload brings skipped rows back. Meant for one focused
+// batch-tagging session at a time, not a permanent, persistent queue.
+function computeReboundBattleCandidates() {
+  const rows = [];
+  state.games.forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.made !== false || !ev.rebounderId || ev.turnoverEventId) return;
+      if ((ev.reboundContesterIds || []).length > 0) return;
+      rows.push({ game, ev });
+    });
+  });
+  return rows.sort((a, b) => (a.game.date || "").localeCompare(b.game.date || ""));
+}
+
+function renderReboundBattleReview() {
+  const wrap = document.getElementById("reboundBattleReview");
+  if (!wrap) return;
+  const rows = computeReboundBattleCandidates();
+  if (rows.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">No untagged rebounds left to review this session.</p>';
+    return;
+  }
+  wrap.innerHTML = `<p class="hint rebound-battle-review-summary" style="margin-top:0">${rows.length} rebound${rows.length === 1 ? "" : "s"} still untagged.</p>
+  <ul class="player-tips-list">${rows.map(({ game, ev }) => {
+    const scorer = state.players.find(p => p.id === ev.scorerId);
+    const rebounder = state.players.find(p => p.id === ev.rebounderId);
+    const hasTime = ev.videoTime !== null && ev.videoTime !== undefined;
+    const watchLinks = watchFilmLinksHtml(hasTime ? [{ id: game.id, date: game.date, videoTime: ev.videoTime }] : []);
+    const scorerTeam = game.teamA.includes(ev.scorerId) ? game.teamA : game.teamB;
+    const opponentTeam = game.teamA.includes(ev.scorerId) ? game.teamB : game.teamA;
+    const rebounderOnScorerSide = scorerTeam.includes(ev.rebounderId);
+    const contesterIds = rebounderOnScorerSide ? opponentTeam : scorerTeam;
+    const contesters = contesterIds.map(id => state.players.find(p => p.id === id)).filter(Boolean);
+    const kind = rebounderOnScorerSide ? "OREB" : "DREB";
+    return `<li data-event-id="${ev.id}">
+      <span>${scorer ? escapeHtml(scorer.name) : "?"} miss, ${kind} by ${rebounder ? escapeHtml(rebounder.name) : "?"} (${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
+      <div class="button-row" style="margin-top:4px">
+        ${contesters.map(c => `<button type="button" class="secondary-btn" data-tag-contester="${ev.id}" data-contester-id="${c.id}">${escapeHtml(c.name)} boxed out</button>`).join("")}
+        <button type="button" class="secondary-btn" data-skip-contester="${ev.id}">Skip (unclear)</button>
+      </div>
+    </li>`;
+  }).join("")}</ul>`;
+  wireWatchFilmButtons(wrap);
+
+  const summaryEl = wrap.querySelector(".rebound-battle-review-summary");
+  const listEl = wrap.querySelector("ul");
+  const removeRow = eventId => {
+    listEl.querySelector(`li[data-event-id="${eventId}"]`)?.remove();
+    const left = listEl.querySelectorAll("li").length;
+    if (left === 0) {
+      listEl.remove();
+      summaryEl.textContent = "";
+      if (!wrap.querySelector(".rebound-battle-review-done-msg")) {
+        const doneMsg = document.createElement("p");
+        doneMsg.className = "empty-state rebound-battle-review-done-msg";
+        doneMsg.textContent = "No untagged rebounds left to review this session.";
+        wrap.appendChild(doneMsg);
+      }
+    } else {
+      summaryEl.textContent = `${left} rebound${left === 1 ? "" : "s"} still untagged.`;
+    }
+  };
+  wrap.querySelectorAll("[data-tag-contester]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const ev = state.games.flatMap(g => g.scoringEvents).find(e => e.id === btn.dataset.tagContester);
+      if (!ev) return;
+      ev.reboundContesterIds = [btn.dataset.contesterId];
+      saveState();
+      removeRow(btn.dataset.tagContester);
+    });
+  });
+  wrap.querySelectorAll("[data-skip-contester]").forEach(btn => {
+    btn.addEventListener("click", () => removeRow(btn.dataset.skipContester));
   });
 }
 

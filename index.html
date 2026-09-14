@@ -398,7 +398,7 @@
 
     <div class="panel">
       <h2>Shot Log</h2>
-      <p class="hint">Every shot attempt, make or miss, with who (if anyone) was contesting it and, for makes, who assisted it. Click +1/+2/+3 (make) or the MISS buttons on a player above to log one. Each entry auto-captures the video's playback position when you logged it, so <strong>Jump</strong> takes you right back to it (needs a local video file or direct link loaded, not a YouTube embed). Click any column header to sort by it; <button type="button" class="secondary-btn" id="scoringLogChronoBtn">↺ Chronological</button> puts it back the way it opened.</p>
+      <p class="hint">Every shot attempt, make or miss, with who (if anyone) was contesting it and, for makes, who assisted it. Click +1/+2/+3 (make) or the MISS buttons on a player above to log one. Each entry auto-captures the video's playback position when you logged it, so <strong>Jump</strong> takes you right back to it (needs a local video file or direct link loaded, not a YouTube embed). On a miss with a rebounder set, Edit also offers <strong>Rebound Battles</strong> tagging: who was actually boxing out the rebounder, not just who defended the original shot. This is a real, new per-play judgment call, not inferred from anything else already logged, so leave it blank rather than guess; tag it only when you're genuinely sure. Click any column header to sort by it; <button type="button" class="secondary-btn" id="scoringLogChronoBtn">↺ Chronological</button> puts it back the way it opened.</p>
       <div class="table-scroll">
         <table class="matchup-table">
           <thead><tr id="scoringLogHeaderRow"></tr></thead>
@@ -1063,6 +1063,12 @@
       <h2>Review Stopped-Early Games</h2>
       <p class="hint">A game stopped before completion breaks every stat that treats a game as a standardized, comparable unit (Best/Worst Games, Power Ranking vs. Performance, Shot Attempt Differential, Pace/PPP, Win Shares). This can't be detected from the box score alone, the same way <code>dunk</code> needed a human to watch the clip instead of being inferred: if you remember a game being cut short, flag it here. Season-total rate stats are unaffected either way.</p>
       <div id="stoppedEarlyReview"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Review Rebound Battles</h2>
+      <p class="hint">Second-Chance Points Allowed used to charge a shot's tagged defender for what happened on the ensuing rebound, on the theory they're "responsible for the possession not ending" -- checked directly against real data, and in every one of one player's charged cases, the rebound was grabbed by a completely different offensive player than the one they were defending. That shot's defender was never assigned to the actual rebounder at all; charging them wasn't a soft proxy, it was attributing an outcome to someone with no real opportunity to prevent it. This tags the real, missing piece: who was actually boxing out the rebounder, a genuine new per-play judgment call, not inferred from anything already logged, the same way <code>dunk</code> needed a human to watch the clip. This is a real time cost, worth piloting on a small batch before committing to the whole backlog, not something to power through all at once. One click tags a single contester (the common case); use Shot Log's own Edit flow in Stat Entry for the rarer double-team box-out, which supports tagging more than one. <strong>Skip only hides a row for this session</strong>, not a permanent decision: reload the page and it comes back, so this is meant for one focused sitting at a time.</p>
+      <div id="reboundBattleReview"></div>
     </div>
 
     <div class="panel">
