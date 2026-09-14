@@ -4924,6 +4924,7 @@ function computeLeaderboardUncached() {
       pointsOffTakeaways: computePointsOffTakeaways(p.id),
       turnoverCredit: computeTurnoverCreditRate(p.id),
       shotAttemptDiff: computeShotAttemptDifferential(p.id),
+      reboundDiff: computeReboundDifferential(p.id),
       paceAndPpp: computePaceAndPpp(p.id),
       winShares: computeWinShares(p.id, winSharesWeights),
       shotPct: pct(shooting.fga, teamFgaTotal),
@@ -6807,6 +6808,33 @@ function computeShotAttemptDifferential(playerId) {
   return { gp: games.length, forTotal: forSum, againstTotal: againstSum, diffPerGame: (forSum - againstSum) / games.length };
 }
 
+// ---------- Rebound Differential (see poolean-shot-creation-and-mirrors-spec.md) ----------
+// Team-level mirror of Shot Attempt Differential above, applied to rebounds instead of shot
+// attempts: this player's own team's total rebounds (OREB+DREB combined) minus the opponent's,
+// per game, across games they played. Not individual rebound-battle attribution ("who beats whom
+// for a specific ball") -- a missed shot only ever tracks a single rebounderId, with no data on
+// who else contested it, so a real head-to-head rebound-battle stat would need new tracking, the
+// same category as the declined deflections idea. This is the real signal buildable right now:
+// who controls the boards overall. Same stoppedEarly exclusion as Shot Attempt Differential, for
+// the same reason: a per-game differential, not a season aggregate, so a partial game's own
+// distortion would show up undiluted.
+function computeReboundDifferential(playerId) {
+  const games = qualifyingGamesForPlayer(playerId).filter(g => !g.stoppedEarly);
+  if (games.length === 0) return null;
+  let forSum = 0, againstSum = 0;
+  games.forEach(game => {
+    const myTeam = game.teamA.includes(playerId) ? game.teamA : game.teamB;
+    const oppTeam = game.teamA.includes(playerId) ? game.teamB : game.teamA;
+    const teamRebs = ids => ids.reduce((sum, id) => {
+      const s = game.stats.find(st => st.playerId === id);
+      return sum + (s ? s.oreb + s.dreb : 0);
+    }, 0);
+    forSum += teamRebs(myTeam);
+    againstSum += teamRebs(oppTeam);
+  });
+  return { gp: games.length, forTotal: forSum, againstTotal: againstSum, diffPerGame: (forSum - againstSum) / games.length };
+}
+
 // ---------- Pace and PPP (see poolean-additional-metrics-spec.md, section 2) ----------
 // Real Pace measures possessions per game; this tool has always substituted combined final score
 // as the "how much game happened" proxy for every per-20 rate, reasonable but imperfect -- a
@@ -8602,6 +8630,14 @@ const LEADERBOARD_COLUMNS = [
       return `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
     },
     tooltip: "Shot Attempt Differential, per game: this player's own team's total field goal attempts (made or missed, regardless of outcome) minus the opponent's, averaged across the games they played. A real, separate signal from shooting efficiency (TS%/eFG% already cover that) -- closer to shot creation and tempo control, whether this player's side tends to generate (or allow) more total looks. Deliberately a plain per-game differential, not a normalized /20 rate, matching the real stat's own simplicity: count every attempt equally, don't weight by quality. Excludes any game flagged Stopped Early (Export, Review Stopped-Early Games): a partial game's shot count isn't comparable to a complete one." },
+  { key: "rebdiff", label: "Reb Diff/G", advanced: true,
+    accessor: r => r.reboundDiff ? r.reboundDiff.diffPerGame : null,
+    display: r => {
+      if (!r.reboundDiff) return "—";
+      const v = r.reboundDiff.diffPerGame;
+      return `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
+    },
+    tooltip: "Rebound Differential, per game: this player's own team's total rebounds (OREB+DREB combined) minus the opponent's, averaged across the games they played. Team-level, not individual rebound-battle attribution -- a missed shot only ever tracks one rebounderId, with no data on who else contested it, so 'who wins a specific ball' isn't something this tool can answer without new tracking. This is the real signal available now: does this player's side tend to control the boards overall. Same Stopped Early exclusion as Shot Diff/G." },
   { key: "pace", label: "Pace", advanced: true,
     accessor: r => r.paceAndPpp ? r.paceAndPpp.pace : null,
     display: r => r.paceAndPpp ? r.paceAndPpp.pace.toFixed(1) : "—",
