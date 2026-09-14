@@ -3903,14 +3903,6 @@ function gameDefenseStats(game, playerId) {
   // spec.md). Free throws are never tagged with a defender at all (see Stat Entry: the defender
   // picker only shows for a 2/3-point shot).
   const tpmAgainst = madeAgainst.filter(ev => ev.points === 3).length;
-  // Solo vs. helped stops (see poolean-shot-creation-and-mirrors-spec.md): a miss with exactly
-  // one tagged defender is a clean, one-on-one stop; two or more means help arrived. Right now
-  // Opp FG%/Def Rating credit both identically, so a defender who "shuts people down straight-up"
-  // and one who "only looks good because help consistently showed up" look the same -- this
-  // separates them. Only meaningful on `stops` (a made shot's own credit already goes fully to
-  // every tagged defender regardless of team size, same convention Beaten already uses).
-  const soloStops = against.filter(ev => ev.made === false && (ev.defenderIds || []).length === 1).length;
-  const helpedStops = stops - soloStops;
   // Blocks this player gets extra defensive credit for in defensiveRating(), beyond the Stop
   // credit above — only counted here when the block ISN'T also one of their own tagged Stops
   // already (the common case, since a shot-blocker is almost always also the tagged on-ball
@@ -3923,8 +3915,6 @@ function gameDefenseStats(game, playerId) {
     ptsAllowed: madeAgainst.reduce((sum, ev) => sum + ev.points, 0),
     timesBeaten,
     stops,
-    soloStops,
-    helpedStops,
     tpmAgainst,
     oppFgPct: pct(timesBeaten, timesBeaten + stops),
     blocksNotAlreadyStopped
@@ -4840,7 +4830,7 @@ function computeLeaderboardUncached() {
     const gamesPlayed = qualifyingGamesForPlayer(p.id);
     const totals = { pts: 0, oreb: 0, dreb: 0, ast: 0, stl: 0, blk: 0, tov: 0, pf: 0 };
     const shooting = { fgm: 0, fga: 0, tpm: 0, tpa: 0, closeM: 0, closeA: 0, midM: 0, midA: 0, tpArcM: 0, tpArcA: 0, tpDeepM: 0, tpDeepA: 0, ftm: 0, fta: 0, dunkM: 0, dunkA: 0 };
-    const defense = { ptsAllowed: 0, timesBeaten: 0, stops: 0, soloStops: 0, helpedStops: 0, tpmAgainst: 0, blocksNotAlreadyStopped: 0 };
+    const defense = { ptsAllowed: 0, timesBeaten: 0, stops: 0, tpmAgainst: 0, blocksNotAlreadyStopped: 0 };
     let wins = 0, losses = 0, ties = 0, combinedPoints = 0, teamFgaTotal = 0, teamAstTotal = 0, orebPoolTotal = 0, drebPoolTotal = 0;
     gamesPlayed.forEach(g => {
       const s = g.stats.find(st => st.playerId === p.id);
@@ -4851,8 +4841,6 @@ function computeLeaderboardUncached() {
       defense.ptsAllowed += def.ptsAllowed;
       defense.timesBeaten += def.timesBeaten;
       defense.stops += def.stops;
-      defense.soloStops += def.soloStops;
-      defense.helpedStops += def.helpedStops;
       defense.tpmAgainst += def.tpmAgainst;
       defense.blocksNotAlreadyStopped += def.blocksNotAlreadyStopped;
       combinedPoints += gameTotalPoints(g);
@@ -7343,19 +7331,29 @@ function renderSecondChancePanel() {
 }
 
 // ---------- Second-Chance Points Allowed (see poolean-defensive-mirrors-spec.md) ----------
-// Direct mirror of Second-Chance Conversion above, pointed at the other team's misses: when the
-// SHOOTING team keeps their own miss alive (an OREB on their own side, meaning this team failed
-// to control the rebound), every defender tagged on that original shot gets the resulting
-// conversion outcome charged against them -- same SECOND_CHANCE_WINDOW_SECONDS/conversion-check
-// logic as the offensive version, just crediting the shot's DEFENDER(S) instead of the offensive
-// rebounder, since that's who's actually responsible for the possession not ending on defense.
-// Lower rate is better here (the opposite of the offensive version, where higher is better).
+// Direct mirror of Second-Chance Conversion above, pointed at the other team's misses -- but
+// restricted to SELF-rebounds only (the shooter grabbing their own miss), not any offensive
+// rebound. Checked directly against real data why: when a teammate (not the shooter) grabs the
+// rebound, the shot's own defender was never assigned to guard THAT player at all -- that's a
+// different defender's box-out responsibility, with no tag anywhere identifying who that was.
+// Charging the shot's defender for that outcome isn't a soft proxy, it's attributing a result to
+// someone with no real causal link to it (confirmed on real data: one player's entire sample under
+// the old, unrestricted version was 100% other-player rebounds, zero self-rebounds -- the charge
+// was really measuring who else's offensive rebounding, not this player's own defense). A
+// self-rebound is the one case where the shot's own defender genuinely had the opportunity and
+// responsibility to prevent it (boxing out the person you were just guarding is your actual job),
+// so that's the only case this credits. Same SECOND_CHANCE_WINDOW_SECONDS/conversion-check logic
+// as the offensive version, crediting the shot's DEFENDER(S). Lower rate is better here (the
+// opposite of the offensive version, where higher is better). Expect a small sample: self-crash-
+// and-putback situations are rare relative to a teammate cleaning up the miss (5 total league-wide
+// in the season checked against) -- that's a real reflection of how second chances actually happen
+// in this league, not a bug in the restriction.
 function computeSecondChancePointsAllowed() {
   const totals = {}; // defenderId -> { oreb, allowed, noTimestamp }
   state.games.filter(isQualifyingGame).forEach(game => {
     const events = game.scoringEvents;
     events.forEach(ev => {
-      if (ev.made !== false || !ev.rebounderId || !sameTeam(game, ev.scorerId, ev.rebounderId)) return;
+      if (ev.made !== false || !ev.rebounderId || ev.rebounderId !== ev.scorerId) return;
       const defenders = ev.defenderIds || [];
       if (defenders.length === 0) return;
       const hasTimestamp = ev.videoTime !== null && ev.videoTime !== undefined;
@@ -8654,10 +8652,6 @@ const LEADERBOARD_COLUMNS = [
     tooltip: "Opp FG%'s value-weighted counterpart, the exact same formula offensive eFG% uses just applied to shots allowed: a made 3 counts as 1.5x a made 2. Separates a defender who allows a lot of made 3s from one allowing the same raw FG% but mostly on 2s, who currently look identical on plain Opp FG% alone." },
   { key: "beaten", label: "Beaten/20", accessor: r => r.rateDefense.timesBeaten, display: r => r.rateDefense.timesBeaten.toFixed(1), tooltip: "Times scored on while tagged as the defender on a made shot, per 20 combined points." },
   { key: "stops", label: "Stops/20", accessor: r => r.rateDefense.stops, display: r => r.rateDefense.stops.toFixed(1), tooltip: "Times tagged as the defender on a missed shot, per 20 combined points." },
-  { key: "solostop", label: "Solo Stop %", advanced: true,
-    accessor: r => pct(r.defense.soloStops, r.defense.stops),
-    display: r => formatPct(pct(r.defense.soloStops, r.defense.stops)),
-    tooltip: "Of this player's own Stops, what share were one-on-one (exactly one tagged defender, no help) vs. a double-team (two or more tagged). Opp FG%/Def Rating credit both identically right now; this separates shutting someone down straight-up from a number that only looks good because help consistently showed up -- the defensive twin of Self-Created %'s own question on offense." },
   { key: "defrtg20", label: "Def Rating/20", accessor: r => defensiveRating(r.rate, r.rateDefense), display: r => defensiveRating(r.rate, r.rateDefense).toFixed(1), tooltip: "This tool's Defensive Rating: STL, plus BLK (only when it isn't already one of this player's own Stops, so a blocked-and-tagged shot isn't credited twice), plus Stops minus Beaten minus 0.4×Pts Allowed, all per 20 combined points. Not points-allowed-per-100-possessions like the NBA stat of the same name; possessions aren't tracked here, so combined points stands in as the pace proxy, same as every other per-20 rate on this board. 0 for anyone never tagged as a defender with no steals or blocks, not a penalty for conservative tagging." },
   { key: "ptsallowedunderxp", label: "Pts Allowed Under Exp", advanced: true,
     accessor: r => r.expectedPointsAgainst ? r.expectedPointsAgainst.pointsAllowedUnderExpected : null,
