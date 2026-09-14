@@ -731,29 +731,16 @@
       </details>
     </div>
 
-    <div class="panel-row">
-      <details class="panel">
-        <summary><h2>Game-Saving Stop</h2></summary>
-        <p class="hint">The direct mirror of <strong>Game-Winning Buckets</strong>: the last defensive stop against the <strong>losing</strong> team, anywhere in a decided game. Same non-scarce caveat applies, just flipped, in a race-to-a-target format with no clock, this doesn't isolate rare, pressure-cooker stops any more than GWB isolates buzzer-beaters; it's a "who tends to be the one getting the key stop late" tally. Only credited when every candidate miss (any miss with at least one tagged defender) has a real video timestamp, same all-or-nothing trust requirement GWB uses, since a single untimed miss could have happened at any point in the game. A season count, not a rate; a double-teamed stop credits every tagged defender, same convention Stops already uses.</p>
-        <div class="table-scroll">
-          <table class="matchup-table" id="gameSavingStopsTable">
-            <thead><tr><th>Player</th><th>Game-Saving Stops</th></tr></thead>
-            <tbody id="gameSavingStopsBody"></tbody>
-          </table>
-        </div>
-      </details>
-
-      <details class="panel">
-        <summary><h2>Close-Game Defense</h2></summary>
-        <p class="hint">The direct mirror of <strong>Close-Game Shooting</strong>: Opp FG% (not the more granular Opp TS%/eFG% above, since Opp FG% is the headline number the rest of this page already leads with), counting only shots defended in games that actually finished close: decided by 5 points or fewer (`CLUTCH_MARGIN_THRESHOLD` in <code>app.js</code>). Does a defender hold up or break down when the game is actually on the line? Sorted lowest (best) Opp FG% first by default, the opposite direction from Close-Game Shooting since lower is the good outcome on defense. Tied games count here too. Click any column header to sort.</p>
-        <div class="table-scroll">
-          <table class="matchup-table" id="closeGameDefenseTable">
-            <thead><tr id="closeGameDefenseHeaderRow"></tr></thead>
-            <tbody id="closeGameDefenseBody"></tbody>
-          </table>
-        </div>
-      </details>
-    </div>
+    <details class="panel">
+      <summary><h2>Close-Game Defense</h2></summary>
+      <p class="hint">The direct mirror of <strong>Close-Game Shooting</strong>: Opp FG% (not the more granular Opp eFG% above, since Opp FG% is the headline number the rest of this page already leads with), counting only shots defended in games that actually finished close: decided by 5 points or fewer (`CLUTCH_MARGIN_THRESHOLD` in <code>app.js</code>). Does a defender hold up or break down when the game is actually on the line? Sorted lowest (best) Opp FG% first by default, the opposite direction from Close-Game Shooting since lower is the good outcome on defense. Tied games count here too. Click any column header to sort.</p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="closeGameDefenseTable">
+          <thead><tr id="closeGameDefenseHeaderRow"></tr></thead>
+          <tbody id="closeGameDefenseBody"></tbody>
+        </table>
+      </div>
+    </details>
 
     <details class="panel">
       <summary><h2>Defensive Load</h2></summary>

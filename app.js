@@ -5053,52 +5053,6 @@ function renderGameWinningBucketsPanel() {
     : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.count}</td></tr>`).join("");
 }
 
-// ---------- Game-Saving Stop (see poolean-defensive-mirrors-spec.md) ----------
-// Direct mirror of gameWinningShot() above, same non-scarce caveat and all: the last defensive
-// stop against the LOSING team, anywhere in the game -- the defensive twin of "the last basket of
-// every decided game belongs to the winning team, by definition." Only trusted when every
-// candidate (every miss with at least one tagged defender) has a real timestamp, same
-// all-or-nothing trust requirement gameWinningShot() uses, since a single untimed miss could have
-// happened at any point and a partial timestamp set can't reliably say which one was really last.
-function gameSavingStop(game) {
-  if (!isQualifyingGame(game)) return null;
-  const scoreA = teamScore(game, game.teamA);
-  const scoreB = teamScore(game, game.teamB);
-  if (scoreA === scoreB) return null;
-  const losingTeam = scoreA > scoreB ? game.teamB : game.teamA;
-  const misses = game.scoringEvents.filter(ev => ev.made === false && (ev.defenderIds || []).length > 0);
-  if (misses.length === 0) return null;
-  if (misses.some(ev => ev.videoTime === null || ev.videoTime === undefined)) return null;
-  const losingMisses = misses.filter(ev => losingTeam.includes(ev.scorerId));
-  if (losingMisses.length === 0) return null;
-  return [...losingMisses].sort((a, b) => a.videoTime - b.videoTime)[losingMisses.length - 1];
-}
-
-// Season count of game-saving stops per player -- same "credit every tagged defender, don't split
-// for a double-team" convention Stops/Beaten already use elsewhere. A season count, not a rate,
-// same reasoning as Game-Winning Buckets.
-function computeGameSavingStops() {
-  const totals = {};
-  state.games.forEach(game => {
-    const stop = gameSavingStop(game);
-    if (!stop) return;
-    (stop.defenderIds || []).forEach(defId => { totals[defId] = (totals[defId] || 0) + 1; });
-  });
-  return Object.entries(totals)
-    .map(([playerId, count]) => ({ player: state.players.find(p => p.id === playerId), count }))
-    .filter(r => r.player)
-    .sort((a, b) => b.count - a.count);
-}
-
-function renderGameSavingStopsPanel() {
-  const body = document.getElementById("gameSavingStopsBody");
-  if (!body) return;
-  const rows = computeGameSavingStops();
-  body.innerHTML = rows.length === 0
-    ? '<tr><td colspan="2" class="empty-state">No game-saving stops identified yet. Needs a timestamped, tagged miss by the losing team that closes out a decided game.</td></tr>'
-    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.count}</td></tr>`).join("");
-}
-
 // League-wide Defensive Load table (see computeDefensiveLoad()/describeDefensiveLoad() above) --
 // its own panel rather than one more cramped column on the giant Season Rates table, since the
 // spec's own mandatory framing sentence needs real room, not a truncated tag.
@@ -5224,8 +5178,8 @@ function renderCloseGameShootingPanel() {
 // ---------- Close-Game Defense (see poolean-defensive-mirrors-spec.md) ----------
 // Direct mirror of Close-Game Shooting above: same close-game filter (decided by
 // CLUTCH_MARGIN_THRESHOLD points or fewer), just Opp FG% instead of TS%, since that's the
-// existing headline defensive shooting-allowed number (Opp TS%/eFG% above are the more granular
-// versions, but Opp FG% is what Defensive Load and the rest of this page already lead with). Does
+// existing headline defensive shooting-allowed number (Opp eFG% above is the more granular
+// version, but Opp FG% is what Defensive Load and the rest of this page already lead with). Does
 // a defender hold up or break down when the game is actually on the line, the same real question
 // Close-Game Shooting answers for offense.
 function computeCloseGameDefense() {
@@ -8559,10 +8513,6 @@ const LEADERBOARD_COLUMNS = [
     accessor: r => effectiveFgPct(r.defense.timesBeaten, r.defense.tpmAgainst, r.defense.timesBeaten + r.defense.stops),
     display: r => formatPct(effectiveFgPct(r.defense.timesBeaten, r.defense.tpmAgainst, r.defense.timesBeaten + r.defense.stops)),
     tooltip: "Opp FG%'s value-weighted counterpart, the exact same formula offensive eFG% uses just applied to shots allowed: a made 3 counts as 1.5x a made 2. Separates a defender who allows a lot of made 3s from one allowing the same raw FG% but mostly on 2s, who currently look identical on plain Opp FG% alone." },
-  { key: "oppts", label: "Opp TS%", advanced: true,
-    accessor: r => trueShootingPct(r.defense.ptsAllowed, r.defense.timesBeaten + r.defense.stops, 0),
-    display: r => formatPct(trueShootingPct(r.defense.ptsAllowed, r.defense.timesBeaten + r.defense.stops, 0)),
-    tooltip: "Opp FG%'s scoring-efficiency counterpart, the same True Shooting formula offense uses (points per true shooting attempt), applied to shots allowed. Narrower than offensive TS%, honestly: free throws are never tagged with a defender in this tool (Stat Entry only offers the defender picker on a 2 or 3), so this always uses 0 for opponent FTA, unlike offensive TS% which includes the player's own real free-throw trips." },
   { key: "beaten", label: "Beaten/20", accessor: r => r.rateDefense.timesBeaten, display: r => r.rateDefense.timesBeaten.toFixed(1), tooltip: "Times scored on while tagged as the defender on a made shot, per 20 combined points." },
   { key: "stops", label: "Stops/20", accessor: r => r.rateDefense.stops, display: r => r.rateDefense.stops.toFixed(1), tooltip: "Times tagged as the defender on a missed shot, per 20 combined points." },
   { key: "defrtg20", label: "Def Rating/20", accessor: r => defensiveRating(r.rate, r.rateDefense), display: r => defensiveRating(r.rate, r.rateDefense).toFixed(1), tooltip: "This tool's Defensive Rating: STL, plus BLK (only when it isn't already one of this player's own Stops, so a blocked-and-tagged shot isn't credited twice), plus Stops minus Beaten minus 0.4×Pts Allowed, all per 20 combined points. Not points-allowed-per-100-possessions like the NBA stat of the same name; possessions aren't tracked here, so combined points stands in as the pace proxy, same as every other per-20 rate on this board. 0 for anyone never tagged as a defender with no steals or blocks, not a penalty for conservative tagging." },
@@ -8770,7 +8720,6 @@ function renderLeaderboard() {
   renderSecondChancePanel();
   renderSecondChanceAllowedPanel();
   renderGameWinningBucketsPanel();
-  renderGameSavingStopsPanel();
   renderDefensiveLoadPanel();
   renderWinSharesModelPanel();
   renderCloseGameShootingPanel();
@@ -8849,7 +8798,7 @@ function renderLeaderboard() {
 // purpose, since a bigger share of the team's shots or assists reflects a role a player's
 // settled into, not necessarily better play.
 const COMPARISON_NEUTRAL_KEYS = new Set(["gp", "shotpct", "astpct", "orebpct", "drebpct", "trebpct"]);
-const COMPARISON_LOWER_IS_BETTER_KEYS = new Set(["l", "tov", "pf", "ptsAllowed", "oppfg", "oppefg", "oppts", "beaten", "tovpct"]);
+const COMPARISON_LOWER_IS_BETTER_KEYS = new Set(["l", "tov", "pf", "ptsAllowed", "oppfg", "oppefg", "beaten", "tovpct"]);
 
 // Rebuilds the two <select> option lists from the current roster — cheap, called on every
 // Leaderboard render so a player added elsewhere shows up without a reload. Re-setting
