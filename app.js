@@ -4868,6 +4868,7 @@ function computeLeaderboard() {
       dunkPct: pct(shooting.dunkA, shooting.fga),
       defensiveLoad: computeDefensiveLoad(p.id),
       expectedPoints: computeExpectedPoints(p.id, zonePpa),
+      expectedPointsAgainst: computeExpectedPointsAgainst(p.id, zonePpa),
       shotAttemptDiff: computeShotAttemptDifferential(p.id),
       paceAndPpp: computePaceAndPpp(p.id),
       winShares: computeWinShares(p.id, winSharesWeights),
@@ -5013,6 +5014,10 @@ function computeDefensiveLoadPanelRows() {
       return {
         player: r.player, load: r.defensiveLoad, oppFgPct, defRtg,
         sentence: describeDefensiveLoad(r.defensiveLoad, oppFgPct, leagueAvgOppFg),
+        // Own gate (10+ tagged defended shots, see computeExpectedPointsAgainst), separate from
+        // Defensive Load's own (8+ expected tagged possessions) -- a player can clear one without
+        // the other, so this is nullable here even for a row that otherwise has a real Def Load.
+        pointsAllowedUnderExpected: r.expectedPointsAgainst ? r.expectedPointsAgainst.pointsAllowedUnderExpected : null,
       };
     });
 }
@@ -5022,6 +5027,11 @@ const DEFENSIVE_LOAD_COLUMNS = [
   { key: "load", label: "Def Load", accessor: r => r.load, display: r => `${r.load.toFixed(2)}x` },
   { key: "oppfg", label: "Opp FG%", accessor: r => r.oppFgPct, display: r => formatPct(r.oppFgPct) },
   { key: "defrtg", label: "Def Rating/20", accessor: r => r.defRtg, display: r => r.defRtg.toFixed(1) },
+  {
+    key: "xpa", label: "Pts Allowed Under Exp",
+    accessor: r => r.pointsAllowedUnderExpected,
+    display: r => r.pointsAllowedUnderExpected === null ? "—" : `${r.pointsAllowedUnderExpected >= 0 ? "+" : ""}${r.pointsAllowedUnderExpected.toFixed(1)}`,
+  },
   { key: "read", label: "Read", accessor: r => r.sentence },
 ];
 let defensiveLoadPanelSort = { key: "load", dir: "desc" };
@@ -5033,7 +5043,7 @@ function renderDefensiveLoadPanel() {
   renderSortableHeader(headerRow, DEFENSIVE_LOAD_COLUMNS, defensiveLoadPanelSort, renderDefensiveLoadPanel);
   const rows = computeDefensiveLoadPanelRows();
   if (rows.length === 0) {
-    body.innerHTML = `<tr><td colspan="5" class="empty-state">Nobody has enough tagged defensive volume yet (needs ${DEFENSIVE_LOAD_MIN_SHARE}+ expected tagged possessions across enough games).</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" class="empty-state">Nobody has enough tagged defensive volume yet (needs ${DEFENSIVE_LOAD_MIN_SHARE}+ expected tagged possessions across enough games).</td></tr>`;
     return;
   }
   const sortCol = DEFENSIVE_LOAD_COLUMNS.find(c => c.key === defensiveLoadPanelSort.key);
@@ -5043,6 +5053,7 @@ function renderDefensiveLoadPanel() {
     <td>${r.load.toFixed(2)}x</td>
     <td>${formatPct(r.oppFgPct)}</td>
     <td>${r.defRtg.toFixed(1)}</td>
+    <td>${r.pointsAllowedUnderExpected === null ? "—" : `${r.pointsAllowedUnderExpected >= 0 ? "+" : ""}${r.pointsAllowedUnderExpected.toFixed(1)}`}</td>
     <td>${escapeHtml(r.sentence)}</td>
   </tr>`).join("");
   body.querySelectorAll(".defload-player-btn").forEach(btn => {
@@ -6452,6 +6463,41 @@ function computeExpectedPoints(playerId, zonePpa) {
   });
   if (fga === 0) return null;
   return { fga, actualPts, expectedPts, pointsOverExpected: actualPts - expectedPts };
+}
+
+// ---------- Expected Points Against (see poolean-expected-points-against-spec.md) ----------
+// Defensive counterpart to Expected Points above, reusing the exact same zone PPA rates: Opp FG%
+// and Def Rating are currently zone-blind, averaging across whatever shots a defender happened to
+// face without accounting for how hard those specific shots actually were. A defender who mostly
+// gets switched onto point-blank looks faces an inherently higher expected shooting percentage
+// than one who mostly closes out on deep attempts -- their raw numbers get compared as if shot
+// difficulty were the same, when it isn't. "Under expected" (not "over"), the opposite sign
+// convention from offensive Expected Points: for defense, allowing FEWER points than expected is
+// the good outcome. Doesn't touch the separate, still-open "tagged but beaten after genuinely
+// good position vs. never really in the play" ambiguity -- this only sharpens the shot-difficulty
+// dimension. Inherits the same provisional-zone-rates caveat as offensive Expected Points: only as
+// good as the underlying zone PPA rates, which are still early and expected to shift with volume.
+//
+// Min-sample gate matches the same "defense: 10+ shots defended" threshold Areas to Work On
+// already uses for a defensive read -- too few tagged defended shots and the expected/actual gap
+// is mostly noise, not a real signal.
+const EXPECTED_POINTS_AGAINST_MIN_FGA = 10;
+function computeExpectedPointsAgainst(playerId, zonePpa) {
+  let actualPtsAllowed = 0, expectedPtsAllowed = 0, fga = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (!(ev.defenderIds || []).includes(playerId)) return;
+      fga++;
+      actualPtsAllowed += ev.made !== false ? ev.points : 0;
+      const xppa = ev.shotLocation && zonePpa.byZone[shotBand(ev.shotLocation, ev.points)] !== null
+        ? zonePpa.byZone[shotBand(ev.shotLocation, ev.points)]
+        : zonePpa.overall;
+      if (xppa !== null && xppa !== undefined) expectedPtsAllowed += xppa;
+    });
+  });
+  if (fga < EXPECTED_POINTS_AGAINST_MIN_FGA) return null;
+  return { fga, actualPtsAllowed, expectedPtsAllowed, pointsAllowedUnderExpected: expectedPtsAllowed - actualPtsAllowed };
 }
 
 // ---------- Shot Attempt Differential (see poolean-additional-metrics-spec.md, section 4) ----------
@@ -8022,8 +8068,12 @@ function renderPlayerDefensiveLoadPanel(playerId) {
   const oppFgPct = pct(row.defense.timesBeaten, row.defense.timesBeaten + row.defense.stops);
   const defRtg = defensiveRating(row.rate, row.rateDefense);
   const leagueAvgOppFg = computeLeagueAvgOppFg(board);
+  const xpa = row.expectedPointsAgainst;
+  const xpaText = xpa
+    ? `, Pts Allowed Under Exp: ${xpa.pointsAllowedUnderExpected >= 0 ? "+" : ""}${xpa.pointsAllowedUnderExpected.toFixed(1)}`
+    : "";
   wrap.innerHTML = `
-    <p class="score-display">${load.toFixed(2)}x <span class="hint" style="margin:0">(Opp FG%: ${formatPct(oppFgPct)}, Def Rating/20: ${defRtg.toFixed(1)})</span></p>
+    <p class="score-display">${load.toFixed(2)}x <span class="hint" style="margin:0">(Opp FG%: ${formatPct(oppFgPct)}, Def Rating/20: ${defRtg.toFixed(1)}${xpaText})</span></p>
     <p class="hint" style="margin:8px 0 0">${escapeHtml(describeDefensiveLoad(load, oppFgPct, leagueAvgOppFg))}</p>
   `;
 }
@@ -8204,6 +8254,14 @@ const LEADERBOARD_COLUMNS = [
   { key: "beaten", label: "Beaten/20", accessor: r => r.rateDefense.timesBeaten, display: r => r.rateDefense.timesBeaten.toFixed(1), tooltip: "Times scored on while tagged as the defender on a made shot, per 20 combined points." },
   { key: "stops", label: "Stops/20", accessor: r => r.rateDefense.stops, display: r => r.rateDefense.stops.toFixed(1), tooltip: "Times tagged as the defender on a missed shot, per 20 combined points." },
   { key: "defrtg20", label: "Def Rating/20", accessor: r => defensiveRating(r.rate, r.rateDefense), display: r => defensiveRating(r.rate, r.rateDefense).toFixed(1), tooltip: "This tool's Defensive Rating: STL, plus BLK (only when it isn't already one of this player's own Stops, so a blocked-and-tagged shot isn't credited twice), plus Stops minus Beaten minus 0.4×Pts Allowed, all per 20 combined points. Not points-allowed-per-100-possessions like the NBA stat of the same name; possessions aren't tracked here, so combined points stands in as the pace proxy, same as every other per-20 rate on this board. 0 for anyone never tagged as a defender with no steals or blocks, not a penalty for conservative tagging." },
+  { key: "ptsallowedunderxp", label: "Pts Allowed Under Exp", advanced: true,
+    accessor: r => r.expectedPointsAgainst ? r.expectedPointsAgainst.pointsAllowedUnderExpected : null,
+    display: r => {
+      if (!r.expectedPointsAgainst) return "—";
+      const v = r.expectedPointsAgainst.pointsAllowedUnderExpected;
+      return `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
+    },
+    tooltip: "Expected Points' defensive counterpart, using the same zone rates: every shot this player is tagged defending gets that shot zone's league-average points-per-attempt as its expected value (Close/Midrange/Line/Deep), summed and compared to what was actually scored on them. Positive means allowing fewer points than the shot difficulty they actually faced would predict, the good outcome for defense (opposite sign convention from offensive Pts +/- Exp, where scoring more than expected is good). Separates 'suppresses shooting below what's normal for the shots faced' from 'happens to face an easier or harder mix of shots than average' -- Opp FG% alone can't tell those apart. Needs 10+ tagged defended shots to show at all; inherits the same still-early zone-rate caveat as offensive Expected Points, and doesn't touch the separate, still-open question of whether a 'beaten' shot was genuinely well-defended or not." },
   { key: "offrtg20", label: "Off Rating/20", accessor: r => r.offRatingPer20, display: r => r.offRatingPer20.toFixed(1), tooltip: "Offense-only Game Score: PTS, shooting efficiency, rebounds, assists, TOV, and fouls, adapted from the standard basketball Game Score formula, minus its STL and BLK terms, which live in Def Rating instead, per 20 combined points." },
   { key: "twoway20", label: "Two-Way/20", accessor: r => r.twoWayPer20, display: r => r.twoWayPer20.toFixed(1), tooltip: "Off Rating plus Def Rating, per 20 combined points." },
   { key: "last5", label: "Last 5", accessor: r => r.last5OffRatingPer20, display: r => r.last5Gp > 0 ? `${r.last5Trend} ${r.last5OffRatingPer20.toFixed(1)}` : "—", tooltip: "Off Rating/20 over their last 5 games with real shots logged (fewer if they haven't played 5 yet). ▲/▼ shows whether that's above or below their season Off Rating/20; within ±0.5 counts as flat (–)." }
