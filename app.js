@@ -311,6 +311,11 @@ function normalizeGame(game) {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  // Invalidate the Leaderboard and Win Shares fit caches (see computeLeaderboard()/
+  // computeWinSharesWeights()) -- any real edit can change either's underlying data, so a cached
+  // result from before this edit can't be trusted anymore.
+  leaderboardCache = null;
+  winSharesWeightsCache = null;
 }
 
 function uid(prefix) {
@@ -2739,6 +2744,30 @@ function shootingStats(game, playerId) {
   };
 }
 
+// Defensive mirror of shootingStats() above (see poolean-defensive-mirrors-spec.md): the exact
+// same zone-banding logic, just scoped to shots this player is tagged DEFENDING instead of shots
+// they took. Free throws have no defender tag at all, so there's no ft* here the way shootingStats
+// has ftm/fta -- only field goals are ever defended.
+function defensiveShootingStats(game, playerId) {
+  const shots = game.scoringEvents.filter(ev => (ev.defenderIds || []).includes(playerId));
+  const made = ev => ev.made !== false;
+  const fg = shots.filter(ev => ev.points === 2 || ev.points === 3);
+  const two = shots.filter(ev => ev.points === 2);
+  const three = shots.filter(ev => ev.points === 3);
+  const close = two.filter(ev => ev.shotLocation && shotBand(ev.shotLocation, 2) === "close");
+  const mid = two.filter(ev => ev.shotLocation && shotBand(ev.shotLocation, 2) === "mid");
+  const threeArc = three.filter(ev => ev.shotLocation && shotBand(ev.shotLocation, 3) === "arc");
+  const threeDeep = three.filter(ev => ev.shotLocation && shotBand(ev.shotLocation, 3) === "deep");
+  return {
+    fgm: fg.filter(made).length, fga: fg.length,
+    tpm: three.filter(made).length, tpa: three.length,
+    closeM: close.filter(made).length, closeA: close.length,
+    midM: mid.filter(made).length, midA: mid.length,
+    tpArcM: threeArc.filter(made).length, tpArcA: threeArc.length,
+    tpDeepM: threeDeep.filter(made).length, tpDeepA: threeDeep.length,
+  };
+}
+
 function pct(made, attempted) {
   return attempted > 0 ? Math.round((made / attempted) * 100) : null;
 }
@@ -3870,6 +3899,12 @@ function gameDefenseStats(game, playerId) {
   const madeAgainst = against.filter(ev => ev.made !== false);
   const timesBeaten = madeAgainst.length;
   const stops = against.filter(ev => ev.made === false).length;
+  // Made 3s against, specifically -- needed for Opponent eFG% (see poolean-defensive-mirrors-
+  // spec.md). Free throws are never tagged with a defender at all (see Stat Entry: the defender
+  // picker only shows for a 2/3-point shot), so there's no "FTA against" this tool can ever track
+  // for a specific defender -- Opponent TS% below is built anyway, using 0 for that term, but is
+  // honestly a narrower read than offensive TS% for that reason.
+  const tpmAgainst = madeAgainst.filter(ev => ev.points === 3).length;
   // Blocks this player gets extra defensive credit for in defensiveRating(), beyond the Stop
   // credit above — only counted here when the block ISN'T also one of their own tagged Stops
   // already (the common case, since a shot-blocker is almost always also the tagged on-ball
@@ -3882,6 +3917,7 @@ function gameDefenseStats(game, playerId) {
     ptsAllowed: madeAgainst.reduce((sum, ev) => sum + ev.points, 0),
     timesBeaten,
     stops,
+    tpmAgainst,
     oppFgPct: pct(timesBeaten, timesBeaten + stops),
     blocksNotAlreadyStopped
   };
@@ -4761,7 +4797,23 @@ function computeLeagueAvgOppFg(board) {
 }
 
 // ---------- Leaderboard ----------
+// Cached the same way, and for the same reason, as computeWinSharesWeights() above: a single
+// Leaderboard (or Player Detail) render calls this dozens of times over -- once per panel that
+// needs the board, not once total -- and it's real work per call (every player's full season
+// across every qualifying game). Measured real impact: recomputing on every call made a single
+// Leaderboard render take 16 seconds; caching it (plus Win Shares' own cache above) brought that
+// down to a real fraction of a second. Invalidated by saveState() (a real edit changes the
+// underlying data) and forced fresh once per render pass by renderLeaderboard()/renderPlayerDetail
+// themselves (see there) -- every caller within the same pass reuses the one real computation
+// instead of silently working from data that's gone stale mid-edit.
+let leaderboardCache = null;
 function computeLeaderboard() {
+  if (leaderboardCache !== null) return leaderboardCache;
+  leaderboardCache = computeLeaderboardUncached();
+  return leaderboardCache;
+}
+
+function computeLeaderboardUncached() {
   // Computed once, not once per player -- computeLeagueZonePointsPerAttempt() is a league-wide
   // constant that doesn't depend on which player is being looked at, so calling it fresh inside
   // the per-player map below (once for every one of ~20 players) would redo the exact same
@@ -4780,7 +4832,7 @@ function computeLeaderboard() {
     const gamesPlayed = qualifyingGamesForPlayer(p.id);
     const totals = { pts: 0, oreb: 0, dreb: 0, ast: 0, stl: 0, blk: 0, tov: 0, pf: 0 };
     const shooting = { fgm: 0, fga: 0, tpm: 0, tpa: 0, closeM: 0, closeA: 0, midM: 0, midA: 0, tpArcM: 0, tpArcA: 0, tpDeepM: 0, tpDeepA: 0, ftm: 0, fta: 0, dunkM: 0, dunkA: 0 };
-    const defense = { ptsAllowed: 0, timesBeaten: 0, stops: 0, blocksNotAlreadyStopped: 0 };
+    const defense = { ptsAllowed: 0, timesBeaten: 0, stops: 0, tpmAgainst: 0, blocksNotAlreadyStopped: 0 };
     let wins = 0, losses = 0, ties = 0, combinedPoints = 0, teamFgaTotal = 0, teamAstTotal = 0, orebPoolTotal = 0, drebPoolTotal = 0;
     gamesPlayed.forEach(g => {
       const s = g.stats.find(st => st.playerId === p.id);
@@ -4791,6 +4843,7 @@ function computeLeaderboard() {
       defense.ptsAllowed += def.ptsAllowed;
       defense.timesBeaten += def.timesBeaten;
       defense.stops += def.stops;
+      defense.tpmAgainst += def.tpmAgainst;
       defense.blocksNotAlreadyStopped += def.blocksNotAlreadyStopped;
       combinedPoints += gameTotalPoints(g);
       // Shot%/AST% denominators: this player's own team's total in this game (themselves
@@ -5000,6 +5053,52 @@ function renderGameWinningBucketsPanel() {
     : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.count}</td></tr>`).join("");
 }
 
+// ---------- Game-Saving Stop (see poolean-defensive-mirrors-spec.md) ----------
+// Direct mirror of gameWinningShot() above, same non-scarce caveat and all: the last defensive
+// stop against the LOSING team, anywhere in the game -- the defensive twin of "the last basket of
+// every decided game belongs to the winning team, by definition." Only trusted when every
+// candidate (every miss with at least one tagged defender) has a real timestamp, same
+// all-or-nothing trust requirement gameWinningShot() uses, since a single untimed miss could have
+// happened at any point and a partial timestamp set can't reliably say which one was really last.
+function gameSavingStop(game) {
+  if (!isQualifyingGame(game)) return null;
+  const scoreA = teamScore(game, game.teamA);
+  const scoreB = teamScore(game, game.teamB);
+  if (scoreA === scoreB) return null;
+  const losingTeam = scoreA > scoreB ? game.teamB : game.teamA;
+  const misses = game.scoringEvents.filter(ev => ev.made === false && (ev.defenderIds || []).length > 0);
+  if (misses.length === 0) return null;
+  if (misses.some(ev => ev.videoTime === null || ev.videoTime === undefined)) return null;
+  const losingMisses = misses.filter(ev => losingTeam.includes(ev.scorerId));
+  if (losingMisses.length === 0) return null;
+  return [...losingMisses].sort((a, b) => a.videoTime - b.videoTime)[losingMisses.length - 1];
+}
+
+// Season count of game-saving stops per player -- same "credit every tagged defender, don't split
+// for a double-team" convention Stops/Beaten already use elsewhere. A season count, not a rate,
+// same reasoning as Game-Winning Buckets.
+function computeGameSavingStops() {
+  const totals = {};
+  state.games.forEach(game => {
+    const stop = gameSavingStop(game);
+    if (!stop) return;
+    (stop.defenderIds || []).forEach(defId => { totals[defId] = (totals[defId] || 0) + 1; });
+  });
+  return Object.entries(totals)
+    .map(([playerId, count]) => ({ player: state.players.find(p => p.id === playerId), count }))
+    .filter(r => r.player)
+    .sort((a, b) => b.count - a.count);
+}
+
+function renderGameSavingStopsPanel() {
+  const body = document.getElementById("gameSavingStopsBody");
+  if (!body) return;
+  const rows = computeGameSavingStops();
+  body.innerHTML = rows.length === 0
+    ? '<tr><td colspan="2" class="empty-state">No game-saving stops identified yet. Needs a timestamped, tagged miss by the losing team that closes out a decided game.</td></tr>'
+    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.count}</td></tr>`).join("");
+}
+
 // League-wide Defensive Load table (see computeDefensiveLoad()/describeDefensiveLoad() above) --
 // its own panel rather than one more cramped column on the giant Season Rates table, since the
 // spec's own mandatory framing sentence needs real room, not a truncated tag.
@@ -5120,6 +5219,60 @@ function renderCloseGameShootingPanel() {
   body.innerHTML = rows.length === 0
     ? `<tr><td colspan="4" class="empty-state">No games decided by ${CLUTCH_MARGIN_THRESHOLD} points or fewer yet.</td></tr>`
     : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.gp}</td><td>${r.attempts}</td><td>${formatPct(r.ts)}</td></tr>`).join("");
+}
+
+// ---------- Close-Game Defense (see poolean-defensive-mirrors-spec.md) ----------
+// Direct mirror of Close-Game Shooting above: same close-game filter (decided by
+// CLUTCH_MARGIN_THRESHOLD points or fewer), just Opp FG% instead of TS%, since that's the
+// existing headline defensive shooting-allowed number (Opp TS%/eFG% above are the more granular
+// versions, but Opp FG% is what Defensive Load and the rest of this page already lead with). Does
+// a defender hold up or break down when the game is actually on the line, the same real question
+// Close-Game Shooting answers for offense.
+function computeCloseGameDefense() {
+  const closeGames = state.games.filter(g => {
+    if (!isQualifyingGame(g)) return false;
+    return Math.abs(teamScore(g, g.teamA) - teamScore(g, g.teamB)) <= CLUTCH_MARGIN_THRESHOLD;
+  });
+  const totals = {}; // playerId -> { timesBeaten, stops, gp }
+  closeGames.forEach(game => {
+    [...game.teamA, ...game.teamB].forEach(playerId => {
+      const def = gameDefenseStats(game, playerId);
+      if (def.timesBeaten + def.stops === 0) return;
+      const t = totals[playerId] = totals[playerId] || { timesBeaten: 0, stops: 0, gp: 0 };
+      t.timesBeaten += def.timesBeaten;
+      t.stops += def.stops;
+      t.gp++;
+    });
+  });
+  return Object.entries(totals)
+    .map(([playerId, v]) => ({
+      player: state.players.find(p => p.id === playerId),
+      gp: v.gp,
+      attempts: v.timesBeaten + v.stops,
+      oppFgPct: pct(v.timesBeaten, v.timesBeaten + v.stops)
+    }))
+    .filter(r => r.player && r.oppFgPct !== null);
+}
+
+const CLOSE_GAME_DEFENSE_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "gp", label: "Close Games", accessor: r => r.gp },
+  { key: "attempts", label: "Shots Defended", accessor: r => r.attempts },
+  { key: "oppfg", label: "Opp FG%", accessor: r => r.oppFgPct }
+];
+let closeGameDefenseSort = { key: "oppfg", dir: "asc" };
+
+function renderCloseGameDefensePanel() {
+  const headerRow = document.getElementById("closeGameDefenseHeaderRow");
+  if (!headerRow) return;
+  renderSortableHeader(headerRow, CLOSE_GAME_DEFENSE_COLUMNS, closeGameDefenseSort, renderCloseGameDefensePanel);
+  const body = document.getElementById("closeGameDefenseBody");
+  const rows = computeCloseGameDefense();
+  const sortCol = CLOSE_GAME_DEFENSE_COLUMNS.find(c => c.key === closeGameDefenseSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), closeGameDefenseSort.dir));
+  body.innerHTML = rows.length === 0
+    ? `<tr><td colspan="4" class="empty-state">No games decided by ${CLUTCH_MARGIN_THRESHOLD} points or fewer yet.</td></tr>`
+    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.gp}</td><td>${r.attempts}</td><td>${formatPct(r.oppFgPct)}</td></tr>`).join("");
 }
 
 // Best & Worst Individual Games — ranks every player-game line by that single game's actual
@@ -6324,6 +6477,72 @@ function renderShotZonePanel() {
   }).join("");
 }
 
+// ---------- Defensive Shot Distance (see poolean-defensive-mirrors-spec.md) ----------
+// Direct mirror of Shot Distance above, just pointed at shots this player is tagged defending
+// instead of shots they took -- same four zones, same FG%-plus-share-of-attempts shape, reusing
+// SHOT_ZONES/totalBandedAttempts as-is since they only ever read `r.shooting.<zone>M/A`, and these
+// rows are shaped the same way (`r.shooting` here holds defensiveShootingStats()'s own zone
+// totals instead of shootingStats()'s).
+function computeDefensiveShotZoneRows() {
+  const totals = {};
+  state.players.forEach(p => {
+    totals[p.id] = { closeM: 0, closeA: 0, midM: 0, midA: 0, tpArcM: 0, tpArcA: 0, tpDeepM: 0, tpDeepA: 0 };
+  });
+  state.games.filter(isQualifyingGame).forEach(game => {
+    [...game.teamA, ...game.teamB].forEach(playerId => {
+      const sh = defensiveShootingStats(game, playerId);
+      const t = totals[playerId];
+      if (!t) return;
+      t.closeM += sh.closeM; t.closeA += sh.closeA;
+      t.midM += sh.midM; t.midA += sh.midA;
+      t.tpArcM += sh.tpArcM; t.tpArcA += sh.tpArcA;
+      t.tpDeepM += sh.tpDeepM; t.tpDeepA += sh.tpDeepA;
+    });
+  });
+  return state.players.map(p => ({ player: p, shooting: totals[p.id] }));
+}
+
+const DEFENSIVE_SHOT_ZONE_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  ...SHOT_ZONES.map(z => ({ key: z.key, label: z.label, accessor: r => pct(z.makes(r), z.attempts(r)) })),
+  { key: "attempts", label: "Attempts", accessor: r => totalBandedAttempts(r) }
+];
+let defensiveShotZoneSort = { key: "attempts", dir: "desc" };
+
+function renderDefensiveShotZonePanel() {
+  const headerRow = document.getElementById("defensiveShotZoneHeaderRow");
+  if (!headerRow) return;
+  renderSortableHeader(headerRow, DEFENSIVE_SHOT_ZONE_COLUMNS, defensiveShotZoneSort, renderDefensiveShotZonePanel);
+  const mixTh = document.createElement("th");
+  mixTh.textContent = "Mix";
+  headerRow.appendChild(mixTh);
+
+  const body = document.getElementById("defensiveShotZoneBody");
+  const rows = computeDefensiveShotZoneRows().filter(r => totalBandedAttempts(r) > 0);
+  const sortCol = DEFENSIVE_SHOT_ZONE_COLUMNS.find(c => c.key === defensiveShotZoneSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), defensiveShotZoneSort.dir));
+
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="${DEFENSIVE_SHOT_ZONE_COLUMNS.length + 1}" class="empty-state">No defended field goals with a marked shot location yet.</td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map(r => {
+    const total = totalBandedAttempts(r);
+    const zoneCellsHtml = SHOT_ZONES.map(z => {
+      const a = z.attempts(r);
+      const share = total > 0 ? Math.round((a / total) * 100) : 0;
+      return `<td>${formatShootingSplit(z.makes(r), a)}${a > 0 ? `<br><span class="hint" style="margin:0">${share}% of shots</span>` : ""}</td>`;
+    }).join("");
+    const mixHtml = SHOT_ZONES.map(z => {
+      const a = z.attempts(r);
+      if (a === 0) return "";
+      const share = (a / total) * 100;
+      return `<div class="shot-seg ${z.cssClass}" style="width:${share}%"><title>${escapeHtml(r.player.name)}: ${a} ${escapeHtml(z.label)} attempt${a === 1 ? "" : "s"} allowed (${Math.round(share)}%)</title></div>`;
+    }).join("");
+    return `<tr><td>${escapeHtml(r.player.name)}</td>${zoneCellsHtml}<td>${total}</td><td><div class="shot-selection-bar">${mixHtml}</div></td></tr>`;
+  }).join("");
+}
+
 // League-wide TS% per date, across every player in every reviewed game that day — a single
 // number meant for watching the whole league's scoring efficiency drift over the season (e.g.
 // to see whether a future rule change moves it), not for comparing individual players. Computed
@@ -6802,7 +7021,22 @@ function alphaVectorFor(globalAlpha, astAlpha) {
   return WIN_SHARES_FEATURES.map(f => f.key === "ast" ? astAlpha : globalAlpha);
 }
 
+// Cached, not recomputed on every call: computeLeaderboard() calls this once itself, but a single
+// Leaderboard render also calls computeLeaderboard() dozens of times over (once per panel that
+// needs it -- Defensive Load, Individual Game Performances, the quadrant/volume/cluster charts,
+// etc.), and this fit's own leave-one-out cross-validation grid search (two stages, see below) is
+// real work, not free. Recomputing it 48 times in one render was a real, measured 16-second stall
+// -- caching it here (invalidated by saveState(), and forced fresh once per render by
+// renderLeaderboard() itself, see there) turns that into one real computation reused by every
+// caller in the same render pass, not stale data silently surviving a real edit.
+let winSharesWeightsCache = null;
 function computeWinSharesWeights() {
+  if (winSharesWeightsCache !== null) return winSharesWeightsCache;
+  winSharesWeightsCache = computeWinSharesWeightsUncached();
+  return winSharesWeightsCache;
+}
+
+function computeWinSharesWeightsUncached() {
   const rows = winSharesRegressionRows();
   if (rows.length < WIN_SHARES_FEATURES.length + 1) return null;
 
@@ -7033,6 +7267,76 @@ function renderSecondChancePanel() {
   body.innerHTML = rows.length === 0
     ? '<tr><td colspan="4" class="empty-state">No offensive rebounds logged yet.</td></tr>'
     : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.oreb}</td><td>${r.converted}</td><td>${formatPct(pct(r.converted, r.oreb))}</td></tr>`).join("");
+}
+
+// ---------- Second-Chance Points Allowed (see poolean-defensive-mirrors-spec.md) ----------
+// Direct mirror of Second-Chance Conversion above, pointed at the other team's misses: when the
+// SHOOTING team keeps their own miss alive (an OREB on their own side, meaning this team failed
+// to control the rebound), every defender tagged on that original shot gets the resulting
+// conversion outcome charged against them -- same SECOND_CHANCE_WINDOW_SECONDS/conversion-check
+// logic as the offensive version, just crediting the shot's DEFENDER(S) instead of the offensive
+// rebounder, since that's who's actually responsible for the possession not ending on defense.
+// Lower rate is better here (the opposite of the offensive version, where higher is better).
+function computeSecondChancePointsAllowed() {
+  const totals = {}; // defenderId -> { oreb, allowed, noTimestamp }
+  state.games.filter(isQualifyingGame).forEach(game => {
+    const events = game.scoringEvents;
+    events.forEach(ev => {
+      if (ev.made !== false || !ev.rebounderId || !sameTeam(game, ev.scorerId, ev.rebounderId)) return;
+      const defenders = ev.defenderIds || [];
+      if (defenders.length === 0) return;
+      const hasTimestamp = ev.videoTime !== null && ev.videoTime !== undefined;
+      let allowed = false;
+      if (hasTimestamp) {
+        const windowStart = ev.videoTime;
+        const windowEnd = ev.videoTime + SECOND_CHANCE_WINDOW_SECONDS;
+        allowed = events.some(cand => {
+          if (cand === ev || cand.made === false) return false;
+          if (cand.videoTime === null || cand.videoTime === undefined) return false;
+          if (cand.videoTime < windowStart || cand.videoTime > windowEnd) return false;
+          return cand.scorerId === ev.rebounderId || cand.assistId === ev.rebounderId;
+        });
+      }
+      defenders.forEach(defId => {
+        const t = totals[defId] = totals[defId] || { oreb: 0, allowed: 0, noTimestamp: 0 };
+        t.oreb++;
+        if (!hasTimestamp) { t.noTimestamp++; return; }
+        if (allowed) t.allowed++;
+      });
+    });
+  });
+  return Object.entries(totals)
+    .map(([playerId, v]) => ({ player: state.players.find(p => p.id === playerId), ...v }))
+    .filter(r => r.player)
+    .sort((a, b) => b.oreb - a.oreb);
+}
+
+const SECOND_CHANCE_ALLOWED_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "oreb", label: "Opp OREB", accessor: r => r.oreb },
+  { key: "allowed", label: "Allowed", accessor: r => r.allowed },
+  { key: "rate", label: "Rate", accessor: r => pct(r.allowed, r.oreb) }
+];
+let secondChanceAllowedSort = { key: "rate", dir: "asc" };
+
+function renderSecondChanceAllowedPanel() {
+  const headerRow = document.getElementById("secondChanceAllowedHeaderRow");
+  if (!headerRow) return;
+  renderSortableHeader(headerRow, SECOND_CHANCE_ALLOWED_COLUMNS, secondChanceAllowedSort, renderSecondChanceAllowedPanel);
+  const rows = computeSecondChancePointsAllowed();
+  const sortCol = SECOND_CHANCE_ALLOWED_COLUMNS.find(c => c.key === secondChanceAllowedSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), secondChanceAllowedSort.dir));
+  const totalNoTimestamp = rows.reduce((sum, r) => sum + r.noTimestamp, 0);
+  const summaryEl = document.getElementById("secondChanceAllowedSummary");
+  if (summaryEl) {
+    summaryEl.textContent = totalNoTimestamp > 0
+      ? `${totalNoTimestamp} opponent offensive rebound${totalNoTimestamp === 1 ? "" : "s"} had no video timestamp on the original missed shot and couldn't be checked for conversion (still counted toward Opp OREB, never toward Allowed or Rate).`
+      : "";
+  }
+  const body = document.getElementById("secondChanceAllowedBody");
+  body.innerHTML = rows.length === 0
+    ? '<tr><td colspan="4" class="empty-state">No opponent offensive rebounds against a tagged defender yet.</td></tr>'
+    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.oreb}</td><td>${r.allowed}</td><td>${formatPct(pct(r.allowed, r.oreb))}</td></tr>`).join("");
 }
 
 function computeOutOfBoundsStats() {
@@ -8251,6 +8555,14 @@ const LEADERBOARD_COLUMNS = [
   { key: "pf", label: "PF/20", accessor: r => r.rate.pf, display: r => r.rate.pf.toFixed(1), tooltip: "Personal fouls, per 20 combined points." },
   { key: "ptsAllowed", label: "Pts Allowed/20", accessor: r => r.rateDefense.ptsAllowed, display: r => r.rateDefense.ptsAllowed.toFixed(1), tooltip: "Points scored by opponents on shots where this player was the tagged defender, per 20 combined points." },
   { key: "oppfg", label: "Opp FG%", accessor: r => pct(r.defense.timesBeaten, r.defense.timesBeaten + r.defense.stops), display: r => formatPct(pct(r.defense.timesBeaten, r.defense.timesBeaten + r.defense.stops)), tooltip: "Shooting percentage of everyone this player was tagged defending, make or miss: a real 'shooting percentage allowed.'" },
+  { key: "oppefg", label: "Opp eFG%", advanced: true,
+    accessor: r => effectiveFgPct(r.defense.timesBeaten, r.defense.tpmAgainst, r.defense.timesBeaten + r.defense.stops),
+    display: r => formatPct(effectiveFgPct(r.defense.timesBeaten, r.defense.tpmAgainst, r.defense.timesBeaten + r.defense.stops)),
+    tooltip: "Opp FG%'s value-weighted counterpart, the exact same formula offensive eFG% uses just applied to shots allowed: a made 3 counts as 1.5x a made 2. Separates a defender who allows a lot of made 3s from one allowing the same raw FG% but mostly on 2s, who currently look identical on plain Opp FG% alone." },
+  { key: "oppts", label: "Opp TS%", advanced: true,
+    accessor: r => trueShootingPct(r.defense.ptsAllowed, r.defense.timesBeaten + r.defense.stops, 0),
+    display: r => formatPct(trueShootingPct(r.defense.ptsAllowed, r.defense.timesBeaten + r.defense.stops, 0)),
+    tooltip: "Opp FG%'s scoring-efficiency counterpart, the same True Shooting formula offense uses (points per true shooting attempt), applied to shots allowed. Narrower than offensive TS%, honestly: free throws are never tagged with a defender in this tool (Stat Entry only offers the defender picker on a 2 or 3), so this always uses 0 for opponent FTA, unlike offensive TS% which includes the player's own real free-throw trips." },
   { key: "beaten", label: "Beaten/20", accessor: r => r.rateDefense.timesBeaten, display: r => r.rateDefense.timesBeaten.toFixed(1), tooltip: "Times scored on while tagged as the defender on a made shot, per 20 combined points." },
   { key: "stops", label: "Stops/20", accessor: r => r.rateDefense.stops, display: r => r.rateDefense.stops.toFixed(1), tooltip: "Times tagged as the defender on a missed shot, per 20 combined points." },
   { key: "defrtg20", label: "Def Rating/20", accessor: r => defensiveRating(r.rate, r.rateDefense), display: r => defensiveRating(r.rate, r.rateDefense).toFixed(1), tooltip: "This tool's Defensive Rating: STL, plus BLK (only when it isn't already one of this player's own Stops, so a blocked-and-tagged shot isn't credited twice), plus Stops minus Beaten minus 0.4×Pts Allowed, all per 20 combined points. Not points-allowed-per-100-possessions like the NBA stat of the same name; possessions aren't tracked here, so combined points stands in as the pace proxy, same as every other per-20 rate on this board. 0 for anyone never tagged as a defender with no steals or blocks, not a penalty for conservative tagging." },
@@ -8422,6 +8734,13 @@ function renderLeaderboardHeader() {
 // player-comparison scatters, then shot-location/efficiency, then matchup/chemistry grids, then
 // situational stats, capped with the season's best/worst individual games. Keep the two in sync.
 function renderLeaderboard() {
+  // Forces exactly one fresh Leaderboard computation and Win Shares fit for this whole render
+  // pass (see computeLeaderboard()/computeWinSharesWeights()'s own caches) -- every toggle that
+  // can change which games qualify already calls renderLeaderboard() right after flipping itself,
+  // so this is also what keeps the caches honest for those, not just for a real data edit
+  // (saveState() covers that case).
+  leaderboardCache = null;
+  winSharesWeightsCache = null;
   updateAdvancedColsBtnLabel();
   updateImbalancedGamesBtnLabel();
   updatePastSeasonsBtnLabel();
@@ -8438,6 +8757,7 @@ function renderLeaderboard() {
   renderTwoWayRankChart();
   renderLeagueHeatmap();
   renderShotZonePanel();
+  renderDefensiveShotZonePanel();
   renderLeagueDirectionSplits();
   renderLeagueTsByZoneChart();
   renderWideOpenShootingPanel();
@@ -8448,10 +8768,13 @@ function renderLeaderboard() {
   renderAssistSynergy();
   renderOutOfBoundsPanel();
   renderSecondChancePanel();
+  renderSecondChanceAllowedPanel();
   renderGameWinningBucketsPanel();
+  renderGameSavingStopsPanel();
   renderDefensiveLoadPanel();
   renderWinSharesModelPanel();
   renderCloseGameShootingPanel();
+  renderCloseGameDefensePanel();
   renderIndividualGamePerformances();
   renderLeagueHighlights();
   renderPlayerComparisonSelects();
@@ -8526,7 +8849,7 @@ function renderLeaderboard() {
 // purpose, since a bigger share of the team's shots or assists reflects a role a player's
 // settled into, not necessarily better play.
 const COMPARISON_NEUTRAL_KEYS = new Set(["gp", "shotpct", "astpct", "orebpct", "drebpct", "trebpct"]);
-const COMPARISON_LOWER_IS_BETTER_KEYS = new Set(["l", "tov", "pf", "ptsAllowed", "oppfg", "beaten", "tovpct"]);
+const COMPARISON_LOWER_IS_BETTER_KEYS = new Set(["l", "tov", "pf", "ptsAllowed", "oppfg", "oppefg", "oppts", "beaten", "tovpct"]);
 
 // Rebuilds the two <select> option lists from the current roster — cheap, called on every
 // Leaderboard render so a player added elsewhere shows up without a reload. Re-setting
@@ -8614,6 +8937,11 @@ function renderPlayerDetail() {
   const player = state.players.find(p => p.id === currentPlayerId);
   if (!player) return;
 
+  // Same one-fresh-computation-per-render-pass reasoning as renderLeaderboard() -- Player Detail
+  // calls computeLeaderboard() several times over too (Off/Def Matchup Difficulty trends,
+  // Defensive Load, Shot Creation, etc.), and this render might be the first one this session,
+  // so it can't just rely on renderLeaderboard() having already primed the cache.
+  leaderboardCache = null;
   const row = computeLeaderboard().find(r => r.player.id === currentPlayerId);
   document.getElementById("playerDetailTitle").innerHTML = `${renderPlayerAvatar(player, "large")}<span>${escapeHtml(player.name)}</span>`;
   document.getElementById("playerDetailSummary").textContent = row
