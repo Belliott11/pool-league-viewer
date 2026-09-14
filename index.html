@@ -707,6 +707,18 @@
       </div>
     </details>
 
+    <details class="panel">
+      <summary><h2>Points off Takeaways</h2></summary>
+      <p class="hint">Sport-specific, not borrowed from anywhere: possession only alternates automatically after a made basket, but a turnover is a live-ball change of possession, so there's a real, brief window right after a steal where the defense hasn't reset the way it would after a made shot. Sums this player's own team's points scored within 15 seconds of every steal this player is individually credited with (`TAKEAWAY_WINDOW_SECONDS` in <code>app.js</code>, a starting guess, not backed by real transition-speed data yet). Ties who's disruptive on defense (steals) to who actually cashes that disruption in on offense, not necessarily the same player. Scoped to steals specifically, not the broader turnover log: see <strong>TOV Credit %</strong> above for why an uncredited turnover can't honestly be pinned on anyone.</p>
+      <p id="pointsOffTakeawaysSummary" class="hint" style="margin:0 0 10px"></p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="pointsOffTakeawaysTable">
+          <thead><tr id="pointsOffTakeawaysHeaderRow"></tr></thead>
+          <tbody id="pointsOffTakeawaysBody"></tbody>
+        </table>
+      </div>
+    </details>
+
     <div class="panel-row">
       <details class="panel">
         <summary><h2>Game-Winning Buckets</h2></summary>

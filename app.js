@@ -3901,10 +3901,16 @@ function gameDefenseStats(game, playerId) {
   const stops = against.filter(ev => ev.made === false).length;
   // Made 3s against, specifically -- needed for Opponent eFG% (see poolean-defensive-mirrors-
   // spec.md). Free throws are never tagged with a defender at all (see Stat Entry: the defender
-  // picker only shows for a 2/3-point shot), so there's no "FTA against" this tool can ever track
-  // for a specific defender -- Opponent TS% below is built anyway, using 0 for that term, but is
-  // honestly a narrower read than offensive TS% for that reason.
+  // picker only shows for a 2/3-point shot).
   const tpmAgainst = madeAgainst.filter(ev => ev.points === 3).length;
+  // Solo vs. helped stops (see poolean-shot-creation-and-mirrors-spec.md): a miss with exactly
+  // one tagged defender is a clean, one-on-one stop; two or more means help arrived. Right now
+  // Opp FG%/Def Rating credit both identically, so a defender who "shuts people down straight-up"
+  // and one who "only looks good because help consistently showed up" look the same -- this
+  // separates them. Only meaningful on `stops` (a made shot's own credit already goes fully to
+  // every tagged defender regardless of team size, same convention Beaten already uses).
+  const soloStops = against.filter(ev => ev.made === false && (ev.defenderIds || []).length === 1).length;
+  const helpedStops = stops - soloStops;
   // Blocks this player gets extra defensive credit for in defensiveRating(), beyond the Stop
   // credit above — only counted here when the block ISN'T also one of their own tagged Stops
   // already (the common case, since a shot-blocker is almost always also the tagged on-ball
@@ -3917,6 +3923,8 @@ function gameDefenseStats(game, playerId) {
     ptsAllowed: madeAgainst.reduce((sum, ev) => sum + ev.points, 0),
     timesBeaten,
     stops,
+    soloStops,
+    helpedStops,
     tpmAgainst,
     oppFgPct: pct(timesBeaten, timesBeaten + stops),
     blocksNotAlreadyStopped
@@ -4832,7 +4840,7 @@ function computeLeaderboardUncached() {
     const gamesPlayed = qualifyingGamesForPlayer(p.id);
     const totals = { pts: 0, oreb: 0, dreb: 0, ast: 0, stl: 0, blk: 0, tov: 0, pf: 0 };
     const shooting = { fgm: 0, fga: 0, tpm: 0, tpa: 0, closeM: 0, closeA: 0, midM: 0, midA: 0, tpArcM: 0, tpArcA: 0, tpDeepM: 0, tpDeepA: 0, ftm: 0, fta: 0, dunkM: 0, dunkA: 0 };
-    const defense = { ptsAllowed: 0, timesBeaten: 0, stops: 0, tpmAgainst: 0, blocksNotAlreadyStopped: 0 };
+    const defense = { ptsAllowed: 0, timesBeaten: 0, stops: 0, soloStops: 0, helpedStops: 0, tpmAgainst: 0, blocksNotAlreadyStopped: 0 };
     let wins = 0, losses = 0, ties = 0, combinedPoints = 0, teamFgaTotal = 0, teamAstTotal = 0, orebPoolTotal = 0, drebPoolTotal = 0;
     gamesPlayed.forEach(g => {
       const s = g.stats.find(st => st.playerId === p.id);
@@ -4843,6 +4851,8 @@ function computeLeaderboardUncached() {
       defense.ptsAllowed += def.ptsAllowed;
       defense.timesBeaten += def.timesBeaten;
       defense.stops += def.stops;
+      defense.soloStops += def.soloStops;
+      defense.helpedStops += def.helpedStops;
       defense.tpmAgainst += def.tpmAgainst;
       defense.blocksNotAlreadyStopped += def.blocksNotAlreadyStopped;
       combinedPoints += gameTotalPoints(g);
@@ -4922,6 +4932,9 @@ function computeLeaderboardUncached() {
       defensiveLoad: computeDefensiveLoad(p.id),
       expectedPoints: computeExpectedPoints(p.id, zonePpa),
       expectedPointsAgainst: computeExpectedPointsAgainst(p.id, zonePpa),
+      shotCreation: computeShotCreationRate(p.id),
+      pointsOffTakeaways: computePointsOffTakeaways(p.id),
+      turnoverCredit: computeTurnoverCreditRate(p.id),
       shotAttemptDiff: computeShotAttemptDifferential(p.id),
       paceAndPpp: computePaceAndPpp(p.id),
       winShares: computeWinShares(p.id, winSharesWeights),
@@ -6671,6 +6684,112 @@ function computeExpectedPointsAgainst(playerId, zonePpa) {
   });
   if (fga < EXPECTED_POINTS_AGAINST_MIN_FGA) return null;
   return { fga, actualPtsAllowed, expectedPtsAllowed, pointsAllowedUnderExpected: expectedPtsAllowed - actualPtsAllowed };
+}
+
+// ---------- Shot Creation Rate (see poolean-shot-creation-and-mirrors-spec.md) ----------
+// What share of a player's own makes came off a teammate's assist vs. self-created -- reuses
+// assistId, already populated on every made shot, no new tracking. Answers "does this player
+// create their own offense or get set up" directly instead of inferring it from assists-received
+// volume. Not the same idea as grading a pass's own quality (declined separately): this only
+// counts something that already exists in the data, no new judgment calls.
+const SHOT_CREATION_MIN_FGM = 5;
+function computeShotCreationRate(playerId) {
+  let assisted = 0, unassisted = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.scorerId !== playerId || ev.made === false) return;
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (ev.assistId) assisted++; else unassisted++;
+    });
+  });
+  const total = assisted + unassisted;
+  if (total < SHOT_CREATION_MIN_FGM) return null;
+  return { assisted, unassisted, total, selfCreatedPct: pct(unassisted, total) };
+}
+
+// ---------- Points off Takeaways (see poolean-shot-creation-and-mirrors-spec.md) ----------
+// Genuinely sport-specific, not borrowed from anywhere: possession only alternates automatically
+// after a made basket, but a turnover is a live-ball change of possession, so there's a real,
+// brief window where the defense hasn't reset the way it would after a made shot. Ties two things
+// already tracked separately -- who's disruptive on defense (steals) and who actually cashes that
+// disruption in on offense -- by summing this player's own TEAM's points scored within
+// TAKEAWAY_WINDOW_SECONDS of every steal this player is individually credited with. Scoped to
+// stealEvents specifically, not the broader turnoverEvents log: a steal is the one turnover type
+// with a real, individually-credited defender (see Turnover Credit Rate below for the broader,
+// mostly-uncredited pool). A single adjustable constant, same provisional-not-backed-by-real-
+// transition-speed-data pattern as every other threshold on this page.
+const TAKEAWAY_WINDOW_SECONDS = 15;
+function computePointsOffTakeaways(playerId) {
+  let takeaways = 0, pointsOff = 0, noTimestamp = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    const myTeam = game.teamA.includes(playerId) ? game.teamA : game.teamB;
+    game.stealEvents.filter(ev => ev.playerId === playerId).forEach(ev => {
+      takeaways++;
+      const hasTimestamp = ev.videoTime !== null && ev.videoTime !== undefined;
+      if (!hasTimestamp) { noTimestamp++; return; }
+      const windowEnd = ev.videoTime + TAKEAWAY_WINDOW_SECONDS;
+      game.scoringEvents.forEach(sc => {
+        if (sc.made === false || !myTeam.includes(sc.scorerId)) return;
+        if (sc.videoTime === null || sc.videoTime === undefined) return;
+        if (sc.videoTime < ev.videoTime || sc.videoTime > windowEnd) return;
+        pointsOff += sc.points;
+      });
+    });
+  });
+  if (takeaways === 0) return null;
+  return { takeaways, pointsOff, noTimestamp, perTakeaway: pointsOff / takeaways };
+}
+
+const POINTS_OFF_TAKEAWAYS_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "takeaways", label: "Takeaways", accessor: r => r.pointsOffTakeaways.takeaways },
+  { key: "pointsoff", label: "Points Off", accessor: r => r.pointsOffTakeaways.pointsOff },
+  { key: "pertakeaway", label: "Per Takeaway", accessor: r => r.pointsOffTakeaways.perTakeaway },
+];
+let pointsOffTakeawaysSort = { key: "pointsoff", dir: "desc" };
+
+function renderPointsOffTakeawaysPanel() {
+  const headerRow = document.getElementById("pointsOffTakeawaysHeaderRow");
+  if (!headerRow) return;
+  renderSortableHeader(headerRow, POINTS_OFF_TAKEAWAYS_COLUMNS, pointsOffTakeawaysSort, renderPointsOffTakeawaysPanel);
+  const rows = computeLeaderboard().filter(r => r.pointsOffTakeaways !== null);
+  const sortCol = POINTS_OFF_TAKEAWAYS_COLUMNS.find(c => c.key === pointsOffTakeawaysSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), pointsOffTakeawaysSort.dir));
+  const totalNoTimestamp = rows.reduce((sum, r) => sum + r.pointsOffTakeaways.noTimestamp, 0);
+  const summaryEl = document.getElementById("pointsOffTakeawaysSummary");
+  if (summaryEl) {
+    summaryEl.textContent = totalNoTimestamp > 0
+      ? `${totalNoTimestamp} steal${totalNoTimestamp === 1 ? "" : "s"} had no video timestamp and couldn't be checked for a quick score afterward (still counted toward Takeaways, never toward Points Off).`
+      : "";
+  }
+  const body = document.getElementById("pointsOffTakeawaysBody");
+  body.innerHTML = rows.length === 0
+    ? '<tr><td colspan="4" class="empty-state">No steals logged yet.</td></tr>'
+    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.pointsOffTakeaways.takeaways}</td><td>${r.pointsOffTakeaways.pointsOff}</td><td>${r.pointsOffTakeaways.perTakeaway.toFixed(2)}</td></tr>`).join("");
+}
+
+// ---------- Turnover Credit Rate (see poolean-shot-creation-and-mirrors-spec.md) ----------
+// The defensive mirror of Shot Creation Rate, applied to turnovers instead of shots: stealEvents
+// only capture the subset of turnovers where a specific person gets individual credit; the
+// broader turnoverEvents log includes plenty of live-ball giveaways with no one credited at all
+// (opponentId null -- see TAGGED_STAT_CONFIG's own "Who forced/recovered it, if anyone?" prompt).
+// An UNcredited turnover has no defender tag at all, so there's no honest way to say it happened
+// "near" one specific player more than any other teammate on the floor that game -- the fair,
+// checkable denominator is every turnover the opponent committed in games this player's own team
+// was on defense (the whole pool a credited turnover could have come from), not a guess at who
+// was nearby. Separates real, active disruption (individually credited) from a defender who
+// benefits from sloppy opposing possessions without doing much to cause them.
+const TURNOVER_CREDIT_MIN_POOL = 5;
+function computeTurnoverCreditRate(playerId) {
+  let credited = 0, teamTotal = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    const oppTeam = game.teamA.includes(playerId) ? game.teamB : game.teamA;
+    const forced = game.turnoverEvents.filter(ev => oppTeam.includes(ev.playerId));
+    teamTotal += forced.length;
+    credited += forced.filter(ev => ev.opponentId === playerId).length;
+  });
+  if (teamTotal < TURNOVER_CREDIT_MIN_POOL) return null;
+  return { credited, teamTotal, rate: pct(credited, teamTotal) };
 }
 
 // ---------- Shot Attempt Differential (see poolean-additional-metrics-spec.md, section 4) ----------
@@ -8499,10 +8618,30 @@ const LEADERBOARD_COLUMNS = [
     tooltip: "Experimental, provisional: this season's share of actual team wins credited to this player, from a regression fit fresh against real game margins (not an assumed points scale like GmSc/Two-Way), sign-constrained so each stat can only push in its basketball-plausible direction. See the Win Shares Model panel below for this fit's current sample size, alpha, and leave-one-out validation numbers. Not enough data yet to trust for anything with real stakes. Excludes any game flagged Stopped Early: a margin from an incomplete game isn't a real outcome to fit against." },
   { key: "dunks", label: "Dunks", advanced: true, accessor: r => r.dunks, tooltip: "Made dunks, season total (not per-20: a counting stat, not a rate). Only counts shots tagged as a dunk in Stat Entry; games logged before that field existed need a manual pass (Export, Review Possible Dunks) before they count here." },
   { key: "dunkpct", label: "Dunk%", advanced: true, accessor: r => r.dunkPct, display: r => formatPct(r.dunkPct), tooltip: "Share of this player's own field goal attempts (2s and 3s combined) that were tagged as a dunk, make or miss: how much of their offense is above the rim. Same Review Possible Dunks caveat as Dunks: undercounts until older games are backfilled." },
+  { key: "selfcreated", label: "Self-Created %", advanced: true,
+    accessor: r => r.shotCreation ? r.shotCreation.selfCreatedPct : null,
+    display: r => r.shotCreation ? formatPct(r.shotCreation.selfCreatedPct) : "—",
+    tooltip: `Share of this player's own makes (2s and 3s) with no assist tagged, vs. set up by a teammate: real shot creation, not an eyeballed inference from how many assists they receive. Needs ${SHOT_CREATION_MIN_FGM}+ makes before showing.` },
+  { key: "moneyzone", label: "Money Zone %", advanced: true,
+    accessor: r => {
+      const money = r.shooting.closeA + r.shooting.tpArcA;
+      const total = money + r.shooting.midA + r.shooting.tpDeepA;
+      return total > 0 ? pct(money, total) : null;
+    },
+    display: r => {
+      const money = r.shooting.closeA + r.shooting.tpArcA;
+      const total = money + r.shooting.midA + r.shooting.tpDeepA;
+      return total > 0 ? formatPct(pct(money, total)) : "—";
+    },
+    tooltip: "Share of this player's own zone-marked field goal attempts from the two real-positive-value zones (Close, 3PT Line) rather than the two weak ones (Midrange, 3PT Deep) -- see the Shot Distance panel below for the four-way split this collapses into one number. How much of this diet is good shots, at a glance, not a read on whether they're making them." },
   { key: "oreb", label: "OREB/20", accessor: r => r.rate.oreb, display: r => r.rate.oreb.toFixed(1), tooltip: "Offensive rebounds (grabbed by a teammate of the shooter), per 20 combined points." },
   { key: "dreb", label: "DREB/20", accessor: r => r.rate.dreb, display: r => r.rate.dreb.toFixed(1), tooltip: "Defensive rebounds (grabbed by an opponent of the shooter), per 20 combined points." },
   { key: "ast", label: "AST/20", accessor: r => r.rate.ast, display: r => r.rate.ast.toFixed(1), tooltip: "Assists (credited on a made shot when a teammate is tagged as the passer), per 20 combined points." },
   { key: "stl", label: "STL/20", accessor: r => r.rate.stl, display: r => r.rate.stl.toFixed(1), tooltip: "Steals, per 20 combined points. Feeds Def Rating below." },
+  { key: "tovcredit", label: "TOV Credit %", advanced: true,
+    accessor: r => r.turnoverCredit ? r.turnoverCredit.rate : null,
+    display: r => r.turnoverCredit ? formatPct(r.turnoverCredit.rate) : "—",
+    tooltip: `Of every turnover the opponent committed in games this player's own team was on defense (credited or not -- the whole pool a credited one could come from), what share did this player individually get credited for forcing (a real steal, or being named on a standalone turnover)? A turnover with no one credited has no defender tag at all, so it can't honestly be pinned on one specific teammate over another; this only compares against the real, checkable pool. Separates active disruption from benefiting off sloppy opposing possessions without causing them. Needs ${TURNOVER_CREDIT_MIN_POOL}+ team turnovers forced.` },
   { key: "blk", label: "BLK/20", accessor: r => r.rate.blk, display: r => r.rate.blk.toFixed(1), tooltip: "Blocks (credited on a missed shot when this player is tagged as the blocker), per 20 combined points. Feeds Def Rating below, except when the block is already one of this player's own Stops (the usual case); see Def Rating's own tooltip." },
   { key: "tov", label: "TOV/20", accessor: r => r.rate.tov, display: r => r.rate.tov.toFixed(1), tooltip: "Turnovers (including ones forced by a steal, or a miss ruled out of bounds), per 20 combined points." },
   { key: "atov", label: "A/TO", accessor: r => r.totals.tov === 0 ? (r.totals.ast === 0 ? 0 : Infinity) : r.totals.ast / r.totals.tov, display: r => r.astTov, tooltip: "Assist-to-turnover ratio." },
@@ -8515,6 +8654,10 @@ const LEADERBOARD_COLUMNS = [
     tooltip: "Opp FG%'s value-weighted counterpart, the exact same formula offensive eFG% uses just applied to shots allowed: a made 3 counts as 1.5x a made 2. Separates a defender who allows a lot of made 3s from one allowing the same raw FG% but mostly on 2s, who currently look identical on plain Opp FG% alone." },
   { key: "beaten", label: "Beaten/20", accessor: r => r.rateDefense.timesBeaten, display: r => r.rateDefense.timesBeaten.toFixed(1), tooltip: "Times scored on while tagged as the defender on a made shot, per 20 combined points." },
   { key: "stops", label: "Stops/20", accessor: r => r.rateDefense.stops, display: r => r.rateDefense.stops.toFixed(1), tooltip: "Times tagged as the defender on a missed shot, per 20 combined points." },
+  { key: "solostop", label: "Solo Stop %", advanced: true,
+    accessor: r => pct(r.defense.soloStops, r.defense.stops),
+    display: r => formatPct(pct(r.defense.soloStops, r.defense.stops)),
+    tooltip: "Of this player's own Stops, what share were one-on-one (exactly one tagged defender, no help) vs. a double-team (two or more tagged). Opp FG%/Def Rating credit both identically right now; this separates shutting someone down straight-up from a number that only looks good because help consistently showed up -- the defensive twin of Self-Created %'s own question on offense." },
   { key: "defrtg20", label: "Def Rating/20", accessor: r => defensiveRating(r.rate, r.rateDefense), display: r => defensiveRating(r.rate, r.rateDefense).toFixed(1), tooltip: "This tool's Defensive Rating: STL, plus BLK (only when it isn't already one of this player's own Stops, so a blocked-and-tagged shot isn't credited twice), plus Stops minus Beaten minus 0.4×Pts Allowed, all per 20 combined points. Not points-allowed-per-100-possessions like the NBA stat of the same name; possessions aren't tracked here, so combined points stands in as the pace proxy, same as every other per-20 rate on this board. 0 for anyone never tagged as a defender with no steals or blocks, not a penalty for conservative tagging." },
   { key: "ptsallowedunderxp", label: "Pts Allowed Under Exp", advanced: true,
     accessor: r => r.expectedPointsAgainst ? r.expectedPointsAgainst.pointsAllowedUnderExpected : null,
@@ -8719,6 +8862,7 @@ function renderLeaderboard() {
   renderOutOfBoundsPanel();
   renderSecondChancePanel();
   renderSecondChanceAllowedPanel();
+  renderPointsOffTakeawaysPanel();
   renderGameWinningBucketsPanel();
   renderDefensiveLoadPanel();
   renderWinSharesModelPanel();
