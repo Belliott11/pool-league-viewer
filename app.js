@@ -6909,6 +6909,174 @@ function computeReboundDifferential(playerId) {
   return { gp: games.length, forTotal: forSum, againstTotal: againstSum, diffPerGame: (forSum - againstSum) / games.length };
 }
 
+// ---------- Rebound Battle Record (see poolean-rebound-battle-panels-spec.md) ----------
+// Now that reboundContesterIds/reboundNoContest are real, actively-tagged data (not a pilot
+// anymore), this surfaces what's currently only computable by hand: who actually wins the
+// physical battle for a loose ball. `reboundContesterIds` lists whoever contested and LOST -- the
+// winner is `rebounderId`, which is never in its own contester list (mirrors how `defenderIds`
+// already excludes the shooter) -- so a win is "this player is rebounderId on a real contest," a
+// loss is "this player appears in someone else's reboundContesterIds." Only real contests count
+// (reboundContesterIds non-empty): an OOB miss (no rebounder at all) or a reboundNoContest rebound
+// isn't a battle anyone won or lost.
+const REBOUND_BATTLE_MIN_CONTESTS = 5; // same "don't show below a real threshold" reasoning as
+// everywhere else in this system -- verified against a real hand-checked sample (Evan 6-2 75%,
+// Ben 5-2 71%, Alex 4-2 67%, Ian 5-5 50%, Adam 5-5 50%, Lukas 4-4 50%, Reilly 2-3 40%, Viraj 4-7
+// 36%, Zach 2-7 22%) reproduces exactly at this threshold.
+function computeReboundBattleRecord() {
+  const totals = {}; // playerId -> { wins, losses }
+  state.games.filter(isQualifyingGame).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.made !== false || !ev.rebounderId || ev.turnoverEventId) return;
+      const contesters = ev.reboundContesterIds || [];
+      if (contesters.length === 0) return; // no-contest or untagged -- not a real battle
+      const w = totals[ev.rebounderId] = totals[ev.rebounderId] || { wins: 0, losses: 0 };
+      w.wins++;
+      contesters.forEach(id => {
+        const l = totals[id] = totals[id] || { wins: 0, losses: 0 };
+        l.losses++;
+      });
+    });
+  });
+  return Object.entries(totals)
+    .map(([playerId, v]) => {
+      const total = v.wins + v.losses;
+      return { player: state.players.find(p => p.id === playerId), wins: v.wins, losses: v.losses, total, winPct: pct(v.wins, total) };
+    })
+    .filter(r => r.player && r.total >= REBOUND_BATTLE_MIN_CONTESTS);
+}
+
+// Context stat, not a ranking on its own (see poolean-rebound-battle-panels-spec.md): what share
+// of this player's own rebounds (as rebounderId, offensive or defensive) came from a real contest
+// vs. a no-contest situation. Required to sit alongside Rebound Battle Record wherever it's shown
+// -- same "never stand alone" reasoning as Defensive Load pairing with Opp FG%/Def Rating -- since
+// a player whose boards are mostly uncontested pickups is in a genuinely different situation than
+// one winning real battles, even at the same raw rebound total. Deliberately not itself a
+// leaderboard/ranking: a high or low share isn't good or bad, just context for reading the rest.
+// Untagged rebounds (reviewed by neither tag yet) are excluded from both the numerator and
+// denominator -- there's no answer yet for those, so they shouldn't silently count as either.
+function computeReboundContestRate(playerId) {
+  let real = 0, noContest = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.made !== false || ev.rebounderId !== playerId || ev.turnoverEventId) return;
+      if ((ev.reboundContesterIds || []).length > 0) real++;
+      else if (ev.reboundNoContest) noContest++;
+    });
+  });
+  const total = real + noContest;
+  if (total === 0) return null;
+  return { real, noContest, total, contestRate: pct(real, total) };
+}
+
+// ---------- Rebound Battle Head-to-Head (see poolean-rebound-battle-panels-spec.md) ----------
+// Direct mirror of computeMatchupGrid() above, same visual pattern, just pointed at rebound
+// win/loss instead of shot make/miss. Unlike the shot grid (scorer vs. defender is inherently
+// directional -- a shot is always attempted BY someone AGAINST someone), a rebound battle between
+// two specific players can go either way on different occasions, so a cell here is this row
+// player's win rate specifically against this column player: wins where row was rebounderId and
+// column was a contester, over the combined total of both directions between that exact pair.
+function computeReboundBattleGrid() {
+  const winsAgainst = {}; // "winnerId|loserId" -> count of times winner beat loser
+  const playerTotals = {}; // playerId -> total battles involved in (win or loss), for sort order
+  state.games.filter(isQualifyingGame).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.made !== false || !ev.rebounderId || ev.turnoverEventId) return;
+      const contesters = ev.reboundContesterIds || [];
+      if (contesters.length === 0) return;
+      contesters.forEach(loserId => {
+        const key = `${ev.rebounderId}|${loserId}`;
+        winsAgainst[key] = (winsAgainst[key] || 0) + 1;
+        playerTotals[ev.rebounderId] = (playerTotals[ev.rebounderId] || 0) + 1;
+        playerTotals[loserId] = (playerTotals[loserId] || 0) + 1;
+      });
+    });
+  });
+  // Same min-contests gate as Rebound Battle Record -- a player below the real threshold doesn't
+  // get a row/column at all, not just a hidden one, since even one real matchup cell involving
+  // them would be undersampled noise dressed up as a grid.
+  const players = Object.keys(playerTotals)
+    .filter(id => playerTotals[id] >= REBOUND_BATTLE_MIN_CONTESTS)
+    .map(id => state.players.find(p => p.id === id))
+    .filter(Boolean)
+    .sort((a, b) => playerTotals[b.id] - playerTotals[a.id]);
+  return {
+    players,
+    cellFor: (rowId, colId) => {
+      const wins = winsAgainst[`${rowId}|${colId}`] || 0;
+      const losses = winsAgainst[`${colId}|${rowId}`] || 0;
+      const total = wins + losses;
+      if (total === 0) return null;
+      return { wins, losses, total, winPct: pct(wins, total) };
+    }
+  };
+}
+
+const REBOUND_BATTLE_RECORD_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "wins", label: "W", accessor: r => r.wins },
+  { key: "losses", label: "L", accessor: r => r.losses },
+  { key: "total", label: "Total", accessor: r => r.total },
+  { key: "winpct", label: "Win%", accessor: r => r.winPct },
+  { key: "contestrate", label: "Contest Rate", accessor: r => r.contestRate === null ? -1 : r.contestRate },
+];
+let reboundBattleRecordSort = { key: "winpct", dir: "desc" };
+
+function renderReboundBattleRecordPanel() {
+  const headerRow = document.getElementById("reboundBattleRecordHeaderRow");
+  if (!headerRow) return;
+  renderSortableHeader(headerRow, REBOUND_BATTLE_RECORD_COLUMNS, reboundBattleRecordSort, renderReboundBattleRecordPanel);
+  const body = document.getElementById("reboundBattleRecordBody");
+  const rows = computeReboundBattleRecord().map(r => {
+    const rate = computeReboundContestRate(r.player.id);
+    return { ...r, contestRate: rate ? rate.contestRate : null };
+  });
+  const sortCol = REBOUND_BATTLE_RECORD_COLUMNS.find(c => c.key === reboundBattleRecordSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), reboundBattleRecordSort.dir));
+  body.innerHTML = rows.length === 0
+    ? `<tr><td colspan="6" class="empty-state">Nobody has ${REBOUND_BATTLE_MIN_CONTESTS}+ real rebound contests yet.</td></tr>`
+    : rows.map(r => `<tr>
+        <td><button type="button" class="icon-btn rebound-battle-player-btn" data-player-id="${r.player.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.player.name)}</button></td>
+        <td>${r.wins}</td>
+        <td>${r.losses}</td>
+        <td>${r.total}</td>
+        <td>${formatPct(r.winPct)}</td>
+        <td>${r.contestRate === null ? "—" : formatPct(r.contestRate)}</td>
+      </tr>`).join("");
+  body.querySelectorAll(".rebound-battle-player-btn").forEach(btn => {
+    btn.addEventListener("click", () => openPlayerDetail(btn.dataset.playerId));
+  });
+}
+
+function renderReboundBattleGridPanel() {
+  const wrap = document.getElementById("reboundBattleGrid");
+  if (!wrap) return;
+  const { players, cellFor } = computeReboundBattleGrid();
+  if (players.length === 0) {
+    wrap.innerHTML = `<p class="empty-state">Nobody has ${REBOUND_BATTLE_MIN_CONTESTS}+ real rebound contests yet.</p>`;
+    return;
+  }
+  const headerHtml = players.map(p => `<th>${escapeHtml(p.name)}</th>`).join("");
+  const rowsHtml = players.map(row => {
+    const cellsHtml = players.map(col => {
+      if (row.id === col.id) return `<td class="matchup-grid-cell matchup-grid-empty">&#8212;</td>`;
+      const cell = cellFor(row.id, col.id);
+      if (!cell) return `<td class="matchup-grid-cell matchup-grid-empty">&#8212;</td>`;
+      const hue = (cell.winPct / 100) * 120;
+      const opacity = Math.min(0.85, 0.32 + cell.total * 0.08);
+      return `<td class="matchup-grid-cell" style="background: hsla(${hue}, 85%, 42%, ${opacity})" title="${escapeHtml(row.name)} vs. ${escapeHtml(col.name)}: ${cell.wins}-${cell.losses}">${cell.winPct}%</td>`;
+    }).join("");
+    return `<tr><td class="sticky-col">${escapeHtml(row.name)}</td>${cellsHtml}</tr>`;
+  }).join("");
+  wrap.innerHTML = `
+    <div class="table-scroll">
+      <table class="matchup-table matchup-grid-table">
+        <thead><tr><th class="sticky-col">Wins &#8595; / Against &#8594;</th>${headerHtml}</tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+  `;
+}
+
 // ---------- Pace and PPP (see poolean-additional-metrics-spec.md, section 2) ----------
 // Real Pace measures possessions per game; this tool has always substituted combined final score
 // as the "how much game happened" proxy for every per-20 rate, reasonable but imperfect -- a
@@ -7432,32 +7600,40 @@ function renderSecondChancePanel() {
     : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.oreb}</td><td>${r.converted}</td><td>${formatPct(pct(r.converted, r.oreb))}</td></tr>`).join("");
 }
 
-// ---------- Second-Chance Points Allowed (see poolean-defensive-mirrors-spec.md) ----------
-// Direct mirror of Second-Chance Conversion above, pointed at the other team's misses -- but
-// restricted to SELF-rebounds only (the shooter grabbing their own miss), not any offensive
-// rebound. Checked directly against real data why: when a teammate (not the shooter) grabs the
-// rebound, the shot's own defender was never assigned to guard THAT player at all -- that's a
-// different defender's contest responsibility, with no tag anywhere identifying who that was.
-// Charging the shot's defender for that outcome isn't a soft proxy, it's attributing a result to
-// someone with no real causal link to it (confirmed on real data: one player's entire sample under
-// the old, unrestricted version was 100% other-player rebounds, zero self-rebounds -- the charge
-// was really measuring who else's offensive rebounding, not this player's own defense). A
-// self-rebound is the one case where the shot's own defender genuinely had the opportunity and
-// responsibility to prevent it (contesting the person you were just guarding is your actual job),
-// so that's the only case this credits. Same SECOND_CHANCE_WINDOW_SECONDS/conversion-check logic
-// as the offensive version, crediting the shot's DEFENDER(S). Lower rate is better here (the
-// opposite of the offensive version, where higher is better). Expect a small sample: self-crash-
-// and-putback situations are rare relative to a teammate cleaning up the miss (5 total league-wide
-// in the season checked against) -- that's a real reflection of how second chances actually happen
-// in this league, not a bug in the restriction.
+// ---------- Second-Chance Points Allowed (see poolean-rebound-battle-panels-spec.md) ----------
+// Rebuilt entirely on real Rebound Battle data, replacing the earlier self-rebound-only stopgap.
+// That version was a real improvement over the original (which charged the shot's defender no
+// matter who grabbed the rebound), but it was still a workaround for missing data: self-rebounds
+// happen to be the one case where "the shot's defender" and "whoever actually lost the rebound
+// battle" are guaranteed to be the same relationship, at the cost of almost the entire sample
+// (self-crash-and-putbacks are rare). Now that reboundContesterIds tags who ACTUALLY lost the
+// battle, this fires whenever the offense keeps its own miss alive (rebounder's team == shooter's
+// team) via a real contest, and charges whichever tagged contester(s) are on the DEFENDING side --
+// a contester can theoretically be an offensive teammate who also went for the ball, and only the
+// defensive-side losers had any real responsibility for the possession not ending. Same
+// SECOND_CHANCE_WINDOW_SECONDS conversion-check logic as Second-Chance Conversion. Lower rate is
+// better here (the opposite of the offensive version).
+//
+// Deliberately NOT gated at REBOUND_BATTLE_MIN_CONTESTS like Rebound Battle Record/the Head-to-
+// Head grid: this panel's own denominator (real contests that are ALSO offensive rebounds AND
+// have a defensive-side loser) is a much smaller subset of real contests, and gating it the same
+// way would leave the panel showing almost nobody. The spec's own instruction for genuinely thin
+// numbers here (1-4 situations per player, expected for a while) is to label the low-sample state
+// clearly rather than hide it -- a 1-situation 100% sitting next to a real 25% needs a visible
+// flag, not to be gated into invisibility. See the "small sample" flag on any row below
+// REBOUND_BATTLE_MIN_CONTESTS in the render function below.
 function computeSecondChancePointsAllowed() {
-  const totals = {}; // defenderId -> { oreb, allowed, noTimestamp }
+  const totals = {}; // defenderId -> { situations, allowed, noTimestamp }
   state.games.filter(isQualifyingGame).forEach(game => {
     const events = game.scoringEvents;
     events.forEach(ev => {
-      if (ev.made !== false || !ev.rebounderId || ev.rebounderId !== ev.scorerId) return;
-      const defenders = ev.defenderIds || [];
-      if (defenders.length === 0) return;
+      if (ev.made !== false || !ev.rebounderId || ev.turnoverEventId) return;
+      if (!sameTeam(game, ev.scorerId, ev.rebounderId)) return; // must be an offensive rebound
+      const contesters = ev.reboundContesterIds || [];
+      if (contesters.length === 0) return; // real contest required -- no-contest/untagged excluded
+      const scorerTeam = game.teamA.includes(ev.scorerId) ? game.teamA : game.teamB;
+      const defensiveLosers = contesters.filter(id => !scorerTeam.includes(id));
+      if (defensiveLosers.length === 0) return; // every tagged loser was actually on offense
       const hasTimestamp = ev.videoTime !== null && ev.videoTime !== undefined;
       let allowed = false;
       if (hasTimestamp) {
@@ -7470,9 +7646,9 @@ function computeSecondChancePointsAllowed() {
           return cand.scorerId === ev.rebounderId || cand.assistId === ev.rebounderId;
         });
       }
-      defenders.forEach(defId => {
-        const t = totals[defId] = totals[defId] || { oreb: 0, allowed: 0, noTimestamp: 0 };
-        t.oreb++;
+      defensiveLosers.forEach(defId => {
+        const t = totals[defId] = totals[defId] || { situations: 0, allowed: 0, noTimestamp: 0 };
+        t.situations++;
         if (!hasTimestamp) { t.noTimestamp++; return; }
         if (allowed) t.allowed++;
       });
@@ -7481,14 +7657,14 @@ function computeSecondChancePointsAllowed() {
   return Object.entries(totals)
     .map(([playerId, v]) => ({ player: state.players.find(p => p.id === playerId), ...v }))
     .filter(r => r.player)
-    .sort((a, b) => b.oreb - a.oreb);
+    .sort((a, b) => b.situations - a.situations);
 }
 
 const SECOND_CHANCE_ALLOWED_COLUMNS = [
   { key: "player", label: "Player", accessor: r => r.player.name },
-  { key: "oreb", label: "Opp OREB", accessor: r => r.oreb },
+  { key: "situations", label: "Situations", accessor: r => r.situations },
   { key: "allowed", label: "Allowed", accessor: r => r.allowed },
-  { key: "rate", label: "Rate", accessor: r => pct(r.allowed, r.oreb) }
+  { key: "rate", label: "Rate", accessor: r => pct(r.allowed, r.situations) }
 ];
 let secondChanceAllowedSort = { key: "rate", dir: "asc" };
 
@@ -7503,13 +7679,19 @@ function renderSecondChanceAllowedPanel() {
   const summaryEl = document.getElementById("secondChanceAllowedSummary");
   if (summaryEl) {
     summaryEl.textContent = totalNoTimestamp > 0
-      ? `${totalNoTimestamp} opponent offensive rebound${totalNoTimestamp === 1 ? "" : "s"} had no video timestamp on the original missed shot and couldn't be checked for conversion (still counted toward Opp OREB, never toward Allowed or Rate).`
+      ? `${totalNoTimestamp} situation${totalNoTimestamp === 1 ? "" : "s"} had no video timestamp on the original missed shot and couldn't be checked for conversion (still counted toward Situations, never toward Allowed or Rate).`
       : "";
   }
   const body = document.getElementById("secondChanceAllowedBody");
   body.innerHTML = rows.length === 0
-    ? '<tr><td colspan="4" class="empty-state">No opponent offensive rebounds against a tagged defender yet.</td></tr>'
-    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.oreb}</td><td>${r.allowed}</td><td>${formatPct(pct(r.allowed, r.oreb))}</td></tr>`).join("");
+    ? '<tr><td colspan="4" class="empty-state">No real rebound-battle-losing defenders on an offensive board yet.</td></tr>'
+    : rows.map(r => {
+        // Not a hard gate (see this panel's own doc comment above) -- a visible flag instead, so
+        // a thin sample doesn't read as equally settled next to a real one.
+        const thin = r.situations < REBOUND_BATTLE_MIN_CONTESTS;
+        const thinFlag = thin ? ` <span class="hint" style="margin:0" title="Fewer than ${REBOUND_BATTLE_MIN_CONTESTS} situations: too little data to treat as a settled number yet">(small sample)</span>` : "";
+        return `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.situations}${thinFlag}</td><td>${r.allowed}</td><td>${formatPct(pct(r.allowed, r.situations))}</td></tr>`;
+      }).join("");
 }
 
 function computeOutOfBoundsStats() {
@@ -8960,6 +9142,8 @@ function renderLeaderboard() {
   renderWideOpenShootingPanel();
   renderLeagueTsChart();
   renderMatchupGrid();
+  renderReboundBattleRecordPanel();
+  renderReboundBattleGridPanel();
   renderTeammateLiftMatrix();
   renderTeammateContextPanel();
   renderAssistSynergy();

@@ -639,6 +639,23 @@
     </details>
 
     <details class="panel">
+      <summary><h2>Rebound Battle Record</h2></summary>
+      <p class="hint">Now that <code>reboundContesterIds</code>/<code>reboundNoContest</code> are real, actively-tagged data (see Export → Review Rebound Battles), this surfaces who actually wins the physical battle for a loose ball, not just who ends up with the box score credit. A <strong>win</strong> is being the tagged rebounder on a real contest; a <strong>loss</strong> is being tagged as a contester who didn't come up with it. Only real contests count, an uncontested/leaked-out rebound or an out-of-bounds miss isn't a battle anyone won or lost. <strong>Contest Rate</strong> is required context, not a separate ranking: the share of this player's own rebounds that came from a real contest vs. a no-contest situation, since a player whose boards are mostly uncontested pickups is in a different situation than one winning real battles, even at the same raw total. Needs 5+ real contests to show at all; this data is brand new, treat every number here as a first read, not a settled ranking. Click a player's name for their full page, or a column header to sort.</p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="reboundBattleRecordTable">
+          <thead><tr id="reboundBattleRecordHeaderRow"></tr></thead>
+          <tbody id="reboundBattleRecordBody"></tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary><h2>Rebound Battle Head-to-Head</h2></summary>
+      <p class="hint">The direct mirror of the Head-to-Head Matchup Grid above, pointed at rebound win/loss instead of shot make/miss: same visual pattern (color-scaled by win%, opacity ramping up with sample size), reusing the same component. Unlike the shot grid, a rebound battle between two specific players can go either way on different occasions, so each cell is the row player's win rate specifically against the column player, both directions between that exact pair combined into one number. A blank cell means that pairing has never happened. Only players with 5+ real contests get a row or column at all, same gate as Rebound Battle Record.</p>
+      <div id="reboundBattleGrid"></div>
+    </details>
+
+    <details class="panel">
       <summary><h2>Teammate Lift Matrix</h2></summary>
       <p class="hint">The pairwise With/Without comparison the Best Teammate award's Average Teammate Lift boils into one number per player, here as a full grid instead: row player on the team, column player's own Two-Way/20 change as a result (green = boosts them, red = drags them down; opacity tracks how large the swing is relative to the biggest one on the grid). A blank cell means that pairing hasn't logged games both with and without each other yet. This grid is <strong>not symmetric</strong>: row A / column B ("does A help B") and row B / column A ("does B help A") are two different facts about two different people's games, not mirror images of each other.</p>
       <div id="teammateLiftMatrix"></div>
@@ -697,7 +714,7 @@
 
     <details class="panel">
       <summary><h2>Second-Chance Points Allowed</h2></summary>
-      <p class="hint">The direct mirror of Second-Chance Conversion above, pointed at the other team's misses, but restricted to <strong>self-rebounds only</strong>: the shooter grabbing their own miss, not any offensive rebound. Checked directly against real data why: when a teammate (not the shooter) grabs the rebound instead, the shot's own defender was never assigned to guard that other player at all, that's a different defender's contest responsibility, with no tag anywhere identifying who that was. Charging the shot's defender for that outcome isn't a soft proxy, it's pinning a result on someone with no real causal link to it. A self-rebound is the one case where the shot's own defender genuinely had the opportunity and responsibility to prevent it, so that's the only case credited here, every defender tagged on that <strong>original shot</strong> gets the resulting outcome charged against them, same 20-second conversion-check logic as the offensive version. <strong>Lower Rate is better here</strong> (the opposite of Second-Chance Conversion, where higher is better). Expect a small sample: self-crash-and-putback situations are rare relative to a teammate cleaning up the miss, that's a real reflection of how second chances happen in this league, not a gap in the data. Both the miss and any scoring follow-up need a real video timestamp to be checked; a rebound logged without one still counts toward Opp OREB but can't be evaluated for Allowed or Rate.</p>
+      <p class="hint">Rebuilt on real Rebound Battle data, replacing the earlier self-rebound-only version (a real improvement over the original at the time, but still a workaround: self-rebounds are the one case where "the shot's defender" and "whoever actually lost the rebound" are guaranteed the same person, at the cost of almost the whole sample). Now that <code>reboundContesterIds</code> tags who actually lost the battle (see Export → Review Rebound Battles), this fires whenever the offense keeps its own miss alive via a real contest, and charges whichever tagged contester(s) are on the <strong>defending</strong> side, a contester can theoretically be an offensive teammate who also went for the ball, and only the defensive-side losers had any real responsibility for the possession not ending. Same 20-second conversion-check logic as Second-Chance Conversion. <strong>Lower Rate is better here</strong> (the opposite of Second-Chance Conversion, where higher is better). Deliberately not gated the same way as Rebound Battle Record: this panel's own denominator is a smaller subset of real contests, so expect genuinely thin numbers (1-4 situations per player) for a while, real rows below 5 situations get an explicit <strong>(small sample)</strong> flag rather than being hidden or reading as equally settled next to a bigger one. Both the miss and any scoring follow-up need a real video timestamp to be checked.</p>
       <p id="secondChanceAllowedSummary" class="hint" style="margin:0 0 10px"></p>
       <div class="table-scroll">
         <table class="matchup-table" id="secondChanceAllowedTable">
