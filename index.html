@@ -572,35 +572,33 @@
       </details>
     </div>
 
-    <div class="panel-row">
-      <details class="panel">
-        <summary><h2>Shot Distance</h2></summary>
-        <p class="hint">Every field goal splits further by how far it actually was from the hoop, on both sides of the 3pt line. <strong>Close</strong> and <strong>Midrange</strong> split the 2PT zone at its midpoint; <strong>Line</strong> (a normal, makeable three right at the line; Poolean's three is straight, not a curved arc, hence "Line" not "Arc") and <strong>Deep</strong> (a much lower-percentage near-pool-length heave) split the 3PT zone the same way the plain 3PT% on the table above blends together. Both breakpoints are radial distance from the hoop against a single adjustable constant (`CLOSE_RANGE_THRESHOLD` and `THREE_PT_DEEP_THRESHOLD` in <code>app.js</code>), the 3PT one drawn from an early season sample, the 2PT one a rougher starting guess with no shot volume behind it yet, so treat it as even more provisional. Each zone column shows FG% there (click to sort); the small percentage beneath it is that zone's share of the player's own attempts: how well they shoot from there, and how much they lean on it, in one cell instead of two separate panels. The <strong>Mix</strong> column is the same shot-selection breakdown as a quick visual (color tracks typical shot quality: green close, amber midrange, teal at the line, red deep). Only field goals with a marked shot location count (see <strong>Export → Backfill Shot Locations</strong> to fill in the rest). Treat any one player's split as an early read, not a verdict, until more games are logged.</p>
-        <div class="shot-selection-legend">
-          <span class="legend-item"><span class="legend-swatch shot-seg-close"></span>Close</span>
-          <span class="legend-item"><span class="legend-swatch shot-seg-mid"></span>Midrange</span>
-          <span class="legend-item"><span class="legend-swatch shot-seg-line"></span>3PT Line</span>
-          <span class="legend-item"><span class="legend-swatch shot-seg-deep"></span>3PT Deep</span>
-        </div>
-        <div class="table-scroll">
-          <table class="matchup-table" id="shotZoneTable">
-            <thead><tr id="shotZoneHeaderRow"></tr></thead>
-            <tbody id="shotZoneBody"></tbody>
-          </table>
-        </div>
-      </details>
+    <details class="panel">
+      <summary><h2>Shot Distance</h2></summary>
+      <p class="hint">Every field goal splits further by how far it actually was from the hoop, on both sides of the 3pt line. <strong>Close</strong> and <strong>Midrange</strong> split the 2PT zone at its midpoint; <strong>Line</strong> (a normal, makeable three right at the line; Poolean's three is straight, not a curved arc, hence "Line" not "Arc") and <strong>Deep</strong> (a much lower-percentage near-pool-length heave) split the 3PT zone the same way the plain 3PT% on the table above blends together. Both breakpoints are radial distance from the hoop against a single adjustable constant (`CLOSE_RANGE_THRESHOLD` and `THREE_PT_DEEP_THRESHOLD` in <code>app.js</code>), the 3PT one drawn from an early season sample, the 2PT one a rougher starting guess with no shot volume behind it yet, so treat it as even more provisional. Each zone column shows FG% there (click to sort); the small percentage beneath it is that zone's share of the player's own attempts: how well they shoot from there, and how much they lean on it, in one cell instead of two separate panels. The <strong>Mix</strong> column is the same shot-selection breakdown as a quick visual (color tracks typical shot quality: green close, amber midrange, teal at the line, red deep). Only field goals with a marked shot location count (see <strong>Export → Backfill Shot Locations</strong> to fill in the rest). Treat any one player's split as an early read, not a verdict, until more games are logged.</p>
+      <div class="shot-selection-legend">
+        <span class="legend-item"><span class="legend-swatch shot-seg-close"></span>Close</span>
+        <span class="legend-item"><span class="legend-swatch shot-seg-mid"></span>Midrange</span>
+        <span class="legend-item"><span class="legend-swatch shot-seg-line"></span>3PT Line</span>
+        <span class="legend-item"><span class="legend-swatch shot-seg-deep"></span>3PT Deep</span>
+      </div>
+      <div class="table-scroll">
+        <table class="matchup-table" id="shotZoneTable">
+          <thead><tr id="shotZoneHeaderRow"></tr></thead>
+          <tbody id="shotZoneBody"></tbody>
+        </table>
+      </div>
+    </details>
 
-      <details class="panel">
-        <summary><h2>Defensive Shot Distance</h2></summary>
-        <p class="hint">The direct mirror of Shot Distance above, just pointed at shots this player is tagged defending instead of shots they took: same four zones (Close/Midrange split at the 2PT zone's midpoint, Line/Deep split the 3PT zone the same way), same FG%-plus-share-of-attempts-faced shape, same Mix bar for a quick visual read of what kind of shots a player's assignments tend to generate. Only defended field goals with a marked shot location count. Free throws are never tagged with a defender at all, so they're excluded here the same way they're excluded from the offensive version. Treat any one player's split as an early read, not a verdict, until more games are logged.</p>
-        <div class="table-scroll">
-          <table class="matchup-table" id="defensiveShotZoneTable">
-            <thead><tr id="defensiveShotZoneHeaderRow"></tr></thead>
-            <tbody id="defensiveShotZoneBody"></tbody>
-          </table>
-        </div>
-      </details>
-    </div>
+    <details class="panel">
+      <summary><h2>Defensive Shot Distance</h2></summary>
+      <p class="hint">The direct mirror of Shot Distance above, just pointed at shots this player is tagged defending instead of shots they took: same four zones (Close/Midrange split at the 2PT zone's midpoint, Line/Deep split the 3PT zone the same way), same FG%-plus-share-of-attempts-faced shape, same Mix bar for a quick visual read of what kind of shots a player's assignments tend to generate. Only defended field goals with a marked shot location count. Free throws are never tagged with a defender at all, so they're excluded here the same way they're excluded from the offensive version. Treat any one player's split as an early read, not a verdict, until more games are logged.</p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="defensiveShotZoneTable">
+          <thead><tr id="defensiveShotZoneHeaderRow"></tr></thead>
+          <tbody id="defensiveShotZoneBody"></tbody>
+        </table>
+      </div>
+    </details>
 
     <details class="panel">
       <summary><h2>Shooting &amp; Wins by Direction</h2></summary>
