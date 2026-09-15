@@ -572,33 +572,35 @@
       </details>
     </div>
 
-    <details class="panel">
-      <summary><h2>Shot Distance</h2></summary>
-      <p class="hint">Every field goal splits further by how far it actually was from the hoop, on both sides of the 3pt line. <strong>Close</strong> and <strong>Midrange</strong> split the 2PT zone at its midpoint; <strong>Line</strong> (a normal, makeable three right at the line; Poolean's three is straight, not a curved arc, hence "Line" not "Arc") and <strong>Deep</strong> (a much lower-percentage near-pool-length heave) split the 3PT zone the same way the plain 3PT% on the table above blends together. Both breakpoints are radial distance from the hoop against a single adjustable constant (`CLOSE_RANGE_THRESHOLD` and `THREE_PT_DEEP_THRESHOLD` in <code>app.js</code>), the 3PT one drawn from an early season sample, the 2PT one a rougher starting guess with no shot volume behind it yet, so treat it as even more provisional. Each zone column shows FG% there (click to sort); the small percentage beneath it is that zone's share of the player's own attempts: how well they shoot from there, and how much they lean on it, in one cell instead of two separate panels. The <strong>Mix</strong> column is the same shot-selection breakdown as a quick visual (color tracks typical shot quality: green close, amber midrange, teal at the line, red deep). Only field goals with a marked shot location count (see <strong>Export → Backfill Shot Locations</strong> to fill in the rest). Treat any one player's split as an early read, not a verdict, until more games are logged.</p>
-      <div class="shot-selection-legend">
-        <span class="legend-item"><span class="legend-swatch shot-seg-close"></span>Close</span>
-        <span class="legend-item"><span class="legend-swatch shot-seg-mid"></span>Midrange</span>
-        <span class="legend-item"><span class="legend-swatch shot-seg-line"></span>3PT Line</span>
-        <span class="legend-item"><span class="legend-swatch shot-seg-deep"></span>3PT Deep</span>
-      </div>
-      <div class="table-scroll">
-        <table class="matchup-table" id="shotZoneTable">
-          <thead><tr id="shotZoneHeaderRow"></tr></thead>
-          <tbody id="shotZoneBody"></tbody>
-        </table>
-      </div>
-    </details>
+    <div class="panel-row">
+      <details class="panel">
+        <summary><h2>Shot Distance</h2></summary>
+        <p class="hint">Every field goal splits further by how far it actually was from the hoop, on both sides of the 3pt line. <strong>Close</strong> and <strong>Midrange</strong> split the 2PT zone at its midpoint; <strong>Line</strong> (a normal, makeable three right at the line; Poolean's three is straight, not a curved arc, hence "Line" not "Arc") and <strong>Deep</strong> (a much lower-percentage near-pool-length heave) split the 3PT zone the same way the plain 3PT% on the table above blends together. Both breakpoints are radial distance from the hoop against a single adjustable constant (`CLOSE_RANGE_THRESHOLD` and `THREE_PT_DEEP_THRESHOLD` in <code>app.js</code>), the 3PT one drawn from an early season sample, the 2PT one a rougher starting guess with no shot volume behind it yet, so treat it as even more provisional. Each zone column shows FG% there (click to sort); the small percentage beneath it is that zone's share of the player's own attempts: how well they shoot from there, and how much they lean on it, in one cell instead of two separate panels. The <strong>Mix</strong> column is the same shot-selection breakdown as a quick visual (color tracks typical shot quality: green close, amber midrange, teal at the line, red deep). Only field goals with a marked shot location count (see <strong>Export → Backfill Shot Locations</strong> to fill in the rest). Treat any one player's split as an early read, not a verdict, until more games are logged.</p>
+        <div class="shot-selection-legend">
+          <span class="legend-item"><span class="legend-swatch shot-seg-close"></span>Close</span>
+          <span class="legend-item"><span class="legend-swatch shot-seg-mid"></span>Midrange</span>
+          <span class="legend-item"><span class="legend-swatch shot-seg-line"></span>3PT Line</span>
+          <span class="legend-item"><span class="legend-swatch shot-seg-deep"></span>3PT Deep</span>
+        </div>
+        <div class="table-scroll">
+          <table class="matchup-table" id="shotZoneTable">
+            <thead><tr id="shotZoneHeaderRow"></tr></thead>
+            <tbody id="shotZoneBody"></tbody>
+          </table>
+        </div>
+      </details>
 
-    <details class="panel">
-      <summary><h2>Defensive Shot Distance</h2></summary>
-      <p class="hint">The direct mirror of Shot Distance above, just pointed at shots this player is tagged defending instead of shots they took: same four zones (Close/Midrange split at the 2PT zone's midpoint, Line/Deep split the 3PT zone the same way), same FG%-plus-share-of-attempts-faced shape, same Mix bar for a quick visual read of what kind of shots a player's assignments tend to generate. Only defended field goals with a marked shot location count. Free throws are never tagged with a defender at all, so they're excluded here the same way they're excluded from the offensive version. Treat any one player's split as an early read, not a verdict, until more games are logged.</p>
-      <div class="table-scroll">
-        <table class="matchup-table" id="defensiveShotZoneTable">
-          <thead><tr id="defensiveShotZoneHeaderRow"></tr></thead>
-          <tbody id="defensiveShotZoneBody"></tbody>
-        </table>
-      </div>
-    </details>
+      <details class="panel">
+        <summary><h2>Defensive Shot Distance</h2></summary>
+        <p class="hint">The direct mirror of Shot Distance above, just pointed at shots this player is tagged defending instead of shots they took: same four zones (Close/Midrange split at the 2PT zone's midpoint, Line/Deep split the 3PT zone the same way), same FG%-plus-share-of-attempts-faced shape, same Mix bar for a quick visual read of what kind of shots a player's assignments tend to generate. Only defended field goals with a marked shot location count. Free throws are never tagged with a defender at all, so they're excluded here the same way they're excluded from the offensive version. Treat any one player's split as an early read, not a verdict, until more games are logged.</p>
+        <div class="table-scroll">
+          <table class="matchup-table" id="defensiveShotZoneTable">
+            <thead><tr id="defensiveShotZoneHeaderRow"></tr></thead>
+            <tbody id="defensiveShotZoneBody"></tbody>
+          </table>
+        </div>
+      </details>
+    </div>
 
     <details class="panel">
       <summary><h2>Shooting &amp; Wins by Direction</h2></summary>
@@ -700,6 +702,20 @@
       </details>
 
       <details class="panel">
+        <summary><h2>Points off Takeaways</h2></summary>
+        <p class="hint">Sport-specific, not borrowed from anywhere: possession only alternates automatically after a made basket, but a turnover is a live-ball change of possession, so there's a real, brief window right after a steal where the defense hasn't reset the way it would after a made shot. Sums this player's own team's points scored within 15 seconds of every steal this player is individually credited with (`TAKEAWAY_WINDOW_SECONDS` in <code>app.js</code>, a starting guess, not backed by real transition-speed data yet). Ties who's disruptive on defense (steals) to who actually cashes that disruption in on offense, not necessarily the same player. Scoped to steals specifically, not the broader turnover log: see <strong>TOV Credit %</strong> above for why an uncredited turnover can't honestly be pinned on anyone.</p>
+        <p id="pointsOffTakeawaysSummary" class="hint" style="margin:0 0 10px"></p>
+        <div class="table-scroll">
+          <table class="matchup-table" id="pointsOffTakeawaysTable">
+            <thead><tr id="pointsOffTakeawaysHeaderRow"></tr></thead>
+            <tbody id="pointsOffTakeawaysBody"></tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+
+    <div class="panel-row">
+      <details class="panel">
         <summary><h2>Second-Chance Conversion</h2></summary>
         <p class="hint">"True" second-chance conversion, not just who grabs offensive rebounds: an OREB counts as converted when, within 20 seconds of the missed shot's own video timestamp, either that rebounder scored themselves or someone else scored with them credited as the assist (either path counts, a kick-out is worth the same as a putback). Both the miss and the scoring follow-up need a real video timestamp to be checked; an OREB logged without one still counts toward the total but can't be evaluated for conversion. The 20-second window is a single adjustable constant (`SECOND_CHANCE_WINDOW_SECONDS` in <code>app.js</code>), same pattern as the shot-distance thresholds. This panel runs the same algorithm as <code>scripts/second-chance-analysis.js</code>, just against whatever's loaded in this browser instead of an exported file.</p>
         <p id="secondChanceSummary" class="hint" style="margin:0 0 10px"></p>
@@ -710,47 +726,24 @@
           </table>
         </div>
       </details>
-    </div>
 
-    <details class="panel">
-      <summary><h2>Second-Chance Points Allowed</h2></summary>
-      <p class="hint">Rebuilt on real Rebound Battle data, replacing the earlier self-rebound-only version (a real improvement over the original at the time, but still a workaround: self-rebounds are the one case where "the shot's defender" and "whoever actually lost the rebound" are guaranteed the same person, at the cost of almost the whole sample). Now that <code>reboundContesterIds</code> tags who actually lost the battle (see Export → Review Rebound Battles), this fires whenever the offense keeps its own miss alive via a real contest, and charges whichever tagged contester(s) are on the <strong>defending</strong> side, a contester can theoretically be an offensive teammate who also went for the ball, and only the defensive-side losers had any real responsibility for the possession not ending. Same 20-second conversion-check logic as Second-Chance Conversion. <strong>Lower Rate is better here</strong> (the opposite of Second-Chance Conversion, where higher is better). Deliberately not gated the same way as Rebound Battle Record: this panel's own denominator is a smaller subset of real contests, so expect genuinely thin numbers (1-4 situations per player) for a while, real rows below 5 situations get an explicit <strong>(small sample)</strong> flag rather than being hidden or reading as equally settled next to a bigger one. Both the miss and any scoring follow-up need a real video timestamp to be checked.</p>
-      <p id="secondChanceAllowedSummary" class="hint" style="margin:0 0 10px"></p>
-      <div class="table-scroll">
-        <table class="matchup-table" id="secondChanceAllowedTable">
-          <thead><tr id="secondChanceAllowedHeaderRow"></tr></thead>
-          <tbody id="secondChanceAllowedBody"></tbody>
-        </table>
-      </div>
-    </details>
-
-    <details class="panel">
-      <summary><h2>Points off Takeaways</h2></summary>
-      <p class="hint">Sport-specific, not borrowed from anywhere: possession only alternates automatically after a made basket, but a turnover is a live-ball change of possession, so there's a real, brief window right after a steal where the defense hasn't reset the way it would after a made shot. Sums this player's own team's points scored within 15 seconds of every steal this player is individually credited with (`TAKEAWAY_WINDOW_SECONDS` in <code>app.js</code>, a starting guess, not backed by real transition-speed data yet). Ties who's disruptive on defense (steals) to who actually cashes that disruption in on offense, not necessarily the same player. Scoped to steals specifically, not the broader turnover log: see <strong>TOV Credit %</strong> above for why an uncredited turnover can't honestly be pinned on anyone.</p>
-      <p id="pointsOffTakeawaysSummary" class="hint" style="margin:0 0 10px"></p>
-      <div class="table-scroll">
-        <table class="matchup-table" id="pointsOffTakeawaysTable">
-          <thead><tr id="pointsOffTakeawaysHeaderRow"></tr></thead>
-          <tbody id="pointsOffTakeawaysBody"></tbody>
-        </table>
-      </div>
-    </details>
-
-    <div class="panel-row">
       <details class="panel">
-        <summary><h2>Game-Winning Buckets</h2></summary>
-        <p class="hint">How many times a player's shot was the one that actually closed out a game their team won: the real game-ending basket in a race-to-a-target format. Worth being precise about what this is: in a race-to-target format with no clock, the last basket of every decided game is *by definition* scored by the winning team, so this isn't tracking rare, buzzer-beater moments. It's a "who tends to be the one closing games out" tally that grows by exactly one per fully-timestamped decided game. That's exactly why the Clutch comparison above is built on <strong>Close-Game Shooting</strong> instead of this, though it's still a real signal here (it correlates with who's on the floor and scoring late in wins), just not a scarce one. Only credited when that specific shot has a real video timestamp; without one, there's no trustworthy way to say it was really the last shot of the game, so the game is skipped rather than guessed at. A season count, not a rate.</p>
+        <summary><h2>Second-Chance Points Allowed</h2></summary>
+        <p class="hint">Rebuilt on real Rebound Battle data, replacing the earlier self-rebound-only version (a real improvement over the original at the time, but still a workaround: self-rebounds are the one case where "the shot's defender" and "whoever actually lost the rebound" are guaranteed the same person, at the cost of almost the whole sample). Now that <code>reboundContesterIds</code> tags who actually lost the battle (see Export → Review Rebound Battles), this fires whenever the offense keeps its own miss alive via a real contest, and charges whichever tagged contester(s) are on the <strong>defending</strong> side, a contester can theoretically be an offensive teammate who also went for the ball, and only the defensive-side losers had any real responsibility for the possession not ending. Same 20-second conversion-check logic as Second-Chance Conversion. <strong>Lower Rate is better here</strong> (the opposite of Second-Chance Conversion, where higher is better). Deliberately not gated the same way as Rebound Battle Record: this panel's own denominator is a smaller subset of real contests, so expect genuinely thin numbers (1-4 situations per player) for a while, real rows below 5 situations get an explicit <strong>(small sample)</strong> flag rather than being hidden or reading as equally settled next to a bigger one. Both the miss and any scoring follow-up need a real video timestamp to be checked.</p>
+        <p id="secondChanceAllowedSummary" class="hint" style="margin:0 0 10px"></p>
         <div class="table-scroll">
-          <table class="matchup-table" id="gameWinningBucketsTable">
-            <thead><tr><th>Player</th><th>Game-Winning Buckets</th></tr></thead>
-            <tbody id="gameWinningBucketsBody"></tbody>
+          <table class="matchup-table" id="secondChanceAllowedTable">
+            <thead><tr id="secondChanceAllowedHeaderRow"></tr></thead>
+            <tbody id="secondChanceAllowedBody"></tbody>
           </table>
         </div>
       </details>
+    </div>
 
+    <div class="panel-row">
       <details class="panel">
         <summary><h2>Close-Game Shooting</h2></summary>
-        <p class="hint">This is the tracked stat behind the Clutch comparison above: a margin-aware read, not <strong>Game-Winning Buckets</strong>, since GWB is explicitly non-scarce by construction (the last basket of every decided game belongs to the winning team, full stop) and measures "who tends to close games out," not performance under real pressure. This instead is TS%, but only counting attempts from games that actually finished close: decided by 5 points or fewer (`CLUTCH_MARGIN_THRESHOLD` in <code>app.js</code>, a starting guess, not a value backed by real season margin data yet). Tied games count here even though a tie has no "winning shot" for GWB to credit. Click any column header to sort.</p>
+        <p class="hint">This is the tracked stat behind the Clutch comparison above: a margin-aware read, not <strong>Game-Winning Buckets</strong> below, since GWB is explicitly non-scarce by construction (the last basket of every decided game belongs to the winning team, full stop) and measures "who tends to close games out," not performance under real pressure. This instead is TS%, but only counting attempts from games that actually finished close: decided by 5 points or fewer (`CLUTCH_MARGIN_THRESHOLD` in <code>app.js</code>, a starting guess, not a value backed by real season margin data yet). Tied games count here even though a tie has no "winning shot" for GWB to credit. Click any column header to sort.</p>
         <div class="table-scroll">
           <table class="matchup-table" id="closeGameShootingTable">
             <thead><tr id="closeGameShootingHeaderRow"></tr></thead>
@@ -758,15 +751,26 @@
           </table>
         </div>
       </details>
+
+      <details class="panel">
+        <summary><h2>Close-Game Defense</h2></summary>
+        <p class="hint">The direct mirror of <strong>Close-Game Shooting</strong>: Opp FG% (not the more granular Opp eFG% above, since Opp FG% is the headline number the rest of this page already leads with), counting only shots defended in games that actually finished close: decided by 5 points or fewer (`CLUTCH_MARGIN_THRESHOLD` in <code>app.js</code>). Does a defender hold up or break down when the game is actually on the line? Sorted lowest (best) Opp FG% first by default, the opposite direction from Close-Game Shooting since lower is the good outcome on defense. Tied games count here too. Click any column header to sort.</p>
+        <div class="table-scroll">
+          <table class="matchup-table" id="closeGameDefenseTable">
+            <thead><tr id="closeGameDefenseHeaderRow"></tr></thead>
+            <tbody id="closeGameDefenseBody"></tbody>
+          </table>
+        </div>
+      </details>
     </div>
 
     <details class="panel">
-      <summary><h2>Close-Game Defense</h2></summary>
-      <p class="hint">The direct mirror of <strong>Close-Game Shooting</strong>: Opp FG% (not the more granular Opp eFG% above, since Opp FG% is the headline number the rest of this page already leads with), counting only shots defended in games that actually finished close: decided by 5 points or fewer (`CLUTCH_MARGIN_THRESHOLD` in <code>app.js</code>). Does a defender hold up or break down when the game is actually on the line? Sorted lowest (best) Opp FG% first by default, the opposite direction from Close-Game Shooting since lower is the good outcome on defense. Tied games count here too. Click any column header to sort.</p>
+      <summary><h2>Game-Winning Buckets</h2></summary>
+      <p class="hint">How many times a player's shot was the one that actually closed out a game their team won: the real game-ending basket in a race-to-a-target format. Worth being precise about what this is: in a race-to-target format with no clock, the last basket of every decided game is *by definition* scored by the winning team, so this isn't tracking rare, buzzer-beater moments. It's a "who tends to be the one closing games out" tally that grows by exactly one per fully-timestamped decided game. That's exactly why the Clutch comparison above is built on <strong>Close-Game Shooting</strong> instead of this, though it's still a real signal here (it correlates with who's on the floor and scoring late in wins), just not a scarce one. Only credited when that specific shot has a real video timestamp; without one, there's no trustworthy way to say it was really the last shot of the game, so the game is skipped rather than guessed at. A season count, not a rate.</p>
       <div class="table-scroll">
-        <table class="matchup-table" id="closeGameDefenseTable">
-          <thead><tr id="closeGameDefenseHeaderRow"></tr></thead>
-          <tbody id="closeGameDefenseBody"></tbody>
+        <table class="matchup-table" id="gameWinningBucketsTable">
+          <thead><tr><th>Player</th><th>Game-Winning Buckets</th></tr></thead>
+          <tbody id="gameWinningBucketsBody"></tbody>
         </table>
       </div>
     </details>
