@@ -70,6 +70,33 @@ const GAME_VIDEO_FILES = {
   // videoTime createJumpButton above already has to translate, but load their own throwaway
   // <video> element directly instead of going through renderVideoPanel/currentVideoEl, so this
   // patches that source-resolution step itself rather than a click listener.
+  // The Highlights & Lowlights tables' "Jump" buttons (a player's profile and the league-wide
+  // list) go through openGameAndSeek(), which seeks straight to the clip's absolute time. Same
+  // translation as above, otherwise the seek lands far past the end of the trimmed file and
+  // nothing visibly happens.
+  const originalOpenGameAndSeek = openGameAndSeek;
+  openGameAndSeek = function (gameId, videoTime) {
+    const hosted = GAME_VIDEO_FILES[gameId];
+    if (!hosted || videoTime === null || videoTime === undefined) return originalOpenGameAndSeek(gameId, videoTime);
+    openGame(gameId);
+    const translated = Math.max(0, videoTime - hosted.videoStart);
+    const tryJump = attemptsLeft => {
+      if (currentGameId !== gameId) return;
+      if (currentVideoEl) {
+        const seekAndPlay = () => {
+          currentVideoEl.currentTime = translated;
+          currentVideoEl.play();
+        };
+        if (currentVideoEl.readyState >= 1) seekAndPlay();
+        else currentVideoEl.addEventListener("loadedmetadata", seekAndPlay, { once: true });
+        currentVideoEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      if (attemptsLeft > 0) setTimeout(() => tryJump(attemptsLeft - 1), 200);
+    };
+    tryJump(25);
+  };
+
   const originalLoadInlineVideo = loadInlineVideo;
   loadInlineVideo = async function (game, videoEl, videoTime) {
     const hosted = GAME_VIDEO_FILES[game.id];
