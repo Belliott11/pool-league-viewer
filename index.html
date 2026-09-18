@@ -601,6 +601,18 @@
     </details>
 
     <details class="panel">
+      <summary><h2>Shot Type Efficiency</h2></summary>
+      <p class="hint">How each player's shots were created. <strong>Catch-and-shoot</strong>: received the ball and shot with no dribble move first. <strong>Deep heave</strong>: a long attempt right off a check or rebound, before the defense sets up. <strong>Drive</strong>: put the ball on the floor and attacked before shooting. <strong>Move</strong>: a spin, hesitation or pump fake before the shot. Each cell shows True Shooting % with makes/attempts and that type's share of the player's tagged shots, and only appears once a player has at least 5 tagged shots of that type. Only tagged shots count (the Tagged column shows how many of a player's field goals that is), so early numbers cover a small slice of the season. Older shots can be tagged in Export, Review Shot Types.</p>
+      <div id="shotTypePanel"></div>
+    </details>
+
+    <details class="panel">
+      <summary><h2>Deep Shot Check</h2></summary>
+      <p class="hint">How much of the league's deep 3-point volume is the rushed heave off a check or rebound, compared with a deep shot taken after a real possession, and how each one goes. Only tagged deep shots count, and at least 10 are needed to show a split.</p>
+      <div id="deepShotCheckPanel"></div>
+    </details>
+
+    <details class="panel">
       <summary><h2>Calibrated Thresholds</h2></summary>
       <p class="hint">These cutoffs are set from the logged games and rechecked as more data comes in. Each section shows the current value, every check so far, and what it did: <strong>Kept</strong> when the data shows no clear signal yet, <strong>Stayed</strong> when the check confirmed the same value, <strong>Moved</strong> when the data pointed somewhere else. Distances are in shot chart units from the hoop. The close-game margin uses balanced games only.</p>
       <div id="calibrationPanel"></div>
@@ -891,6 +903,12 @@
     </div>
 
     <div class="panel">
+      <h2>Shot Types</h2>
+      <p class="hint">How this player's field goals were created and how each type has gone. Efficiency only shows once a type has at least 5 tagged attempts.</p>
+      <div id="playerShotTypes"></div>
+    </div>
+
+    <div class="panel">
       <h2>Game Log</h2>
       <p class="hint">Every game this player was in, most recent first.</p>
       <div class="table-scroll">
@@ -1090,6 +1108,12 @@
       <h2>Review Possible Dunks</h2>
       <p class="hint">Close/midrange 2PT field goals logged before shots could be marked as dunks, so the ball-flight tracking work can exclude real dunks. Click Watch film to check, then Dunk or Not a dunk; either answer removes it from this list.</p>
       <div id="dunkReview"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Review Shot Types</h2>
+      <p class="hint">Every 2- and 3-point attempt that has no shot type yet, oldest first. Watch the clip if there is one and pick the type that fits. Skip hides a shot until you reload the page. Nothing depends on finishing this: shots without a type are simply not counted in the shot type panels.</p>
+      <div id="shotTypeReview"></div>
     </div>
 
     <div class="panel">

@@ -288,6 +288,7 @@ function normalizeGame(game) {
     // (who was actually matched up on the rebounder at the moment of the rebound), not inferred
     // from anything already logged -- defaults empty (not yet tagged).
     if (!ev.reboundContesterIds) ev.reboundContesterIds = [];
+    if (ev.shotType === undefined) ev.shotType = null;
     // Migrate the old field name ("reboundNoBoxOut") from before this got renamed to match the
     // rest of the feature's own "contest" terminology.
     if (ev.reboundNoBoxOut !== undefined) {
@@ -585,7 +586,7 @@ function showTab(tab) {
   document.getElementById("tab-" + tab).classList.add("active");
   const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
   if (btn) btn.classList.add("active");
-  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); }
+  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); }
   if (tab === "leaderboard") renderLeaderboard();
   // Refreshes the attendee picker against the current roster — cheap, and a player added while
   // on a different tab shouldn't require a page reload to show up here.
@@ -3022,6 +3023,7 @@ let pendingShotLocation = null;
 // zigzagged instead of tracing one arc). Existing shots logged before this field existed have
 // dunk === undefined rather than false — see "Review Possible Dunks" below for backfilling those.
 let pendingDunk = false;
+let pendingShotType = null;
 
 // { playerId, kind: "tov"|"stl"|"pf" } while waiting for the user to tag the one opponent
 // involved (unlike shot defenders, these are single-select and commit immediately on click —
@@ -3231,6 +3233,7 @@ let editBlocker = null;
 let editRebounder = null;
 let editReboundContesters = new Set();
 let editNoContest = false;
+let editShotType = null;
 
 function renderShotEditRow(game, ev) {
   const scorerOnA = game.teamA.includes(ev.scorerId);
@@ -3245,6 +3248,10 @@ function renderShotEditRow(game, ev) {
   tr.innerHTML = `
     <td colspan="8" class="stat-cell expanded" style="text-align:left">
       <div class="stat-label">Editing ${scorer ? escapeHtml(scorer.name) : "?"}'s ${made ? "make" : "miss"} (defender/assist/block/rebound only)</div>
+      ${ev.points === 2 || ev.points === 3 ? `
+        <div class="stat-label" style="margin-top:6px">Shot type</div>
+        <div class="defender-pick-list">${shotTypeButtonsHtml(editShotType, "edit-shot-type")}</div>
+      ` : ""}
       <div class="stat-label" style="margin-top:6px">Contesting defender(s)</div>
       <div class="defender-pick-list">
         <button type="button" class="secondary-btn${editDefenders.size === 0 ? " selected" : ""}" data-edit-nodefender="1">No defender</button>
@@ -3301,6 +3308,9 @@ function renderShotEditRow(game, ev) {
       </div>
     </td>
   `;
+  tr.querySelectorAll("[data-edit-shot-type]").forEach(b => {
+    b.addEventListener("click", () => { editShotType = editShotType === b.dataset.editShotType ? null : b.dataset.editShotType; renderScoringLog(game); });
+  });
   tr.querySelector("[data-edit-nodefender]").addEventListener("click", () => { editDefenders.clear(); renderScoringLog(game); });
   tr.querySelectorAll("[data-edit-defender]").forEach(b => {
     b.addEventListener("click", () => {
@@ -3348,6 +3358,7 @@ function renderShotEditRow(game, ev) {
   }
   tr.querySelector("[data-edit-save]").addEventListener("click", () => {
     ev.defenderIds = [...editDefenders];
+    if (ev.points === 2 || ev.points === 3) ev.shotType = editShotType;
     if (made) {
       ev.assistId = editAssist;
     } else {
@@ -3428,6 +3439,7 @@ function renderScoringLog(game) {
         resultBadge += ` <span class="badge" title="Rebound Battles: reviewed, nobody was actually contesting this rebound">No contest</span>`;
       }
     }
+    if (ev.shotType) resultBadge += ` <span class="badge" title="Shot type">${escapeHtml(shotTypeLabel(ev.shotType))}</span>`;
     if (ev.shotLocation) {
       const zone = ev.shotLocation.y >= 60 ? "3PT range" : "2PT range";
       resultBadge += ` <span class="badge">📍 ${zone}</span>`;
@@ -3465,6 +3477,7 @@ function renderScoringLog(game) {
       editRebounder = ev.rebounderId;
       editReboundContesters = new Set(ev.reboundContesterIds || []);
       editNoContest = ev.reboundNoContest === true;
+      editShotType = ev.shotType || null;
       renderScoringLog(game);
     });
     tdBtn.appendChild(editBtn);
@@ -3853,6 +3866,8 @@ function renderBoxScore(game) {
             <div class="stat-label" style="margin-top:6px">
               <button type="button" class="secondary-btn${pendingDunk ? " selected" : ""}" data-toggle-dunk="1">🏀 ${pendingDunk ? "Dunk" : "Not a dunk"}</button>
             </div>
+            <div class="stat-label" style="margin-top:6px">Shot type? ${pendingShotType ? escapeHtml(shotTypeLabel(pendingShotType)) : "(not set)"}</div>
+            <div class="defender-pick-list">${shotTypeButtonsHtml(pendingShotType, "shot-type")}</div>
           `}
           ${pendingScore.isMiss ? `
             <div class="stat-label" style="margin-top:6px">Blocked by? ${blocker ? escapeHtml(blocker.name) : "No block"}</div>
@@ -3918,6 +3933,12 @@ function renderBoxScore(game) {
             pendingDunk = !pendingDunk;
             renderStatEntry();
           });
+          ptsCell.querySelectorAll("button[data-shot-type]").forEach(b => {
+            b.addEventListener("click", () => {
+              pendingShotType = pendingShotType === b.dataset.shotType ? null : b.dataset.shotType;
+              renderStatEntry();
+            });
+          });
         }
         if (!pendingScore.isMiss) {
           ptsCell.querySelector("[data-noassist]").addEventListener("click", () => {
@@ -3977,6 +3998,7 @@ function renderBoxScore(game) {
             rebounderId: pendingScore.isMiss && !pendingOutOfBounds ? pendingRebounder : null,
             shotLocation: pendingScore.points === 1 ? null : pendingShotLocation,
             dunk: pendingScore.points === 1 ? false : pendingDunk,
+            shotType: pendingScore.points === 1 ? null : pendingShotType,
             videoTime: currentPlaybackTime()
           });
           if (pendingScore.isMiss && pendingOutOfBounds) {
@@ -3995,6 +4017,7 @@ function renderBoxScore(game) {
           pendingRebounder = null;
           pendingShotLocation = null;
           pendingDunk = false;
+          pendingShotType = null;
           recomputeDerivedStats(game);
           saveState();
           renderStatEntry();
@@ -4008,6 +4031,7 @@ function renderBoxScore(game) {
           pendingRebounder = null;
           pendingShotLocation = null;
           pendingDunk = false;
+          pendingShotType = null;
           renderStatEntry();
         });
       } else {
@@ -4037,6 +4061,7 @@ function renderBoxScore(game) {
             pendingRebounder = null;
             pendingShotLocation = null;
             pendingDunk = false;
+            pendingShotType = null;
             renderStatEntry();
           });
         });
@@ -4050,6 +4075,7 @@ function renderBoxScore(game) {
             pendingRebounder = null;
             pendingShotLocation = null;
             pendingDunk = false;
+            pendingShotType = null;
             renderStatEntry();
           });
         });
@@ -9464,6 +9490,8 @@ function renderLeaderboard() {
   renderLeagueHeatmap();
   renderShotZonePanel();
   renderDefensiveShotZonePanel();
+  renderShotTypePanel();
+  renderDeepShotCheckPanel();
   renderCalibrationPanel();
   renderLeagueDirectionSplits();
   renderLeagueTsByZoneChart();
@@ -9675,6 +9703,7 @@ function renderPlayerDetail() {
   renderFlakeStatsPanel(player.id);
   renderTwoWayTrendChart(player.id);
   renderPlayerStatTrend(player.id);
+  renderPlayerShotTypes(player.id);
   renderPlayerGameLog(player.id);
   renderPlayerShotChart(player.id);
   renderPlayerHeatmap(player.id);
@@ -10921,6 +10950,227 @@ function renderDunkReview() {
   wrap.querySelectorAll("[data-mark-notdunk]").forEach(btn => {
     btn.addEventListener("click", () => resolveRow(btn.dataset.markNotdunk, false));
   });
+}
+
+// ---------- Shot Type Tagging (see poolean-player-development-spec.md) ----------
+// How the possession got the shooter to the spot: a catch-and-shoot and a shot off a drive are
+// different skills that look identical in the location/make/miss data. Four types, kept small so
+// tagging stays fast. Stored as ev.shotType (null = not tagged); tagged in Stat Entry as a shot is
+// logged, or afterward in Shot Log's Edit flow and Export's Review Shot Types.
+const SHOT_TYPES = [
+  { key: "catchAndShoot", label: "Catch-and-shoot", cssClass: "shot-seg-type-cs", about: "Received the ball and shot without a dribble move or drive first." },
+  { key: "deepHeave", label: "Deep heave", cssClass: "shot-seg-type-heave", about: "A long attempt taken right off a checked-in ball or a rebound, before the defense sets up." },
+  { key: "drive", label: "Drive", cssClass: "shot-seg-type-drive", about: "Put the ball on the floor and attacked toward the basket before shooting, whether or not it ended at the rim." },
+  { key: "move", label: "Move", cssClass: "shot-seg-type-move", about: "A shot after a specific move without a full drive: a spin, a hesitation, a pump fake, and so on." }
+];
+const SHOT_TYPE_MIN_ATTEMPTS = 5;      // tagged attempts of one type before its efficiency shows
+const SHOT_TYPE_DEEP_CHECK_MIN = 10;   // tagged deep attempts before the league deep-shot split shows
+
+function shotTypeLabel(key) {
+  const t = SHOT_TYPES.find(s => s.key === key);
+  return t ? t.label : "";
+}
+
+// One row of buttons per picker; `attr` is the data attribute the caller wires its click handler to.
+function shotTypeButtonsHtml(current, attr) {
+  return SHOT_TYPES.map(t => `<button type="button" class="secondary-btn${current === t.key ? " selected" : ""}" data-${attr}="${t.key}" title="${escapeHtml(t.about)}">${escapeHtml(t.label)}</button>`).join("");
+}
+
+function computeShotTypeStats() {
+  const blank = () => ({ tagged: 0, fga: 0, types: Object.fromEntries(SHOT_TYPES.map(t => [t.key, { a: 0, m: 0, pts: 0 }])) });
+  const league = blank();
+  const byPlayer = {};
+  state.games.filter(isQualifyingGame).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 && ev.points !== 3) return;
+      const p = byPlayer[ev.scorerId] = byPlayer[ev.scorerId] || blank();
+      [p, league].forEach(t => {
+        t.fga++;
+        const b = ev.shotType ? t.types[ev.shotType] : null;
+        if (!b) return;
+        t.tagged++;
+        b.a++;
+        if (ev.made !== false) { b.m++; b.pts += ev.points; }
+      });
+    });
+  });
+  const rows = Object.entries(byPlayer)
+    .map(([playerId, v]) => ({ player: state.players.find(pl => pl.id === playerId), ...v }))
+    .filter(r => r.player && r.tagged > 0)
+    .sort((a, b) => b.tagged - a.tagged);
+  return { rows, league };
+}
+
+function shotTypeCellHtml(b, tagged) {
+  if (b.a === 0) return "<td>—</td>";
+  const share = tagged > 0 ? Math.round((b.a / tagged) * 100) : 0;
+  if (b.a < SHOT_TYPE_MIN_ATTEMPTS) return `<td>—<br><span class="hint" style="margin:0">${b.a} shot${b.a === 1 ? "" : "s"}, too few</span></td>`;
+  return `<td>${Math.round((b.pts / (2 * b.a)) * 100)}% TS<br><span class="hint" style="margin:0">${b.m}/${b.a} · ${share}% of shots</span></td>`;
+}
+
+function renderShotTypePanel() {
+  const wrap = document.getElementById("shotTypePanel");
+  if (!wrap) return;
+  const { rows, league } = computeShotTypeStats();
+  if (league.tagged === 0) {
+    wrap.innerHTML = '<p class="empty-state">No shots have a type yet. Tag new shots as they are logged in Stat Entry, or go through the older ones in Export, Review Shot Types.</p>';
+    return;
+  }
+  const legend = SHOT_TYPES.map(t => `<span class="legend-item"><span class="legend-swatch ${t.cssClass}"></span>${escapeHtml(t.label)}</span>`).join("");
+  const rowHtml = (name, r) => {
+    const mix = SHOT_TYPES.map(t => {
+      const a = r.types[t.key].a;
+      return a === 0 ? "" : `<div class="shot-seg ${t.cssClass}" style="width:${(a / r.tagged) * 100}%" title="${escapeHtml(name)}: ${a} ${escapeHtml(t.label)}"></div>`;
+    }).join("");
+    return `<tr><td>${escapeHtml(name)}</td>${SHOT_TYPES.map(t => shotTypeCellHtml(r.types[t.key], r.tagged)).join("")}<td>${r.tagged} of ${r.fga}</td><td><div class="shot-selection-bar">${mix}</div></td></tr>`;
+  };
+  wrap.innerHTML = `
+    <div class="shot-selection-legend">${legend}</div>
+    <div class="table-scroll">
+      <table class="matchup-table">
+        <thead><tr><th>Player</th>${SHOT_TYPES.map(t => `<th>${escapeHtml(t.label)}</th>`).join("")}<th>Tagged</th><th>Mix</th></tr></thead>
+        <tbody>${rowHtml("League", league)}${rows.map(r => rowHtml(r.player.name, r)).join("")}</tbody>
+      </table>
+    </div>`;
+}
+
+// Of the league's 3PT attempts in the Deep zone, how many were the rushed heave off a check or
+// rebound versus a deep shot taken some other way, and how each went.
+function renderDeepShotCheckPanel() {
+  const wrap = document.getElementById("deepShotCheckPanel");
+  if (!wrap) return;
+  const counts = Object.fromEntries(SHOT_TYPES.map(t => [t.key, { a: 0, m: 0 }]));
+  let deepTotal = 0, tagged = 0;
+  state.games.filter(isQualifyingGame).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 3 || !ev.shotLocation || shotBand(ev.shotLocation, 3) !== "deep") return;
+      deepTotal++;
+      const b = ev.shotType ? counts[ev.shotType] : null;
+      if (!b) return;
+      tagged++;
+      b.a++;
+      if (ev.made !== false) b.m++;
+    });
+  });
+  if (tagged < SHOT_TYPE_DEEP_CHECK_MIN) {
+    wrap.innerHTML = `<p class="empty-state">${tagged} of ${deepTotal} deep 3-pointers have a shot type so far. This needs ${SHOT_TYPE_DEEP_CHECK_MIN} to show a split.</p>`;
+    return;
+  }
+  const heave = counts.deepHeave;
+  const otherA = tagged - heave.a, otherM = SHOT_TYPES.reduce((s, t) => s + (t.key === "deepHeave" ? 0 : counts[t.key].m), 0);
+  const p = (m, a) => a > 0 ? `${m}/${a} (${Math.round((m / a) * 100)}%)` : "no shots";
+  const rows = SHOT_TYPES.map(t => {
+    const b = counts[t.key];
+    return `<tr><td>${escapeHtml(t.label)}</td><td>${b.a}</td><td>${Math.round((b.a / tagged) * 100)}%</td><td>${b.a > 0 ? Math.round((b.m / b.a) * 100) + "%" : "—"}</td></tr>`;
+  }).join("");
+  wrap.innerHTML = `
+    <p class="hint" style="margin-top:0">${tagged} of ${deepTotal} deep 3-pointers are tagged. <strong>${heave.a}</strong> (${Math.round((heave.a / tagged) * 100)}%) were deep heaves off a check or rebound. Those went ${p(heave.m, heave.a)}, against ${p(otherM, otherA)} for deep shots taken any other way.</p>
+    <div class="table-scroll">
+      <table class="matchup-table">
+        <thead><tr><th>Shot type</th><th>Deep attempts</th><th>Share of tagged</th><th>FG%</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function renderPlayerShotTypes(playerId) {
+  const wrap = document.getElementById("playerShotTypes");
+  if (!wrap) return;
+  const { rows } = computeShotTypeStats();
+  const r = rows.find(x => x.player.id === playerId);
+  if (!r) {
+    wrap.innerHTML = '<p class="empty-state">No shots by this player have a type yet.</p>';
+    return;
+  }
+  const body = SHOT_TYPES.map(t => {
+    const b = r.types[t.key];
+    const enough = b.a >= SHOT_TYPE_MIN_ATTEMPTS;
+    return `<tr><td>${escapeHtml(t.label)}</td><td>${b.a}</td><td>${Math.round((b.a / r.tagged) * 100)}%</td><td>${enough ? `${b.m}/${b.a} (${Math.round((b.m / b.a) * 100)}%)` : "—"}</td><td>${enough ? Math.round((b.pts / (2 * b.a)) * 100) + "%" : "—"}</td></tr>`;
+  }).join("");
+  wrap.innerHTML = `
+    <p class="hint" style="margin-top:0">${r.tagged} of ${r.fga} field goal attempts have a shot type. Efficiency shows once a type has at least ${SHOT_TYPE_MIN_ATTEMPTS} tagged attempts.</p>
+    <div class="table-scroll">
+      <table class="matchup-table">
+        <thead><tr><th>Shot type</th><th>Attempts</th><th>Share</th><th>FG</th><th>TS%</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+}
+
+// ---------- Review Shot Types (backfill) ----------
+// Every 2- and 3-point attempt with no shot type yet, oldest first, a page at a time. One click
+// tags the shot and removes just that row (same reason as the dunk review: a full redraw would
+// stop a clip that's playing in this panel). Skip hides a row for this visit only and writes
+// nothing, so a reload brings it back.
+const SHOT_TYPE_REVIEW_PAGE = 20;
+let shotTypeReviewLimit = SHOT_TYPE_REVIEW_PAGE;
+const shotTypeSkipped = new Set();
+
+function computeUntypedShots() {
+  const rows = [];
+  state.games.forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if ((ev.points === 2 || ev.points === 3) && !ev.shotType) rows.push({ game, ev });
+    });
+  });
+  return rows.sort((a, b) => (a.game.date || "").localeCompare(b.game.date || "") || (a.ev.videoTime || 0) - (b.ev.videoTime || 0));
+}
+
+function renderShotTypeReview() {
+  const wrap = document.getElementById("shotTypeReview");
+  if (!wrap) return;
+  const all = computeUntypedShots().filter(r => !shotTypeSkipped.has(r.ev.id));
+  if (all.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">Every field goal has a shot type.</p>';
+    return;
+  }
+  const shown = all.slice(0, shotTypeReviewLimit);
+  wrap.innerHTML = `<p class="hint shot-type-review-summary" style="margin-top:0"></p>
+  <ul class="player-tips-list">${shown.map(({ game, ev }) => {
+    const scorer = state.players.find(p => p.id === ev.scorerId);
+    const hasTime = ev.videoTime !== null && ev.videoTime !== undefined;
+    const watchLinks = watchFilmLinksHtml(hasTime ? [{ id: game.id, date: game.date, videoTime: ev.videoTime }] : []);
+    const band = ev.shotLocation ? ` · ${escapeHtml(({ close: "close", mid: "midrange", arc: "at the line", deep: "deep" })[shotBand(ev.shotLocation, ev.points)])}` : "";
+    return `<li data-event-id="${ev.id}">
+      <span>${scorer ? escapeHtml(scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt${band}, ${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
+      <div class="button-row" style="margin-top:4px">
+        ${shotTypeButtonsHtml(null, "mark-shot-type")}
+        <button type="button" class="icon-btn" data-skip-shot-type="${ev.id}">Skip</button>
+      </div>
+    </li>`;
+  }).join("")}</ul>
+  ${all.length > shown.length ? '<button type="button" class="secondary-btn" data-shot-type-more="1">Show more</button>' : ""}`;
+  wireWatchFilmButtons(wrap);
+
+  const summaryEl = wrap.querySelector(".shot-type-review-summary");
+  const updateSummary = () => {
+    const left = computeUntypedShots().filter(r => !shotTypeSkipped.has(r.ev.id)).length;
+    summaryEl.textContent = `${left} field goal${left === 1 ? "" : "s"} still without a shot type.`;
+  };
+  updateSummary();
+  const dropRow = eventId => {
+    wrap.querySelector(`li[data-event-id="${eventId}"]`)?.remove();
+    updateSummary();
+    if (wrap.querySelectorAll("li").length === 0) renderShotTypeReview();
+  };
+  wrap.querySelectorAll("li").forEach(li => {
+    const eventId = li.dataset.eventId;
+    li.querySelectorAll("[data-mark-shot-type]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const ev = state.games.flatMap(g => g.scoringEvents).find(e => e.id === eventId);
+        if (!ev) return;
+        ev.shotType = btn.dataset.markShotType;
+        saveState();
+        dropRow(eventId);
+      });
+    });
+    li.querySelector("[data-skip-shot-type]").addEventListener("click", () => {
+      shotTypeSkipped.add(eventId);
+      dropRow(eventId);
+    });
+  });
+  const moreBtn = wrap.querySelector("[data-shot-type-more]");
+  if (moreBtn) moreBtn.addEventListener("click", () => { shotTypeReviewLimit += SHOT_TYPE_REVIEW_PAGE; renderShotTypeReview(); });
 }
 
 // ---------- Rebound Battles backfill (see poolean-rebound-battles-spec.md) ----------
