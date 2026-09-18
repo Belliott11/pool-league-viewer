@@ -574,7 +574,7 @@
 
     <details class="panel">
       <summary><h2>Shot Distance</h2></summary>
-      <p class="hint">Every field goal is split by how far it was from the hoop. 2-point shots divide into <strong>Close</strong> and <strong>Midrange</strong> at the distance where shooting drops off most sharply (see <strong>Close/Midrange Boundary</strong> below). 3-point shots divide into <strong>Line</strong> (right at the three-point line) and <strong>Deep</strong> (a long heave). Each zone shows FG% (click to sort) with that zone's share of the player's shots underneath. <strong>Mix</strong> shows the same split as a bar: green close, amber midrange, teal at the line, red deep. Only shots with a marked location count (Export &rarr; Backfill Shot Locations fills in the rest). Early in the season these are small samples, so treat them as a first read.</p>
+      <p class="hint">Every field goal is split by how far it was from the hoop. 2-point shots divide into <strong>Close</strong> and <strong>Midrange</strong> at the distance where shooting drops off most sharply (see <strong>Calibrated Thresholds</strong> below). 3-point shots divide into <strong>Line</strong> (right at the three-point line) and <strong>Deep</strong> (a long heave). Each zone shows FG% (click to sort) with that zone's share of the player's shots underneath. <strong>Mix</strong> shows the same split as a bar: green close, amber midrange, teal at the line, red deep. Only shots with a marked location count (Export &rarr; Backfill Shot Locations fills in the rest). Early in the season these are small samples, so treat them as a first read.</p>
       <div class="shot-selection-legend">
         <span class="legend-item"><span class="legend-swatch shot-seg-close"></span>Close</span>
         <span class="legend-item"><span class="legend-swatch shot-seg-mid"></span>Midrange</span>
@@ -601,9 +601,9 @@
     </details>
 
     <details class="panel">
-      <summary><h2>Close/Midrange Boundary</h2></summary>
-      <p class="hint">Where a 2-point shot stops counting as Close and starts counting as Midrange. It sits at the distance where shooting percentage drops off most sharply across all logged 2-point shots, and is rechecked each time another 50 located shots are logged. If no clear drop-off shows up, the last boundary stays. Distances are in shot chart units from the hoop.</p>
-      <div id="zoneBoundaryPanel"></div>
+      <summary><h2>Calibrated Thresholds</h2></summary>
+      <p class="hint">These cutoffs are set from the logged games and rechecked as more data comes in. Each section shows the current value, every check so far, and what it did: <strong>Kept</strong> when the data shows no clear signal yet, <strong>Stayed</strong> when the check confirmed the same value, <strong>Moved</strong> when the data pointed somewhere else. Distances are in shot chart units from the hoop. The close-game margin uses balanced games only.</p>
+      <div id="calibrationPanel"></div>
     </details>
 
     <details class="panel">
@@ -646,7 +646,7 @@
 
     <details class="panel">
       <summary><h2>Rebound Battle Record</h2></summary>
-      <p class="hint">Now that rebounds are actively tagged with who was contesting them (see Export → Review Rebound Battles), this surfaces who actually wins the physical battle for a loose ball, not just who ends up with the box score credit. A <strong>win</strong> is being the tagged rebounder on a real contest; a <strong>loss</strong> is being tagged as a contester who didn't come up with it. Only real contests count, an uncontested/leaked-out rebound or an out-of-bounds miss isn't a battle anyone won or lost. <strong>Contest Rate</strong> is required context, not a separate ranking: the share of this player's own rebounds that came from a real contest vs. a no-contest situation, since a player whose boards are mostly uncontested pickups is in a different situation than one winning real battles, even at the same raw total. Needs 5+ real contests to show at all; this data is brand new, treat every number here as a first read, not a settled ranking. Click a player's name for their full page, or a column header to sort.</p>
+      <p class="hint">Who wins the physical fight for a loose ball, not just who gets the rebound credit. A <strong>win</strong> is being the rebounder when someone contested it; a <strong>loss</strong> is being tagged as a contester who didn't come up with it. Rebounds nobody contested, and misses that went out of bounds, don't count. <strong>Contest Rate</strong> is the share of a player's rebounds that were contested rather than free pickups, since mostly uncontested boards mean something different from winning real fights. Needs 5+ contested rebounds to show. Numbers are small so far, so read them as a first look. Click a name for their full page, or a column header to sort.</p>
       <div class="table-scroll">
         <table class="matchup-table" id="reboundBattleRecordTable">
           <thead><tr id="reboundBattleRecordHeaderRow"></tr></thead>
@@ -707,7 +707,7 @@
 
       <details class="panel">
         <summary><h2>Points off Takeaways</h2></summary>
-        <p class="hint">Sport-specific, not borrowed from anywhere: possession only alternates automatically after a made basket, but a turnover is a live-ball change of possession, so there's a real, brief window right after a steal where the defense hasn't reset the way it would after a made shot. Sums this player's own team's points scored within 15 seconds of every steal this player is individually credited with (a starting guess for the window, not backed by real transition-speed data yet). Ties who's disruptive on defense (steals) to who actually cashes that disruption in on offense, not necessarily the same player. Scoped to steals specifically, not the broader turnover log: see <strong>TOV Credit %</strong> above for why an uncredited turnover can't honestly be pinned on anyone.</p>
+        <p class="hint">Points this player's team scores within 15 seconds of a steal this player is credited with. It links who forces turnovers to who turns them into points, which are not always the same player. Only steals count, not every turnover: see <strong>TOV Credit %</strong> above for why an unassigned turnover can't fairly be pinned on anyone.</p>
         <p id="pointsOffTakeawaysSummary" class="hint" style="margin:0 0 10px"></p>
         <div class="table-scroll">
           <table class="matchup-table" id="pointsOffTakeawaysTable">
@@ -721,7 +721,7 @@
     <div class="panel-row">
       <details class="panel">
         <summary><h2>Second-Chance Conversion</h2></summary>
-        <p class="hint">"True" second-chance conversion, not just who grabs offensive rebounds: an OREB counts as converted when, within 20 seconds of the missed shot's own video timestamp, either that rebounder scored themselves or someone else scored with them credited as the assist (either path counts, a kick-out is worth the same as a putback). Both the miss and the scoring follow-up need a real video timestamp to be checked; an OREB logged without one still counts toward the total but can't be evaluated for conversion. The 20-second window is fixed, same pattern as the shot-distance thresholds.</p>
+        <p class="hint">Offensive rebounds that turn into points. A rebound counts as converted when the rebounder scores, or sets up a score with an assist, shortly after the missed shot (a kick-out counts the same as a putback). How long "shortly" is gets set from the logged games (see <strong>Calibrated Thresholds</strong>). Both the miss and the score need a video timestamp to be checked; a rebound without one still counts toward OREB but can't be checked.</p>
         <p id="secondChanceSummary" class="hint" style="margin:0 0 10px"></p>
         <div class="table-scroll">
           <table class="matchup-table" id="secondChanceTable">
@@ -733,7 +733,7 @@
 
       <details class="panel">
         <summary><h2>Second-Chance Points Allowed</h2></summary>
-        <p class="hint">Now that rebounds are actively tagged with who was contesting them (see Export → Review Rebound Battles), this fires whenever the offense keeps its own miss alive via a real contest, and charges whichever tagged contester(s) are on the <strong>defending</strong> side, a contester can theoretically be an offensive teammate who also went for the ball, and only the defensive-side losers had any real responsibility for the possession not ending. Same 20-second conversion-check logic as Second-Chance Conversion. <strong>Lower Rate is better here</strong> (the opposite of Second-Chance Conversion, where higher is better). Deliberately not gated the same way as Rebound Battle Record: this panel's own denominator is a smaller subset of real contests, so expect genuinely thin numbers (1-4 situations per player) for a while, real rows below 5 situations get an explicit <strong>(small sample)</strong> flag rather than being hidden or reading as equally settled next to a bigger one. Both the miss and any scoring follow-up need a real video timestamp to be checked.</p>
+        <p class="hint">How often the defense gives up points after the offense wins a contested rebound. When the shooting team gets its own miss back and a defender is tagged as losing the contest, that defender is charged if the rebounder then scores or assists within the second-chance window (see <strong>Calibrated Thresholds</strong>). <strong>Lower Rate is better</strong> here, the opposite of Second-Chance Conversion. Only real contests count, so numbers are small for now: rows with fewer than 5 situations are marked <strong>(small sample)</strong>. Both the miss and the score need a video timestamp.</p>
         <p id="secondChanceAllowedSummary" class="hint" style="margin:0 0 10px"></p>
         <div class="table-scroll">
           <table class="matchup-table" id="secondChanceAllowedTable">
@@ -747,7 +747,7 @@
     <div class="panel-row">
       <details class="panel">
         <summary><h2>Close-Game Shooting</h2></summary>
-        <p class="hint">This is the tracked stat behind the Clutch comparison above: a margin-aware read, not <strong>Game-Winning Buckets</strong> below, since GWB is explicitly non-scarce by construction (the last basket of every decided game belongs to the winning team, full stop) and measures "who tends to close games out," not performance under real pressure. This instead is TS%, but only counting attempts from games that actually finished close: decided by 5 points or fewer (a starting guess, not a value backed by real season margin data yet). Tied games count here even though a tie has no "winning shot" for GWB to credit. Click any column header to sort.</p>
+        <p class="hint">True Shooting % counting only shots from close games: the closest-finishing third of games (see <strong>Calibrated Thresholds</strong>). Unlike <strong>Game-Winning Buckets</strong>, which is about who scores the last basket, this shows how a player shoots when the game is actually tight. Tied games count. Click any column header to sort.</p>
         <div class="table-scroll">
           <table class="matchup-table" id="closeGameShootingTable">
             <thead><tr id="closeGameShootingHeaderRow"></tr></thead>
@@ -758,7 +758,7 @@
 
       <details class="panel">
         <summary><h2>Close-Game Defense</h2></summary>
-        <p class="hint">The direct mirror of <strong>Close-Game Shooting</strong>: Opp FG% (not the more granular Opp eFG% above, since Opp FG% is the headline number the rest of this page already leads with), counting only shots defended in games that actually finished close: decided by 5 points or fewer. Does a defender hold up or break down when the game is actually on the line? Sorted lowest (best) Opp FG% first by default, the opposite direction from Close-Game Shooting since lower is the good outcome on defense. Tied games count here too. Click any column header to sort.</p>
+        <p class="hint">The defensive side of <strong>Close-Game Shooting</strong>: Opp FG% on shots this player defended in close games (the closest-finishing third of games). Lower is better, so it sorts lowest first. Tied games count. Click any column header to sort.</p>
         <div class="table-scroll">
           <table class="matchup-table" id="closeGameDefenseTable">
             <thead><tr id="closeGameDefenseHeaderRow"></tr></thead>

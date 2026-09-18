@@ -333,7 +333,7 @@ function saveState() {
   // result from before this edit can't be trusted anymore.
   leaderboardCache = null;
   winSharesWeightsCache = null;
-  zoneCalibrationCache = null;
+  calibrationCache = null;
 }
 
 function uid(prefix) {
@@ -535,7 +535,7 @@ function renderLeaderboardHighlights() {
       detail: `±${consistent.stdDev.toFixed(1)} Two-Way/20 std dev across ${consistent.gp} games` });
   }
 
-  // Best TS% in games decided by CLUTCH_MARGIN_THRESHOLD points or fewer — needs at least 5
+  // Best TS% in games decided by the calibrated close-game margin or fewer — needs at least 5
   // combined FGA+FTA in those games so one hot make doesn't read as a real clutch performer.
   const clutch = computeCloseGameShooting().filter(r => r.attempts >= 5).sort((a, b) => b.ts - a.ts)[0];
   if (clutch) {
@@ -1432,8 +1432,8 @@ function getPlayerPhysicalData(id) {
 // into a Two-Way/20-equivalent estimate. Calibrated against the real spread of this roster's own
 // Two-Way/20 values (roughly -5 to +5.5): 10 percentile points above/below league-average maps
 // to about 1 point of Two-Way/20. A single adjustable constant, not a UI setting, same pattern as
-// every other judgment-call threshold in this tool (CLUTCH_MARGIN_THRESHOLD,
-// SECOND_CHANCE_WINDOW_SECONDS, etc.) — revisit if it turns out to under- or over-weight
+// every other judgment-call threshold in this tool (the close-game margin,
+// the second-chance window, etc.) — revisit if it turns out to under- or over-weight
 // reputation once more of these players actually get logged film.
 //
 // A CLEAN_SWEEP_BONUS on top of that linear mapping, for the specific case of a real 100th
@@ -2710,28 +2710,30 @@ function shotDistanceFromHoop(loc) {
   return Math.sqrt(Math.pow(loc.x - 50, 2) + Math.pow(loc.y, 2));
 }
 
-// Where a 3PT attempt splits into "Line" (a normal three, right at the line — Poolean's three
-// is straight, not a curved arc, hence "Line" rather than "Arc" — the returned value stays
-// "arc" internally, only the displayed label changed) vs. "Deep" (a much lower-percentage
-// near-pool-length heave) — the single blended "3PT%" number was making a real, makeable line
-// three look worse than it is and a heave look better than it is. Drawn from a small early
-// sample (41 total 3PT attempts logged when this threshold was introduced), not a settled rule —
-// a single easy-to-find constant so it's easy to revisit as more games get logged, deliberately
-// not a UI setting for a one-operator tool. Only ever applied within the 3PT bucket — the
-// 2PT/3PT boundary itself (the actual 3pt line, at 60% depth) doesn't change.
-const THREE_PT_DEEP_THRESHOLD = 80;
-// The Close/Midrange boundary inside the 2PT bucket is calibrated from the logged shots instead of
-// being a fixed number: it goes where FG% drops off most sharply. Recalibrated only each time the
-// count of located 2PT attempts crosses a new multiple of ZONE_CALIBRATION_STEP, so it doesn't
-// wobble with every shot. Derived purely from the games in state (chronological order), so it's
-// identical on the dashboard and the viewer and needs no stored value; the history of each
-// recalibration is what the Close/Midrange Boundary panel shows.
-const CLOSE_RANGE_DEFAULT = 30;          // the boundary used until there's enough data to calibrate
-const CLOSE_RANGE_SEARCH = [12, 50];     // the boundary is only searched for inside this range
-const ZONE_CALIBRATION_STEP = 50;        // located 2PT attempts between recalibrations
-const ZONE_CALIBRATION_MIN_SHOTS = 100;  // no calibration before this many
-const ZONE_CALIBRATION_MIN_SIDE = 15;    // each side of a candidate boundary needs this many attempts
-const ZONE_CALIBRATION_MIN_STAT = 10;    // 2 x log-likelihood gain needed to move; below it, keep the last value
+// A 3PT attempt is "Line" (a normal three right at the line -- Poolean's three is straight, not a
+// curved arc; the returned value stays "arc" internally) or "Deep" (a near-pool-length heave),
+// split at a boundary calibrated from the logged shots (see Calibrated thresholds below). Only ever
+// applied within the 3PT bucket; the 2PT/3PT boundary itself (the 3pt line at 60% depth) is fixed.
+// ---------- Calibrated thresholds ----------
+// These cutoffs are set from the logged data instead of being hand-picked, and each one is
+// rechecked each time enough new data has come in (a fixed step, never on every page load).
+// Everything here is derived purely from the games in state, in date order, so the dashboard and
+// the viewer always agree and nothing extra needs storing. Each check is kept in a history so the
+// Calibrated Thresholds panel can show what changed and why; a check only moves a value when the
+// evidence is clear, otherwise the last value stays.
+//   1. Close/Midrange boundary (2PT): where FG% drops off most sharply.
+//   2. Line/Deep boundary (3PT): same method.
+//   3. Close-game margin: the closest-finishing third of balanced games.
+//   4. Second-chance window: the length that captures real conversions without picking up
+//      scores that would have happened anyway.
+const CLOSE_RANGE_DEFAULT = 30;          // used until there is enough data to calibrate
+const THREE_PT_DEEP_DEFAULT = 80;
+const CLUTCH_MARGIN_DEFAULT = 5;
+const SECOND_CHANCE_WINDOW_DEFAULT = 20;
+const CALIBRATION_MIN_STAT = 10;         // 2 x log-likelihood gain needed to move a shot boundary
+const CALIBRATION_MIN_SIDE = 15;         // each side of a candidate boundary needs this many attempts
+const SECOND_CHANCE_MIN_EXCESS = 5;      // conversions above chance needed to move the window
+const SECOND_CHANCE_WINDOWS = [5, 10, 15, 20, 25, 30, 40, 50, 60];
 
 function binomialLogLik(k, n) {
   if (n === 0) return 0;
@@ -2739,8 +2741,8 @@ function binomialLogLik(k, n) {
   return (k > 0 ? k * Math.log(p) : 0) + (n - k > 0 ? (n - k) * Math.log(1 - p) : 0);
 }
 
-// Finds the single distance that best splits `shots` ([{d, made}]) into a nearer group that shoots
-// clearly better than a farther one: maximum-likelihood two-rate split, searched one unit at a time.
+// The distance that best splits `shots` ([{d, made}]) into a nearer group shooting clearly better
+// than a farther one: maximum-likelihood two-rate split, searched one unit at a time.
 function findShotBreakpoint(shots, lo, hi, minSide) {
   const total = shots.length;
   const totalMade = shots.filter(s => s.made).length;
@@ -2760,79 +2762,151 @@ function findShotBreakpoint(shots, lo, hi, minSide) {
   return best;
 }
 
-let zoneCalibrationCache = null;
-function getZoneCalibration() {
-  if (zoneCalibrationCache) return zoneCalibrationCache;
+function gamesByDate(filterFn) {
+  return state.games.filter(g => (g.scoringEvents || []).length > 0 && filterFn(g))
+    .sort((a, b) => ((a.date || "") < (b.date || "") ? -1 : (a.date || "") > (b.date || "") ? 1 : 0));
+}
+
+function nextCheckpoint(total, minN, step) {
+  if (total < minN) return minN;
+  return minN + (Math.floor((total - minN) / step) + 1) * step;
+}
+
+function calibrateShotBoundary(points, cfg) {
   const shots = [];
-  state.games.forEach(game => {
-    (game.scoringEvents || []).forEach(ev => {
-      if (ev.points === 2 && ev.shotLocation) {
-        shots.push({ d: shotDistanceFromHoop(ev.shotLocation), made: ev.made !== false, date: game.date || "" });
+  gamesByDate(() => true).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points === points && ev.shotLocation) {
+        shots.push({ d: shotDistanceFromHoop(ev.shotLocation), made: ev.made !== false });
       }
     });
   });
-  // Stable sort by game date so "the first N shots" means the first N played.
-  shots.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const history = [];
-  let value = CLOSE_RANGE_DEFAULT;
-  const checkpoints = Math.floor(shots.length / ZONE_CALIBRATION_STEP);
-  for (let c = 1; c <= checkpoints; c++) {
-    const n = c * ZONE_CALIBRATION_STEP;
-    if (n < ZONE_CALIBRATION_MIN_SHOTS) continue;
-    const found = findShotBreakpoint(shots.slice(0, n), CLOSE_RANGE_SEARCH[0], CLOSE_RANGE_SEARCH[1], ZONE_CALIBRATION_MIN_SIDE);
-    const strong = !!found && found.stat >= ZONE_CALIBRATION_MIN_STAT;
+  let value = cfg.defaultValue;
+  const pct0 = v => Math.round(v * 100) + "%";
+  for (let n = cfg.minN; n <= shots.length; n += cfg.step) {
+    const found = findShotBreakpoint(shots.slice(0, n), cfg.search[0], cfg.search[1], CALIBRATION_MIN_SIDE);
+    const strong = !!found && found.stat >= CALIBRATION_MIN_STAT;
     const previous = value;
     if (strong) value = found.value;
-    history.push({ shots: n, previous, value, strong, found });
+    history.push({
+      n, previous, value, strong,
+      detail: found ? `Nearer: ${pct0(found.fgNear)} (${found.nNear} shots). Farther: ${pct0(found.fgFar)} (${found.nFar} shots).` : "Not enough shots on both sides."
+    });
   }
-  zoneCalibrationCache = {
-    current: value,
-    totalShots: shots.length,
-    calibratedAt: history.length ? history[history.length - 1].shots : 0,
-    nextAt: Math.max(ZONE_CALIBRATION_MIN_SHOTS, (checkpoints + 1) * ZONE_CALIBRATION_STEP),
-    history
+  return { current: value, defaultValue: cfg.defaultValue, total: shots.length, unit: cfg.unit, noun: cfg.noun, history, nextAt: nextCheckpoint(shots.length, cfg.minN, cfg.step) };
+}
+
+function calibrateClutchMargin() {
+  const margins = gamesByDate(isBalancedGame).map(g => Math.abs(teamScore(g, g.teamA) - teamScore(g, g.teamB)));
+  const history = [];
+  let value = CLUTCH_MARGIN_DEFAULT;
+  const MIN_N = 6, STEP = 3;
+  for (let n = MIN_N; n <= margins.length; n += STEP) {
+    const sorted = margins.slice(0, n).sort((a, b) => a - b);
+    const thr = sorted[Math.ceil(n / 3) - 1];
+    const previous = value;
+    value = thr;
+    const count = sorted.filter(m => m <= thr).length;
+    history.push({ n, previous, value, strong: true, detail: `${count} of ${n} games finished within ${thr} points.` });
+  }
+  return { current: value, defaultValue: CLUTCH_MARGIN_DEFAULT, total: margins.length, unit: "points", noun: "games", history, nextAt: nextCheckpoint(margins.length, MIN_N, STEP) };
+}
+
+function calibrateSecondChanceWindow() {
+  // One observation per offensive rebound with a video time: how long until the rebounder next
+  // scored or assisted (or never), and how often that player scores or assists at all (per second
+  // of that game), which is the chance a score lands in any window by luck alone.
+  const obs = [];
+  gamesByDate(() => true).forEach(game => {
+    const events = game.scoringEvents;
+    const times = events.map(e => e.videoTime).filter(t => t !== null && t !== undefined);
+    if (times.length < 2) return;
+    const duration = Math.max(...times) - Math.min(...times);
+    if (duration <= 0) return;
+    events.forEach(ev => {
+      if (ev.made !== false || !ev.rebounderId || !sameTeam(game, ev.scorerId, ev.rebounderId)) return;
+      if (ev.videoTime === null || ev.videoTime === undefined) return;
+      const involved = events.filter(c => c !== ev && c.made !== false && c.videoTime !== null && c.videoTime !== undefined
+        && (c.scorerId === ev.rebounderId || c.assistId === ev.rebounderId));
+      const lags = involved.map(c => c.videoTime - ev.videoTime).filter(l => l >= 0);
+      obs.push({ lag: lags.length ? Math.min(...lags) : null, rate: involved.length / duration });
+    });
+  });
+  const history = [];
+  let value = SECOND_CHANCE_WINDOW_DEFAULT;
+  const MIN_N = 25, STEP = 25;
+  for (let n = MIN_N; n <= obs.length; n += STEP) {
+    const slice = obs.slice(0, n);
+    let best = null;
+    SECOND_CHANCE_WINDOWS.forEach(w => {
+      const conv = slice.filter(o => o.lag !== null && o.lag <= w).length;
+      const chance = slice.reduce((sum, o) => sum + Math.min(1, o.rate * w), 0);
+      const excess = conv - chance;
+      if (!best || excess > best.excess) best = { w, conv, chance, excess };
+    });
+    const strong = best.excess >= SECOND_CHANCE_MIN_EXCESS;
+    const previous = value;
+    if (strong) value = best.w;
+    history.push({
+      n, previous, value, strong,
+      detail: `${best.conv} of ${n} rebounds led to a score or assist by the rebounder within ${best.w}s, against about ${best.chance.toFixed(1)} expected by chance.`
+    });
+  }
+  return { current: value, defaultValue: SECOND_CHANCE_WINDOW_DEFAULT, total: obs.length, unit: "seconds", noun: "offensive rebounds", history, nextAt: nextCheckpoint(obs.length, MIN_N, STEP) };
+}
+
+let calibrationCache = null;
+function getCalibrations() {
+  if (calibrationCache) return calibrationCache;
+  calibrationCache = {
+    closeRange: calibrateShotBoundary(2, { defaultValue: CLOSE_RANGE_DEFAULT, search: [12, 50], minN: 100, step: 50, unit: "units from the hoop", noun: "2-point shots" }),
+    threePtDeep: calibrateShotBoundary(3, { defaultValue: THREE_PT_DEEP_DEFAULT, search: [70, 100], minN: 50, step: 25, unit: "units from the hoop", noun: "3-point shots" }),
+    clutchMargin: calibrateClutchMargin(),
+    secondChanceWindow: calibrateSecondChanceWindow()
   };
-  return zoneCalibrationCache;
+  return calibrationCache;
 }
-function closeRangeThreshold() {
-  return getZoneCalibration().current;
-}
+function closeRangeThreshold() { return getCalibrations().closeRange.current; }
+function threePtDeepThreshold() { return getCalibrations().threePtDeep.current; }
+function clutchMarginThreshold() { return getCalibrations().clutchMargin.current; }
+function secondChanceWindowSeconds() { return getCalibrations().secondChanceWindow.current; }
 
 function shotBand(loc, points) {
   const distance = shotDistanceFromHoop(loc);
-  if (points === 3) return distance > THREE_PT_DEEP_THRESHOLD ? "deep" : "arc";
+  if (points === 3) return distance > threePtDeepThreshold() ? "deep" : "arc";
   return distance > closeRangeThreshold() ? "mid" : "close";
 }
 
-function renderZoneBoundaryPanel() {
-  const wrap = document.getElementById("zoneBoundaryPanel");
+function renderCalibrationPanel() {
+  const wrap = document.getElementById("calibrationPanel");
   if (!wrap) return;
-  const cal = getZoneCalibration();
-  if (cal.history.length === 0) {
-    wrap.innerHTML = `<p class="empty-state">Using the starting boundary of ${CLOSE_RANGE_DEFAULT} until ${ZONE_CALIBRATION_MIN_SHOTS} 2-point shots with a marked location are logged (${cal.totalShots} so far).</p>`;
-    return;
-  }
-  const pct = v => Math.round(v * 100) + "%";
-  const rows = cal.history.map(h => {
-    const f = h.found;
-    let change;
-    if (!h.strong) change = `Kept ${h.previous} (no clear drop-off yet)`;
-    else if (h.value === h.previous) change = `Stayed at ${h.value}`;
-    else change = `Moved from ${h.previous} to ${h.value}`;
-    const near = f ? `${pct(f.fgNear)} (${f.nNear} shots)` : "—";
-    const far = f ? `${pct(f.fgFar)} (${f.nFar} shots)` : "—";
-    return `<tr><td>${h.shots}</td><td>${change}</td><td>${near}</td><td>${far}</td></tr>`;
-  }).join("");
-  const started = cal.history[0].previous;
-  wrap.innerHTML = `
-    <p class="hint" style="margin-top:0">Current boundary: <strong>${cal.current}</strong> units from the hoop${cal.current !== started ? ` (started at ${started})` : ""}, set using the first <strong>${cal.calibratedAt}</strong> of ${cal.totalShots} logged 2-point shots. Next check at ${cal.nextAt} shots.</p>
-    <div class="table-scroll">
-      <table class="matchup-table">
-        <thead><tr><th>Shots used</th><th>Result</th><th>Closer than boundary</th><th>Farther than boundary</th></tr></thead>
+  const cal = getCalibrations();
+  const sections = [
+    { title: "Close/Midrange boundary (2-point shots)", c: cal.closeRange },
+    { title: "Line/Deep boundary (3-point shots)", c: cal.threePtDeep },
+    { title: "Close-game margin", c: cal.clutchMargin },
+    { title: "Second-chance window", c: cal.secondChanceWindow }
+  ];
+  wrap.innerHTML = sections.map(({ title, c }) => {
+    const head = `<h3 style="margin:16px 0 4px;font-size:1rem">${escapeHtml(title)}</h3>`;
+    if (c.history.length === 0) {
+      return `${head}<p class="hint" style="margin-top:0">Using ${c.defaultValue} ${c.unit} until enough data is logged (${c.total} ${c.noun} so far, first check at ${c.nextAt}).</p>`;
+    }
+    const rows = c.history.map(h => {
+      const result = !h.strong ? `Kept ${h.previous} (no clear signal yet)`
+        : h.value === h.previous ? `Stayed at ${h.value}`
+        : `Moved from ${h.previous} to ${h.value}`;
+      return `<tr><td>${h.n}</td><td>${result}</td><td>${escapeHtml(h.detail)}</td></tr>`;
+    }).join("");
+    const started = c.history[0].previous;
+    return `${head}
+      <p class="hint" style="margin-top:0">Now <strong>${c.current}</strong> ${c.unit}${c.current !== started ? ` (started at ${started})` : ""}. Next check at ${c.nextAt} ${c.noun}.</p>
+      <div class="table-scroll"><table class="matchup-table">
+        <thead><tr><th>${escapeHtml(c.noun.charAt(0).toUpperCase() + c.noun.slice(1))} used</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>
-    </div>
-  `;
+      </table></div>`;
+  }).join("");
 }
 
 // Field goal / free throw splits derived from scoringEvents for one player in one game.
@@ -5299,17 +5373,16 @@ function renderDefensiveLoadPanel() {
 // gameWinningShot()): the last basket of every decided game is, by definition, the winner's, so
 // it measures "who tends to close games out" rather than performance under real pressure. This
 // instead looks at shooting efficiency specifically in games that actually finished close — TS%
-// across every attempt in a game decided by CLUTCH_MARGIN_THRESHOLD points or fewer. Tied games
+// across every attempt in a game decided by the calibrated close-game margin or fewer. Tied games
 // count here (a tie is the closest a game can finish) even though a tie has no "winning shot" for
 // GWB to credit. Single adjustable constant, same provisional-not-a-setting pattern as every
 // other threshold on this page — 5 points is a starting guess against Poolean's 16/21-point
 // targets, not a value backed by a real season's worth of margin data yet.
-const CLUTCH_MARGIN_THRESHOLD = 5;
 
 function computeCloseGameShooting() {
   const closeGames = state.games.filter(g => {
     if (!isQualifyingGame(g)) return false;
-    return Math.abs(teamScore(g, g.teamA) - teamScore(g, g.teamB)) <= CLUTCH_MARGIN_THRESHOLD;
+    return Math.abs(teamScore(g, g.teamA) - teamScore(g, g.teamB)) <= clutchMarginThreshold();
   });
   const totals = {}; // playerId -> { pts, fga, fta, gp }
   closeGames.forEach(game => {
@@ -5351,13 +5424,13 @@ function renderCloseGameShootingPanel() {
   const sortCol = CLOSE_GAME_SHOOTING_COLUMNS.find(c => c.key === closeGameShootingSort.key);
   rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), closeGameShootingSort.dir));
   body.innerHTML = rows.length === 0
-    ? `<tr><td colspan="4" class="empty-state">No games decided by ${CLUTCH_MARGIN_THRESHOLD} points or fewer yet.</td></tr>`
+    ? `<tr><td colspan="4" class="empty-state">No games decided by ${clutchMarginThreshold()} points or fewer yet.</td></tr>`
     : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.gp}</td><td>${r.attempts}</td><td>${formatPct(r.ts)}</td></tr>`).join("");
 }
 
 // ---------- Close-Game Defense (see poolean-defensive-mirrors-spec.md) ----------
 // Direct mirror of Close-Game Shooting above: same close-game filter (decided by
-// CLUTCH_MARGIN_THRESHOLD points or fewer), just Opp FG% instead of TS%, since that's the
+// the calibrated close-game margin or fewer), just Opp FG% instead of TS%, since that's the
 // existing headline defensive shooting-allowed number (Opp eFG% above is the more granular
 // version, but Opp FG% is what Defensive Load and the rest of this page already lead with). Does
 // a defender hold up or break down when the game is actually on the line, the same real question
@@ -5365,7 +5438,7 @@ function renderCloseGameShootingPanel() {
 function computeCloseGameDefense() {
   const closeGames = state.games.filter(g => {
     if (!isQualifyingGame(g)) return false;
-    return Math.abs(teamScore(g, g.teamA) - teamScore(g, g.teamB)) <= CLUTCH_MARGIN_THRESHOLD;
+    return Math.abs(teamScore(g, g.teamA) - teamScore(g, g.teamB)) <= clutchMarginThreshold();
   });
   const totals = {}; // playerId -> { timesBeaten, stops, gp }
   closeGames.forEach(game => {
@@ -5405,7 +5478,7 @@ function renderCloseGameDefensePanel() {
   const sortCol = CLOSE_GAME_DEFENSE_COLUMNS.find(c => c.key === closeGameDefenseSort.key);
   rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), closeGameDefenseSort.dir));
   body.innerHTML = rows.length === 0
-    ? `<tr><td colspan="4" class="empty-state">No games decided by ${CLUTCH_MARGIN_THRESHOLD} points or fewer yet.</td></tr>`
+    ? `<tr><td colspan="4" class="empty-state">No games decided by ${clutchMarginThreshold()} points or fewer yet.</td></tr>`
     : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.gp}</td><td>${r.attempts}</td><td>${formatPct(r.oppFgPct)}</td></tr>`).join("");
 }
 
@@ -7644,13 +7717,12 @@ function renderLeagueTsByZoneChart() {
 // (the standalone script this panel was built from), kept in sync with it deliberately, just
 // running against whatever's already loaded in this browser instead of an exported file. An
 // offensive rebound is a missed shot with a rebounderId on the shooter's own team; it counts as
-// *converted* if, within SECOND_CHANCE_WINDOW_SECONDS of the miss's own videoTime, either that
+// *converted* if, within the calibrated second-chance window of the miss's own videoTime, either that
 // rebounder scored themselves or someone else scored with that rebounder as the assist — either
 // path counts once, not twice. Both the miss and the candidate score need a real videoTime to
 // be checked; a miss logged without one still counts toward OREB but can't be evaluated for
 // conversion, same "don't guess" stance as Game-Winning Buckets. Single adjustable constant,
 // not a UI setting, same reasoning as every other threshold on this page.
-const SECOND_CHANCE_WINDOW_SECONDS = 20;
 
 function computeSecondChanceConversions() {
   const totals = {}; // playerId -> { oreb, converted, noTimestamp }
@@ -7663,7 +7735,7 @@ function computeSecondChanceConversions() {
         const hasTimestamp = ev.videoTime !== null && ev.videoTime !== undefined;
         if (!hasTimestamp) { t.noTimestamp++; return; }
         const windowStart = ev.videoTime;
-        const windowEnd = ev.videoTime + SECOND_CHANCE_WINDOW_SECONDS;
+        const windowEnd = ev.videoTime + secondChanceWindowSeconds();
         const converted = events.some(cand => {
           if (cand === ev || cand.made === false) return false;
           if (cand.videoTime === null || cand.videoTime === undefined) return false;
@@ -7715,7 +7787,7 @@ function renderSecondChancePanel() {
 // team) via a real contest, and charges whichever tagged contester(s) are on the DEFENDING side --
 // a contester can theoretically be an offensive teammate who also went for the ball, and only the
 // defensive-side losers had any real responsibility for the possession not ending. Same
-// SECOND_CHANCE_WINDOW_SECONDS conversion-check logic as Second-Chance Conversion. Lower rate is
+// second-chance window conversion-check logic as Second-Chance Conversion. Lower rate is
 // better here (the opposite of the offensive version).
 //
 // Deliberately NOT gated at REBOUND_BATTLE_MIN_CONTESTS like Rebound Battle Record/the Head-to-
@@ -7742,7 +7814,7 @@ function computeSecondChancePointsAllowed() {
       let allowed = false;
       if (hasTimestamp) {
         const windowStart = ev.videoTime;
-        const windowEnd = ev.videoTime + SECOND_CHANCE_WINDOW_SECONDS;
+        const windowEnd = ev.videoTime + secondChanceWindowSeconds();
         allowed = events.some(cand => {
           if (cand === ev || cand.made === false) return false;
           if (cand.videoTime === null || cand.videoTime === undefined) return false;
@@ -9224,7 +9296,7 @@ function renderLeaderboard() {
   // (saveState() covers that case).
   leaderboardCache = null;
   winSharesWeightsCache = null;
-  zoneCalibrationCache = null;
+  calibrationCache = null;
   updateAdvancedColsBtnLabel();
   updateImbalancedGamesBtnLabel();
   updatePastSeasonsBtnLabel();
@@ -9242,7 +9314,7 @@ function renderLeaderboard() {
   renderLeagueHeatmap();
   renderShotZonePanel();
   renderDefensiveShotZonePanel();
-  renderZoneBoundaryPanel();
+  renderCalibrationPanel();
   renderLeagueDirectionSplits();
   renderLeagueTsByZoneChart();
   renderWideOpenShootingPanel();
