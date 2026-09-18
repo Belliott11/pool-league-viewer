@@ -574,7 +574,7 @@
 
     <details class="panel">
       <summary><h2>Shot Distance</h2></summary>
-      <p class="hint">Every field goal splits further by how far it actually was from the hoop, on both sides of the 3pt line. <strong>Close</strong> and <strong>Midrange</strong> split the 2PT zone at its midpoint; <strong>Line</strong> (a normal, makeable three right at the line; Poolean's three is straight, not a curved arc, hence "Line" not "Arc") and <strong>Deep</strong> (a much lower-percentage near-pool-length heave) split the 3PT zone the same way the plain 3PT% on the table above blends together. Both breakpoints are a fixed distance from the hoop, the same for every shot: the 3PT one drawn from an early season sample, the 2PT one a rougher starting guess with no shot volume behind it yet, so treat it as even more provisional. Each zone column shows FG% there (click to sort); the small percentage beneath it is that zone's share of the player's own attempts: how well they shoot from there, and how much they lean on it, in one cell instead of two separate panels. The <strong>Mix</strong> column is the same shot-selection breakdown as a quick visual (color tracks typical shot quality: green close, amber midrange, teal at the line, red deep). Only field goals with a marked shot location count (see <strong>Export → Backfill Shot Locations</strong> to fill in the rest). Treat any one player's split as an early read, not a verdict, until more games are logged.</p>
+      <p class="hint">Every field goal is split by how far it was from the hoop. 2-point shots divide into <strong>Close</strong> and <strong>Midrange</strong> at the distance where shooting drops off most sharply (see <strong>Close/Midrange Boundary</strong> below). 3-point shots divide into <strong>Line</strong> (right at the three-point line) and <strong>Deep</strong> (a long heave). Each zone shows FG% (click to sort) with that zone's share of the player's shots underneath. <strong>Mix</strong> shows the same split as a bar: green close, amber midrange, teal at the line, red deep. Only shots with a marked location count (Export &rarr; Backfill Shot Locations fills in the rest). Early in the season these are small samples, so treat them as a first read.</p>
       <div class="shot-selection-legend">
         <span class="legend-item"><span class="legend-swatch shot-seg-close"></span>Close</span>
         <span class="legend-item"><span class="legend-swatch shot-seg-mid"></span>Midrange</span>
@@ -591,13 +591,19 @@
 
     <details class="panel">
       <summary><h2>Defensive Shot Distance</h2></summary>
-      <p class="hint">The direct mirror of Shot Distance above, just pointed at shots this player is tagged defending instead of shots they took: same four zones (Close/Midrange split at the 2PT zone's midpoint, Line/Deep split the 3PT zone the same way), same FG%-plus-share-of-attempts-faced shape, same Mix bar for a quick visual read of what kind of shots a player's assignments tend to generate. Only defended field goals with a marked shot location count. Free throws are never tagged with a defender at all, so they're excluded here the same way they're excluded from the offensive version. Treat any one player's split as an early read, not a verdict, until more games are logged.</p>
+      <p class="hint">The same zones and layout as Shot Distance above, but for shots this player was tagged defending: how well opponents shoot from each zone against them, and how much of what they face comes from each. Only defended field goals with a marked location count. Free throws have no defender tagged, so they are left out. Early in the season these are small samples, so treat them as a first read.</p>
       <div class="table-scroll">
         <table class="matchup-table" id="defensiveShotZoneTable">
           <thead><tr id="defensiveShotZoneHeaderRow"></tr></thead>
           <tbody id="defensiveShotZoneBody"></tbody>
         </table>
       </div>
+    </details>
+
+    <details class="panel">
+      <summary><h2>Close/Midrange Boundary</h2></summary>
+      <p class="hint">Where a 2-point shot stops counting as Close and starts counting as Midrange. It sits at the distance where shooting percentage drops off most sharply across all logged 2-point shots, and is rechecked each time another 50 located shots are logged. If no clear drop-off shows up, the last boundary stays. Distances are in shot chart units from the hoop.</p>
+      <div id="zoneBoundaryPanel"></div>
     </details>
 
     <details class="panel">

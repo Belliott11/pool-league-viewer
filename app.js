@@ -333,6 +333,7 @@ function saveState() {
   // result from before this edit can't be trusted anymore.
   leaderboardCache = null;
   winSharesWeightsCache = null;
+  zoneCalibrationCache = null;
 }
 
 function uid(prefix) {
@@ -2719,16 +2720,119 @@ function shotDistanceFromHoop(loc) {
 // not a UI setting for a one-operator tool. Only ever applied within the 3PT bucket — the
 // 2PT/3PT boundary itself (the actual 3pt line, at 60% depth) doesn't change.
 const THREE_PT_DEEP_THRESHOLD = 80;
-// Same idea, one level closer to the hoop: splits the 2PT bucket into "Close" and "Midrange" at
-// the midpoint of the 2PT zone (y: 0-60, so 30). Unlike THREE_PT_DEEP_THRESHOLD, this wasn't
-// derived from a season's worth of logged 2PT attempts — there isn't the shot volume yet to draw
-// a real breakpoint from — so treat this one as an even rougher starting guess, equally easy to
-// revisit here as the single constant it is.
-const CLOSE_RANGE_THRESHOLD = 30;
+// The Close/Midrange boundary inside the 2PT bucket is calibrated from the logged shots instead of
+// being a fixed number: it goes where FG% drops off most sharply. Recalibrated only each time the
+// count of located 2PT attempts crosses a new multiple of ZONE_CALIBRATION_STEP, so it doesn't
+// wobble with every shot. Derived purely from the games in state (chronological order), so it's
+// identical on the dashboard and the viewer and needs no stored value; the history of each
+// recalibration is what the Close/Midrange Boundary panel shows.
+const CLOSE_RANGE_DEFAULT = 30;          // the boundary used until there's enough data to calibrate
+const CLOSE_RANGE_SEARCH = [12, 50];     // the boundary is only searched for inside this range
+const ZONE_CALIBRATION_STEP = 50;        // located 2PT attempts between recalibrations
+const ZONE_CALIBRATION_MIN_SHOTS = 100;  // no calibration before this many
+const ZONE_CALIBRATION_MIN_SIDE = 15;    // each side of a candidate boundary needs this many attempts
+const ZONE_CALIBRATION_MIN_STAT = 10;    // 2 x log-likelihood gain needed to move; below it, keep the last value
+
+function binomialLogLik(k, n) {
+  if (n === 0) return 0;
+  const p = k / n;
+  return (k > 0 ? k * Math.log(p) : 0) + (n - k > 0 ? (n - k) * Math.log(1 - p) : 0);
+}
+
+// Finds the single distance that best splits `shots` ([{d, made}]) into a nearer group that shoots
+// clearly better than a farther one: maximum-likelihood two-rate split, searched one unit at a time.
+function findShotBreakpoint(shots, lo, hi, minSide) {
+  const total = shots.length;
+  const totalMade = shots.filter(s => s.made).length;
+  const nullLL = binomialLogLik(totalMade, total);
+  let best = null;
+  for (let t = lo; t <= hi; t++) {
+    let nNear = 0, madeNear = 0;
+    shots.forEach(s => { if (s.d <= t) { nNear++; if (s.made) madeNear++; } });
+    const nFar = total - nNear, madeFar = totalMade - madeNear;
+    if (nNear < minSide || nFar < minSide) continue;
+    if (madeNear / nNear <= madeFar / nFar) continue;
+    const ll = binomialLogLik(madeNear, nNear) + binomialLogLik(madeFar, nFar);
+    if (!best || ll > best.ll) {
+      best = { ll, value: t, nNear, fgNear: madeNear / nNear, nFar, fgFar: madeFar / nFar, stat: 2 * (ll - nullLL) };
+    }
+  }
+  return best;
+}
+
+let zoneCalibrationCache = null;
+function getZoneCalibration() {
+  if (zoneCalibrationCache) return zoneCalibrationCache;
+  const shots = [];
+  state.games.forEach(game => {
+    (game.scoringEvents || []).forEach(ev => {
+      if (ev.points === 2 && ev.shotLocation) {
+        shots.push({ d: shotDistanceFromHoop(ev.shotLocation), made: ev.made !== false, date: game.date || "" });
+      }
+    });
+  });
+  // Stable sort by game date so "the first N shots" means the first N played.
+  shots.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const history = [];
+  let value = CLOSE_RANGE_DEFAULT;
+  const checkpoints = Math.floor(shots.length / ZONE_CALIBRATION_STEP);
+  for (let c = 1; c <= checkpoints; c++) {
+    const n = c * ZONE_CALIBRATION_STEP;
+    if (n < ZONE_CALIBRATION_MIN_SHOTS) continue;
+    const found = findShotBreakpoint(shots.slice(0, n), CLOSE_RANGE_SEARCH[0], CLOSE_RANGE_SEARCH[1], ZONE_CALIBRATION_MIN_SIDE);
+    const strong = !!found && found.stat >= ZONE_CALIBRATION_MIN_STAT;
+    const previous = value;
+    if (strong) value = found.value;
+    history.push({ shots: n, previous, value, strong, found });
+  }
+  zoneCalibrationCache = {
+    current: value,
+    totalShots: shots.length,
+    calibratedAt: history.length ? history[history.length - 1].shots : 0,
+    nextAt: Math.max(ZONE_CALIBRATION_MIN_SHOTS, (checkpoints + 1) * ZONE_CALIBRATION_STEP),
+    history
+  };
+  return zoneCalibrationCache;
+}
+function closeRangeThreshold() {
+  return getZoneCalibration().current;
+}
+
 function shotBand(loc, points) {
   const distance = shotDistanceFromHoop(loc);
   if (points === 3) return distance > THREE_PT_DEEP_THRESHOLD ? "deep" : "arc";
-  return distance > CLOSE_RANGE_THRESHOLD ? "mid" : "close";
+  return distance > closeRangeThreshold() ? "mid" : "close";
+}
+
+function renderZoneBoundaryPanel() {
+  const wrap = document.getElementById("zoneBoundaryPanel");
+  if (!wrap) return;
+  const cal = getZoneCalibration();
+  if (cal.history.length === 0) {
+    wrap.innerHTML = `<p class="empty-state">Using the starting boundary of ${CLOSE_RANGE_DEFAULT} until ${ZONE_CALIBRATION_MIN_SHOTS} 2-point shots with a marked location are logged (${cal.totalShots} so far).</p>`;
+    return;
+  }
+  const pct = v => Math.round(v * 100) + "%";
+  const rows = cal.history.map(h => {
+    const f = h.found;
+    let change;
+    if (!h.strong) change = `Kept ${h.previous} (no clear drop-off yet)`;
+    else if (h.value === h.previous) change = `Stayed at ${h.value}`;
+    else change = `Moved from ${h.previous} to ${h.value}`;
+    const near = f ? `${pct(f.fgNear)} (${f.nNear} shots)` : "—";
+    const far = f ? `${pct(f.fgFar)} (${f.nFar} shots)` : "—";
+    return `<tr><td>${h.shots}</td><td>${change}</td><td>${near}</td><td>${far}</td></tr>`;
+  }).join("");
+  const started = cal.history[0].previous;
+  wrap.innerHTML = `
+    <p class="hint" style="margin-top:0">Current boundary: <strong>${cal.current}</strong> units from the hoop${cal.current !== started ? ` (started at ${started})` : ""}, set using the first <strong>${cal.calibratedAt}</strong> of ${cal.totalShots} logged 2-point shots. Next check at ${cal.nextAt} shots.</p>
+    <div class="table-scroll">
+      <table class="matchup-table">
+        <thead><tr><th>Shots used</th><th>Result</th><th>Closer than boundary</th><th>Farther than boundary</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 // Field goal / free throw splits derived from scoringEvents for one player in one game.
@@ -9120,6 +9224,7 @@ function renderLeaderboard() {
   // (saveState() covers that case).
   leaderboardCache = null;
   winSharesWeightsCache = null;
+  zoneCalibrationCache = null;
   updateAdvancedColsBtnLabel();
   updateImbalancedGamesBtnLabel();
   updatePastSeasonsBtnLabel();
@@ -9137,6 +9242,7 @@ function renderLeaderboard() {
   renderLeagueHeatmap();
   renderShotZonePanel();
   renderDefensiveShotZonePanel();
+  renderZoneBoundaryPanel();
   renderLeagueDirectionSplits();
   renderLeagueTsByZoneChart();
   renderWideOpenShootingPanel();
