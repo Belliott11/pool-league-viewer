@@ -8743,6 +8743,154 @@ function renderTwoWayTrendChart(playerId) {
   renderTrendLineChart("playerTwoWayTrend", points, seasonAvg, "Two-Way/20", leagueAvg);
 }
 
+// ---------- Single-Stat Trend (Player Detail) ----------
+// The same per-game line chart as Two-Way Trend, for any one stat. Every stat is a function of a
+// set of games, so a game's point is that stat over just that one game and the season line is the
+// same stat over all of them (pooled, not a mean of per-game means). A game only becomes a point
+// when the player had at least `minN` attempts of the relevant kind in it, since a percentage off
+// one or two shots isn't a real reading. With fewer than TREND_MIN_POINTS points the line is faded.
+const TREND_MIN_POINTS = 5;
+const pctOrNull = (num, den) => den > 0 ? (num / den) * 100 : null;
+const shotPoints = sh => 2 * sh.fgm + sh.tpm + sh.ftm;
+
+const PLAYER_TREND_STATS = [
+  { key: "tovPct", label: "TOV%", unit: "%", decimals: 0, minN: 4, lowerIsBetter: true,
+    about: "How often this player turns the ball over relative to their shot attempts: TOV ÷ (FGA + 0.44×FTA + TOV). Lower is better.",
+    compute: (pid, games) => {
+      let tov = 0, fga = 0, fta = 0;
+      games.forEach(g => {
+        const s = g.stats.find(st => st.playerId === pid); if (s) tov += s.tov;
+        const sh = shootingStats(g, pid); fga += sh.fga; fta += sh.fta;
+      });
+      const den = fga + 0.44 * fta + tov;
+      return { value: pctOrNull(tov, den), n: den };
+    } },
+  { key: "wideOpen", label: "Wide-Open Shooting TS%", unit: "%", decimals: 0, minN: 2,
+    about: "True Shooting % on shots with no defender tagged. Needs at least 2 wide-open shots in a game to count that game.",
+    compute: (pid, games) => {
+      let pts = 0, fga = 0;
+      games.forEach(g => g.scoringEvents.forEach(ev => {
+        if (ev.scorerId !== pid || (ev.points !== 2 && ev.points !== 3)) return;
+        if (ev.defenderIds && ev.defenderIds.length > 0) return;
+        fga++; if (ev.made !== false) pts += ev.points;
+      }));
+      return { value: fga > 0 ? (pts / (2 * fga)) * 100 : null, n: fga };
+    } },
+  { key: "expAgainst", label: "Points Saved vs. Expected (per shot defended)", unit: "pts/shot", decimals: 2, minN: 3,
+    about: "How many fewer points than expected this player allowed per shot they defended, given how hard those shots were. Higher is better. Needs at least 3 defended shots in a game.",
+    compute: (pid, games, ctx) => {
+      let actual = 0, expected = 0, fga = 0;
+      games.forEach(g => g.scoringEvents.forEach(ev => {
+        if ((ev.points !== 2 && ev.points !== 3) || !(ev.defenderIds || []).includes(pid)) return;
+        fga++;
+        actual += ev.made !== false ? ev.points : 0;
+        const zone = ev.shotLocation ? ctx.zonePpa.byZone[shotBand(ev.shotLocation, ev.points)] : null;
+        const x = zone !== null && zone !== undefined ? zone : ctx.zonePpa.overall;
+        if (x !== null && x !== undefined) expected += x;
+      }));
+      return { value: fga > 0 ? (expected - actual) / fga : null, n: fga };
+    } },
+  { key: "oppFg", label: "Opp FG% (shots defended)", unit: "%", decimals: 0, minN: 3, lowerIsBetter: true,
+    about: "How often shots this player was tagged defending went in. Lower is better. Needs at least 3 defended shots in a game.",
+    compute: (pid, games) => {
+      let beaten = 0, stops = 0;
+      games.forEach(g => { const d = gameDefenseStats(g, pid); beaten += d.timesBeaten; stops += d.stops; });
+      return { value: pctOrNull(beaten, beaten + stops), n: beaten + stops };
+    } },
+  { key: "reboundWin", label: "Rebound Battle Win%", unit: "%", decimals: 0, minN: 2,
+    about: "Share of contested rebounds this player came away with. Needs at least 2 contested rebounds in a game.",
+    compute: (pid, games) => {
+      let wins = 0, losses = 0;
+      games.forEach(g => g.scoringEvents.forEach(ev => {
+        if (ev.made !== false || !ev.rebounderId || ev.turnoverEventId) return;
+        const contesters = ev.reboundContesterIds || [];
+        if (contesters.length === 0) return;
+        if (ev.rebounderId === pid) wins++;
+        if (contesters.includes(pid)) losses++;
+      }));
+      return { value: pctOrNull(wins, wins + losses), n: wins + losses };
+    } },
+  { key: "fgPct", label: "FG%", unit: "%", decimals: 0, minN: 4,
+    about: "Field goal percentage. Needs at least 4 attempts in a game.",
+    compute: (pid, games) => {
+      let m = 0, a = 0;
+      games.forEach(g => { const sh = shootingStats(g, pid); m += sh.fgm; a += sh.fga; });
+      return { value: pctOrNull(m, a), n: a };
+    } },
+  { key: "threePct", label: "3PT%", unit: "%", decimals: 0, minN: 3,
+    about: "Three-point percentage. Needs at least 3 attempts in a game.",
+    compute: (pid, games) => {
+      let m = 0, a = 0;
+      games.forEach(g => { const sh = shootingStats(g, pid); m += sh.tpm; a += sh.tpa; });
+      return { value: pctOrNull(m, a), n: a };
+    } },
+  { key: "tsPct", label: "TS%", unit: "%", decimals: 0, minN: 4,
+    about: "True Shooting %: points per shot attempt, counting threes and free throws properly. Needs at least 4 attempts in a game.",
+    compute: (pid, games) => {
+      let pts = 0, fga = 0, fta = 0;
+      games.forEach(g => { const sh = shootingStats(g, pid); pts += shotPoints(sh); fga += sh.fga; fta += sh.fta; });
+      const den = 2 * (fga + 0.44 * fta);
+      return { value: den > 0 ? (pts / den) * 100 : null, n: fga };
+    } },
+  { key: "twoWay", label: "Two-Way/20", unit: "/20", decimals: 1, minN: 0,
+    about: "Offense plus defense rating per 20 combined points, the same number as the Two-Way Trend above.",
+    compute: (pid, games) => ({ value: games.length ? computeRateSummaryForGames(pid, games).twoWayPer20 : null, n: games.length }) },
+  { key: "offRating", label: "Off Rating/20", unit: "/20", decimals: 1, minN: 0,
+    about: "Offense-only rating per 20 combined points.",
+    compute: (pid, games) => ({ value: games.length ? computeRateSummaryForGames(pid, games).offRatingPer20 : null, n: games.length }) },
+  { key: "defRating", label: "Def Rating/20", unit: "/20", decimals: 1, minN: 0,
+    about: "Defense-only rating per 20 combined points.",
+    compute: (pid, games) => {
+      if (!games.length) return { value: null, n: 0 };
+      const r = computeRateSummaryForGames(pid, games);
+      return { value: r.twoWayPer20 - r.offRatingPer20, n: games.length };
+    } }
+];
+let playerStatTrendKey = "tovPct";
+
+function computePlayerStatTrend(playerId, stat, ctx) {
+  const games = [...qualifyingGamesForPlayer(playerId)].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const points = [];
+  let excluded = 0;
+  games.forEach(g => {
+    const r = stat.compute(playerId, [g], ctx);
+    if (r.value === null || r.value === undefined || (stat.minN && r.n < stat.minN)) { excluded++; return; }
+    points.push({ date: g.date, value: r.value, n: r.n });
+  });
+  const season = stat.compute(playerId, games, ctx);
+  return { points, seasonAvg: season.value === undefined ? null : season.value, excluded };
+}
+
+function renderPlayerStatTrend(playerId) {
+  const select = document.getElementById("playerStatTrendSelect");
+  const chart = document.getElementById("playerStatTrend");
+  const note = document.getElementById("playerStatTrendNote");
+  if (!select || !chart) return;
+  if (select.options.length === 0) {
+    PLAYER_TREND_STATS.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s.key;
+      opt.textContent = s.label;
+      select.appendChild(opt);
+    });
+    select.addEventListener("change", () => {
+      playerStatTrendKey = select.value;
+      if (currentPlayerId) renderPlayerStatTrend(currentPlayerId);
+    });
+  }
+  select.value = playerStatTrendKey;
+  const stat = PLAYER_TREND_STATS.find(s => s.key === playerStatTrendKey) || PLAYER_TREND_STATS[0];
+  const ctx = { zonePpa: computeLeagueZonePointsPerAttempt() };
+  const { points, seasonAvg, excluded } = computePlayerStatTrend(playerId, stat, ctx);
+  const leagueAvg = leagueAvgOfPlayerTrend(pid => ({ seasonAvg: computePlayerStatTrend(pid, stat, ctx).seasonAvg }));
+  const faded = points.length < TREND_MIN_POINTS;
+  renderTrendLineChart("playerStatTrend", points, seasonAvg, stat.unit, leagueAvg, { decimals: stat.decimals, faded });
+  const parts = [stat.about];
+  if (faded && points.length > 0) parts.push(`Only ${points.length} game${points.length === 1 ? "" : "s"} so far, too few to call a trend (the line is faded until there are ${TREND_MIN_POINTS}).`);
+  if (excluded > 0) parts.push(`${excluded} game${excluded === 1 ? " was" : "s were"} left out for too few attempts.`);
+  note.textContent = parts.join(" ");
+}
+
 // Generic SVG line-chart renderer — per-game points plus a dashed season-average reference
 // line, parameterized over a {date, value} point list and a unit label rather than hardwired to
 // one stat. renderTwoWayTrendChart() (above) is now just a thin wrapper over this; Teammate
@@ -8752,7 +8900,9 @@ function renderTwoWayTrendChart(playerId) {
 // instead of just this one player's own history. Omitted entirely when there isn't a meaningful
 // league-wide number to compare against (a caller passing undefined/null just gets the original
 // single-reference-line chart, unchanged).
-function renderTrendLineChart(containerId, points, seasonAvg, unitLabel, leagueAvg) {
+function renderTrendLineChart(containerId, points, seasonAvg, unitLabel, leagueAvg, opts) {
+  const dec = opts && opts.decimals !== undefined ? opts.decimals : 1;
+  const faded = !!(opts && opts.faded);
   const wrap = document.getElementById(containerId);
   if (!wrap) return;
   if (points.length === 0 || seasonAvg === null) {
@@ -8774,7 +8924,7 @@ function renderTrendLineChart(containerId, points, seasonAvg, unitLabel, leagueA
   const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"}${xScale(i)},${yScale(p.value)}`).join(" ");
   const dotsSvg = points.map((p, i) => `
     <circle cx="${xScale(i)}" cy="${yScale(p.value)}" r="3.5" class="ts-line-dot">
-      <title>${escapeHtml(formatDateDisplay(p.date))}: ${p.value.toFixed(1)} ${escapeHtml(unitLabel)}</title>
+      <title>${escapeHtml(formatDateDisplay(p.date))}: ${p.value.toFixed(dec)} ${escapeHtml(unitLabel)}</title>
     </circle>
   `).join("");
   const labelEvery = Math.max(1, Math.ceil(points.length / 6));
@@ -8788,19 +8938,19 @@ function renderTrendLineChart(containerId, points, seasonAvg, unitLabel, leagueA
   // real risk, both being anchored to the same end still reads fine.
   const leagueRefSvg = hasLeagueAvg ? `
       <line x1="${PAD_L}" y1="${leagueY}" x2="${W - PAD_R}" y2="${leagueY}" class="ts-line-ref ts-line-ref-league">
-        <title>League average: ${leagueAvg.toFixed(1)} ${escapeHtml(unitLabel)}</title>
+        <title>League average: ${leagueAvg.toFixed(dec)} ${escapeHtml(unitLabel)}</title>
       </line>
-      <text x="${PAD_L}" y="${leagueY - 4}" text-anchor="start" class="ts-line-axis-label ts-line-league-label">league avg ${leagueAvg.toFixed(1)}</text>
+      <text x="${PAD_L}" y="${leagueY - 4}" text-anchor="start" class="ts-line-axis-label ts-line-league-label">league avg ${leagueAvg.toFixed(dec)}</text>
   ` : "";
 
   wrap.innerHTML = `
-    <svg viewBox="0 0 ${W} ${H}" class="ts-line-svg">
+    <svg viewBox="0 0 ${W} ${H}" class="ts-line-svg${faded ? " ts-line-faded" : ""}">
       <line x1="${PAD_L}" y1="${PAD_T}" x2="${PAD_L}" y2="${H - PAD_B}" class="ts-line-axis" />
       <line x1="${PAD_L}" y1="${H - PAD_B}" x2="${W - PAD_R}" y2="${H - PAD_B}" class="ts-line-axis" />
       <line x1="${PAD_L}" y1="${seasonY}" x2="${W - PAD_R}" y2="${seasonY}" class="ts-line-ref">
-        <title>Season average: ${seasonAvg.toFixed(1)} ${escapeHtml(unitLabel)}</title>
+        <title>Season average: ${seasonAvg.toFixed(dec)} ${escapeHtml(unitLabel)}</title>
       </line>
-      <text x="${W - PAD_R}" y="${seasonY - 4}" text-anchor="end" class="ts-line-axis-label">season avg ${seasonAvg.toFixed(1)}</text>
+      <text x="${W - PAD_R}" y="${seasonY - 4}" text-anchor="end" class="ts-line-axis-label">season avg ${seasonAvg.toFixed(dec)}</text>
       ${leagueRefSvg}
       <path d="${pathD}" class="ts-line-path" />
       ${dotsSvg}
@@ -9524,6 +9674,7 @@ function renderPlayerDetail() {
   renderSeasonHistoryPanel(player.id);
   renderFlakeStatsPanel(player.id);
   renderTwoWayTrendChart(player.id);
+  renderPlayerStatTrend(player.id);
   renderPlayerGameLog(player.id);
   renderPlayerShotChart(player.id);
   renderPlayerHeatmap(player.id);

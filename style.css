@@ -2048,3 +2048,7 @@ button:disabled {
   fill: var(--text);
   font-family: var(--font-body);
 }
+
+/* Single-Stat Trend: a line built from too few games is drawn faded and dashed so it doesn't read as a confident trend. */
+.ts-line-faded .ts-line-path { opacity: 0.4; stroke-dasharray: 5 4; }
+.ts-line-faded .ts-line-dot { opacity: 0.4; }

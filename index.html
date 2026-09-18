@@ -883,6 +883,14 @@
     </div>
 
     <div class="panel">
+      <h2>Stat Trend</h2>
+      <p class="hint">Pick one stat to see how it has moved game by game, with the dashed line as this player's season average and the second line as the league average. Handy for checking whether something specific you are working on is actually changing. A game only counts when the player had enough attempts in it, and the line is faded until there are at least 5 games.</p>
+      <label class="stat-trend-picker">Stat <select id="playerStatTrendSelect"></select></label>
+      <p id="playerStatTrendNote" class="hint" style="margin:6px 0 10px"></p>
+      <div id="playerStatTrend"></div>
+    </div>
+
+    <div class="panel">
       <h2>Game Log</h2>
       <p class="hint">Every game this player was in, most recent first.</p>
       <div class="table-scroll">
