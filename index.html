@@ -574,7 +574,7 @@
 
     <details class="panel">
       <summary><h2>Shot Distance</h2></summary>
-      <p class="hint">Every field goal is split by how far it was from the hoop. 2-point shots divide into <strong>Close</strong> and <strong>Midrange</strong> at the distance where shooting drops off most sharply (see <strong>Calibrated Thresholds</strong> below). 3-point shots divide into <strong>Line</strong> (right at the three-point line) and <strong>Deep</strong> (a long heave). Each zone shows FG% (click to sort) with that zone's share of the player's shots underneath. <strong>Mix</strong> shows the same split as a bar: green close, amber midrange, teal at the line, red deep. Only shots with a marked location count (Export &rarr; Backfill Shot Locations fills in the rest). Early in the season these are small samples, so treat them as a first read.</p>
+      <p class="hint">Every field goal is split by how far it was from the hoop. 2-point shots divide into <strong>Close</strong> and <strong>Midrange</strong> at the distance where shooting drops off most sharply. 3-point shots divide into <strong>Line</strong> (right at the three-point line) and <strong>Deep</strong> (a long heave). Each zone shows FG% (click to sort) with that zone's share of the player's shots underneath. <strong>Mix</strong> shows the same split as a bar: green close, amber midrange, teal at the line, red deep. Only shots with a marked location count (Export &rarr; Backfill Shot Locations fills in the rest). Early in the season these are small samples, so treat them as a first read.</p>
       <div class="shot-selection-legend">
         <span class="legend-item"><span class="legend-swatch shot-seg-close"></span>Close</span>
         <span class="legend-item"><span class="legend-swatch shot-seg-mid"></span>Midrange</span>
@@ -624,11 +624,6 @@
       <div id="shotTypeContestPanel"></div>
     </details>
 
-    <details class="panel">
-      <summary><h2>Calibrated Thresholds</h2></summary>
-      <p class="hint">These cutoffs are set from the logged games and rechecked as more data comes in. Each section shows the current value, every check so far, and what it did: <strong>Kept</strong> when the data shows no clear signal yet, <strong>Stayed</strong> when the check confirmed the same value, <strong>Moved</strong> when the data pointed somewhere else. Distances are in shot chart units from the hoop. The close-game margin uses balanced games only.</p>
-      <div id="calibrationPanel"></div>
-    </details>
 
     <details class="panel">
       <summary><h2>Shooting &amp; Wins by Direction</h2></summary>
@@ -745,7 +740,7 @@
     <div class="panel-row">
       <details class="panel">
         <summary><h2>Second-Chance Conversion</h2></summary>
-        <p class="hint">Offensive rebounds that turn into points. A rebound counts as converted when the rebounder scores, or sets up a score with an assist, shortly after the missed shot (a kick-out counts the same as a putback). How long "shortly" is gets set from the logged games (see <strong>Calibrated Thresholds</strong>). Both the miss and the score need a video timestamp to be checked; a rebound without one still counts toward OREB but can't be checked.</p>
+        <p class="hint">Offensive rebounds that turn into points. A rebound counts as converted when the rebounder scores, or sets up a score with an assist, shortly after the missed shot (a kick-out counts the same as a putback). How long "shortly" is is set from the logged games. Both the miss and the score need a video timestamp to be checked; a rebound without one still counts toward OREB but can't be checked.</p>
         <p id="secondChanceSummary" class="hint" style="margin:0 0 10px"></p>
         <div class="table-scroll">
           <table class="matchup-table" id="secondChanceTable">
@@ -757,7 +752,7 @@
 
       <details class="panel">
         <summary><h2>Second-Chance Points Allowed</h2></summary>
-        <p class="hint">How often the defense gives up points after the offense wins a contested rebound. When the shooting team gets its own miss back and a defender is tagged as losing the contest, that defender is charged if the rebounder then scores or assists within the second-chance window (see <strong>Calibrated Thresholds</strong>). <strong>Lower Rate is better</strong> here, the opposite of Second-Chance Conversion. Only real contests count, so numbers are small for now: rows with fewer than 5 situations are marked <strong>(small sample)</strong>. Both the miss and the score need a video timestamp.</p>
+        <p class="hint">How often the defense gives up points after the offense wins a contested rebound. When the shooting team gets its own miss back and a defender is tagged as losing the contest, that defender is charged if the rebounder then scores or assists within the second-chance window. <strong>Lower Rate is better</strong> here, the opposite of Second-Chance Conversion. Only real contests count, so numbers are small for now: rows with fewer than 5 situations are marked <strong>(small sample)</strong>. Both the miss and the score need a video timestamp.</p>
         <p id="secondChanceAllowedSummary" class="hint" style="margin:0 0 10px"></p>
         <div class="table-scroll">
           <table class="matchup-table" id="secondChanceAllowedTable">
@@ -771,7 +766,7 @@
     <div class="panel-row">
       <details class="panel">
         <summary><h2>Close-Game Shooting</h2></summary>
-        <p class="hint">True Shooting % counting only shots from close games: the closest-finishing third of games (see <strong>Calibrated Thresholds</strong>). Unlike <strong>Game-Winning Buckets</strong>, which is about who scores the last basket, this shows how a player shoots when the game is actually tight. Tied games count. Click any column header to sort.</p>
+        <p class="hint">True Shooting % counting only shots from close games: the closest-finishing third of games. Unlike <strong>Game-Winning Buckets</strong>, which is about who scores the last basket, this shows how a player shoots when the game is actually tight. Tied games count. Click any column header to sort.</p>
         <div class="table-scroll">
           <table class="matchup-table" id="closeGameShootingTable">
             <thead><tr id="closeGameShootingHeaderRow"></tr></thead>
@@ -814,11 +809,6 @@
       </div>
     </details>
 
-    <details class="panel">
-      <summary><h2>Win Shares Model (beta)</h2></summary>
-      <p class="hint">Diagnostics for the regression behind the Win Shares column below (advanced columns), refit fresh from this season's own logged games every time this page loads. Each stat is sign-constrained to only push in its basketball-plausible direction (points can only help, turnovers can only hurt, etc.), then the data determines the size of that effect within those bounds; the regularization strength (alpha) is picked by leave-one-out cross-validation, not a fixed guess. A weight sitting at exactly 0 isn't a failure: it means that stat isn't adding independent signal once its correlated neighbors are already in the model, given how little data exists so far. Beaten was dropped as a feature (not just Fouls): it correlates with Points Allowed at 0.99 in this season's own data, essentially the same information twice, so keeping only Points Allowed (it also captures shot value, a 3 beaten hurts more than a 2) frees up model capacity rather than losing signal. Assists gets a weakly-informative prior rather than the usual shrink-toward-0, since assists and points barely correlate (0.24), so its implausible weight looks like small-sample noise, not redundancy, the same fix wouldn't apply. The prior's value (0.5 points per assist) is sourced, not guessed: Basketball-Reference's own published Points Produced formula credits a flat 0.5 points per assist in its simplified (pre-1973-74) form, the only version of that formula that doesn't need minutes-played data Poolean has no equivalent of. It also gets its own, separately cross-validated regularization strength rather than sharing everyone else's, so the prior isn't just technically present but functionally outweighed by the data. Cross-validation has so far preferred weaker shrinkage here, not stronger, an honest result in its own right: it means the small sample isn't just noisy in a way regularization can smooth over, it's a real "wait for more games" case. <strong>Leave-one-out R&sup2;</strong> and <strong>correlation</strong> are the two numbers worth watching across future refits: report them alongside any change to this model so improvement (or regression) is directly comparable over time. Not enough data yet to trust for anything with real stakes (awards, "who's actually better" claims).</p>
-      <div id="winSharesModelPanel"></div>
-    </details>
 
     <details class="panel">
       <summary><h2>Best &amp; Worst Individual Games</h2></summary>
@@ -1161,5 +1151,6 @@
 <script src="app.js"></script>
 <script src="viewer-clips.js"></script>
 <script src="viewer-videos.js"></script>
+<script src="viewer-clean.js"></script>
 </body>
 </html>
