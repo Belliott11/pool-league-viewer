@@ -1295,22 +1295,41 @@ button:disabled {
   max-height: none;
 }
 
-/* Thin overlay scrollbar, iOS-style — a slim translucent thumb that doesn't compete visually
-   with the content, rather than the OS's default chunky bar. Firefox gets the closest built-in
-   equivalent (scrollbar-width/-color); WebKit/Blink get the full treatment below. */
-.table-scroll {
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--muted) transparent;
+/* Scrollbars: slim, rounded and colored from the theme tokens, so they follow light and dark mode
+   instead of the browser's chunky default. Applied to everything that scrolls (the page, panels,
+   lists, pickers), not just tables. Blink and WebKit get the rounded thumb with a hover state;
+   browsers without ::-webkit-scrollbar (Firefox) fall back to the standard properties. */
+:root {
+  --scroll-thumb: color-mix(in srgb, var(--muted) 45%, transparent);
+  --scroll-thumb-hover: color-mix(in srgb, var(--accent) 80%, transparent);
 }
-.table-scroll::-webkit-scrollbar, .tab-sidebar::-webkit-scrollbar { height: 6px; width: 6px; }
-.table-scroll::-webkit-scrollbar-track, .tab-sidebar::-webkit-scrollbar-track { background: transparent; }
-.table-scroll::-webkit-scrollbar-thumb, .tab-sidebar::-webkit-scrollbar-thumb {
-  background: var(--muted);
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border: 3px solid transparent;
+  background-clip: padding-box;
   border-radius: 999px;
-  opacity: 0.5;
 }
-.table-scroll::-webkit-scrollbar-thumb:hover, .tab-sidebar::-webkit-scrollbar-thumb:hover { background: var(--text); }
+*::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: padding-box; }
+*::-webkit-scrollbar-corner { background: transparent; }
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+}
+
+/* Tables scroll sideways when wide, and past a sensible height scroll inside their own panel
+   (header row stays put) instead of stretching the panel down the page as a season's worth of
+   rows piles up. Short tables never reach the cap, so they look exactly as before. */
+.table-scroll {
+  overflow: auto;
+  max-height: min(70vh, 640px);
+}
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-bg);
+}
 
 /* Scoring log defender picker */
 .stat-cell.expanded {
