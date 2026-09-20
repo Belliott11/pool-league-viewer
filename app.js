@@ -8293,6 +8293,9 @@ function computePlayerTips(playerId) {
     }
   }
 
+  // Shot type: the player's own tagged shot types against the league's on the same type.
+  candidates.push(...shotTypeTipCandidates(playerId));
+
   // Rebounding share, both boards combined.
   const avgTreb = leagueAvg(r => r.trebPct);
   if (avgTreb !== null && avgTreb - row.trebPct >= 8) {
@@ -9492,6 +9495,8 @@ function renderLeaderboard() {
   renderDefensiveShotZonePanel();
   renderShotTypePanel();
   renderDeepShotCheckPanel();
+  renderMoveCheckPanel();
+  renderShotTypeContestPanel();
   renderCalibrationPanel();
   renderLeagueDirectionSplits();
   renderLeagueTsByZoneChart();
@@ -11071,6 +11076,124 @@ function renderDeepShotCheckPanel() {
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+}
+
+// ---------- Shot type panels: open vs. contested, and "is the Move working?" ----------
+// Same tagged shots as the Shot Type Efficiency panel, cut two more ways. A percentage only shows
+// once a cell has SHOT_TYPE_MIN_ATTEMPTS attempts; below that the raw makes/attempts still show so
+// the volume is visible without pretending a 2-shot percentage means something.
+function shotTypeFgCell(m, a) {
+  if (a === 0) return "<td>—</td>";
+  if (a < SHOT_TYPE_MIN_ATTEMPTS) return `<td>${m}/${a}<br><span class="hint" style="margin:0">too few</span></td>`;
+  return `<td>${Math.round((m / a) * 100)}%<br><span class="hint" style="margin:0">${m}/${a}</span></td>`;
+}
+
+function computeShotTypeCuts() {
+  const contest = {};
+  SHOT_TYPES.forEach(t => { contest[t.key] = { open: { a: 0, m: 0 }, contested: { a: 0, m: 0 } }; });
+  state.games.filter(isQualifyingGame).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if ((ev.points !== 2 && ev.points !== 3) || !ev.shotType || !contest[ev.shotType]) return;
+      const c = contest[ev.shotType][(ev.defenderIds || []).length > 0 ? "contested" : "open"];
+      c.a++;
+      if (ev.made !== false) c.m++;
+    });
+  });
+  return { contest };
+}
+
+function renderShotTypeContestPanel() {
+  const wrap = document.getElementById("shotTypeContestPanel");
+  if (!wrap) return;
+  const { contest } = computeShotTypeCuts();
+  const total = SHOT_TYPES.reduce((s, t) => s + contest[t.key].open.a + contest[t.key].contested.a, 0);
+  if (total === 0) {
+    wrap.innerHTML = '<p class="empty-state">No tagged shots yet.</p>';
+    return;
+  }
+  const rows = SHOT_TYPES.map(t => {
+    const o = contest[t.key].open, c = contest[t.key].contested;
+    const gap = o.a >= SHOT_TYPE_MIN_ATTEMPTS && c.a >= SHOT_TYPE_MIN_ATTEMPTS
+      ? `${Math.round((o.m / o.a - c.m / c.a) * 100) > 0 ? "+" : ""}${Math.round((o.m / o.a - c.m / c.a) * 100)} pts`
+      : "—";
+    return `<tr><td>${escapeHtml(t.label)}</td>${shotTypeFgCell(o.m, o.a)}${shotTypeFgCell(c.m, c.a)}<td>${gap}</td></tr>`;
+  }).join("");
+  wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
+    <thead><tr><th>Shot type</th><th>Open</th><th>Contested</th><th>Open minus contested</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+// Is the Move actually producing better shots than the player's other tagged shots? Compares each
+// player's own True Shooting % on Move shots with their TS% on everything else they've had tagged,
+// and with their catch-and-shoot when that has enough shots too. Needs SHOT_TYPE_MIN_ATTEMPTS Move
+// shots AND that many other tagged shots, so a "gap" is never one lucky make against nothing.
+const MOVE_CHECK_EDGE_PTS = 10;
+function renderMoveCheckPanel() {
+  const wrap = document.getElementById("moveCheckPanel");
+  if (!wrap) return;
+  const { rows, league } = computeShotTypeStats();
+  const tsOf = b => (b.a > 0 ? (b.pts / (2 * b.a)) * 100 : null);
+  const combine = (r, excludeKey) => {
+    const acc = { a: 0, m: 0, pts: 0 };
+    SHOT_TYPES.forEach(t => { if (t.key !== excludeKey) { acc.a += r.types[t.key].a; acc.m += r.types[t.key].m; acc.pts += r.types[t.key].pts; } });
+    return acc;
+  };
+  const verdict = gap => (gap >= MOVE_CHECK_EDGE_PTS ? "Move is working" : gap <= -MOVE_CHECK_EDGE_PTS ? "Move is trailing" : "About the same");
+  const rowHtml = (name, r) => {
+    const mv = r.types.move, other = combine(r, "move"), cs = r.types.catchAndShoot;
+    if (mv.a < SHOT_TYPE_MIN_ATTEMPTS || other.a < SHOT_TYPE_MIN_ATTEMPTS) return null;
+    const gap = tsOf(mv) - tsOf(other);
+    return `<tr><td>${escapeHtml(name)}</td><td>${Math.round(tsOf(mv))}% TS<br><span class="hint" style="margin:0">${mv.m}/${mv.a}</span></td>
+      <td>${Math.round(tsOf(other))}% TS<br><span class="hint" style="margin:0">${other.m}/${other.a}</span></td>
+      <td>${cs.a >= SHOT_TYPE_MIN_ATTEMPTS ? Math.round(tsOf(cs)) + "% TS" : "—"}</td>
+      <td>${gap > 0 ? "+" : ""}${Math.round(gap)}</td><td>${verdict(gap)}</td></tr>`;
+  };
+  const body = [rowHtml("League", league), ...rows.map(r => rowHtml(r.player.name, r))].filter(Boolean);
+  if (body.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">Nobody has enough tagged Move shots yet. It needs 5 Move shots and 5 other tagged shots from the same player.</p>';
+    return;
+  }
+  wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
+    <thead><tr><th>Player</th><th>Move</th><th>All other tagged shots</th><th>Catch-and-shoot</th><th>Move minus other (pts of TS%)</th><th>Read</th></tr></thead>
+    <tbody>${body.join("")}</tbody></table></div>`;
+}
+
+// Watch-film links for a player's tagged shots of one type (most recent games first).
+function gamesForShotType(playerId, typeKey, made) {
+  const games = state.games.filter(isQualifyingGame).map(g => {
+    const hits = g.scoringEvents.filter(ev => ev.scorerId === playerId && ev.shotType === typeKey && (ev.made !== false) === made);
+    return hits.length ? { id: g.id, date: g.date, videoTime: hits[hits.length - 1].videoTime } : null;
+  }).filter(Boolean);
+  return games.sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
+}
+
+// Coaching tips from a player's own tagged shot types, against the league's TS% on the same type.
+function shotTypeTipCandidates(playerId) {
+  const out = [];
+  const { rows, league } = computeShotTypeStats();
+  const mine = rows.find(r => r.player.id === playerId);
+  if (!mine) return out;
+  const ts = b => (b.pts / (2 * b.a)) * 100;
+  SHOT_TYPES.forEach(t => {
+    const b = mine.types[t.key], l = league.types[t.key];
+    if (b.a < SHOT_TYPE_MIN_ATTEMPTS || l.a < SHOT_TYPE_MIN_ATTEMPTS * 3) return;
+    const gap = ts(b) - ts(l);
+    if (gap >= 15) {
+      out.push({ diff: gap, icon: "🔥", text: `Shot type: your ${t.label.toLowerCase()} shots are going ${formatPct(Math.round(ts(b)))} TS (${b.a} attempts), well above the league's ${formatPct(Math.round(ts(l)))} on that kind of shot. Worth creating more of them.`, games: gamesForShotType(playerId, t.key, true) });
+    } else if (gap <= -15) {
+      out.push({ diff: -gap, icon: "❄️", text: `Shot type: your ${t.label.toLowerCase()} shots are only ${formatPct(Math.round(ts(b)))} TS (${b.a} attempts), well under the league's ${formatPct(Math.round(ts(l)))} on that kind of shot. Worth practicing, or taking fewer of them until it improves.`, games: gamesForShotType(playerId, t.key, false) });
+    }
+  });
+  const heave = mine.types.deepHeave;
+  const otherA = mine.tagged - heave.a;
+  if (mine.tagged >= 12 && heave.a / mine.tagged >= 0.35 && heave.a >= SHOT_TYPE_MIN_ATTEMPTS && otherA >= SHOT_TYPE_MIN_ATTEMPTS) {
+    const otherPts = SHOT_TYPES.reduce((s, t) => s + (t.key === "deepHeave" ? 0 : mine.types[t.key].pts), 0);
+    const otherTs = (otherPts / (2 * otherA)) * 100;
+    if (otherTs - ts(heave) >= 8) {
+      out.push({ diff: (otherTs - ts(heave)) / 2, icon: "🎯", text: `Shot selection: ${formatPct(Math.round((heave.a / mine.tagged) * 100))} of your tagged shots are deep heaves off a check or rebound, at ${formatPct(Math.round(ts(heave)))} TS against ${formatPct(Math.round(otherTs))} on everything else. Letting the possession develop before shooting could raise the efficiency.`, games: gamesForShotType(playerId, "deepHeave", false) });
+    }
+  }
+  return out;
 }
 
 function renderPlayerShotTypes(playerId) {

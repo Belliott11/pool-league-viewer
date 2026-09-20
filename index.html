@@ -613,6 +613,18 @@
     </details>
 
     <details class="panel">
+      <summary><h2>Is the Move Working?</h2></summary>
+      <p class="hint">Is the Move actually producing better shots? For each player with at least 5 Move shots and 5 other tagged shots, this compares their True Shooting % on Move shots with their own % on everything else they have tagged, and with their catch-and-shoot when there are enough of those. A gap of 10 points or more is read as the Move working or trailing; smaller gaps are called about the same. Samples are small, so treat it as a first look, not a verdict.</p>
+      <div id="moveCheckPanel"></div>
+    </details>
+
+    <details class="panel">
+      <summary><h2>Shot Types: Open vs. Contested</h2></summary>
+      <p class="hint">How each shot type does with a defender tagged on the shot versus none. A percentage only shows once a cell has 5 shots, and the gap only when both sides do. Shot types where the gap is small hold up under pressure; big gaps show shots that mostly work when nobody is there.</p>
+      <div id="shotTypeContestPanel"></div>
+    </details>
+
+    <details class="panel">
       <summary><h2>Calibrated Thresholds</h2></summary>
       <p class="hint">These cutoffs are set from the logged games and rechecked as more data comes in. Each section shows the current value, every check so far, and what it did: <strong>Kept</strong> when the data shows no clear signal yet, <strong>Stayed</strong> when the check confirmed the same value, <strong>Moved</strong> when the data pointed somewhere else. Distances are in shot chart units from the hoop. The close-game margin uses balanced games only.</p>
       <div id="calibrationPanel"></div>
