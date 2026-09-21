@@ -9739,6 +9739,7 @@ function renderPlayerDetail() {
   renderTwoWayTrendChart(player.id);
   renderPlayerStatTrend(player.id);
   renderPlayerShotTypes(player.id);
+  renderPlayerShotArc(player.id);
   renderPlayerGameLog(player.id);
   renderPlayerShotChart(player.id);
   renderPlayerHeatmap(player.id);
@@ -11293,6 +11294,89 @@ function renderPlayerShotTypes(playerId) {
         <thead><tr><th>Shot type</th><th>Attempts</th><th>Share</th><th>FG</th><th>TS%</th></tr></thead>
         <tbody>${body}</tbody>
       </table>
+    </div>`;
+}
+
+// ---------- Shot Arc (player page) ----------
+// Describes the shape of a player's shots from the ones the film tracker followed start to finish
+// (shot-arcs-data.js, built by shot-arc/build_arc_profile_data.py). Rows are matched to logged shots by
+// game and video time. It only describes: an arc does not predict makes or misses in this data.
+const SHOT_ARC_MIN = 8;
+
+function shotArcRowsByShooter() {
+  const rows = typeof SHOT_ARC_DATA !== "undefined" ? SHOT_ARC_DATA : [];
+  const lookup = new Map(rows.map(r => [r[0] + "@" + r[1].toFixed(3), r]));
+  const out = {};
+  state.games.forEach(game => game.scoringEvents.forEach(ev => {
+    if (ev.videoTime === null || ev.videoTime === undefined) return;
+    const row = lookup.get(game.id + "@" + ev.videoTime.toFixed(3));
+    if (row) (out[ev.scorerId] = out[ev.scorerId] || []).push(row);
+  }));
+  return out;
+}
+
+function shotArcMedian(values, q) {
+  const v = values.slice().sort((a, b) => a - b);
+  if (v.length === 0) return null;
+  const pos = (v.length - 1) * (q === undefined ? 0.5 : q);
+  const lo = Math.floor(pos), hi = Math.ceil(pos);
+  return v[lo] + (v[hi] - v[lo]) * (pos - lo);
+}
+
+// One arc as an SVG path: leaves the shooter's hand at the left, peaks `peak` of the way through the
+// flight, and its height is `height` (0 to 1 of the drawing).
+function shotArcPath(peak, height, w, h, pad) {
+  const p = Math.min(0.95, Math.max(0.1, peak));
+  const a = height / (p * p);
+  const pts = [];
+  for (let i = 0; i <= 40; i++) {
+    const t = i / 40;
+    const y = height - a * (t - p) * (t - p);
+    pts.push(`${(pad + t * (w - 2 * pad)).toFixed(1)},${(h - pad - Math.max(0, y) * (h - 2 * pad)).toFixed(1)}`);
+  }
+  return "M" + pts.join(" L");
+}
+
+function renderPlayerShotArc(playerId) {
+  const wrap = document.getElementById("playerShotArc");
+  if (!wrap) return;
+  const byShooter = shotArcRowsByShooter();
+  const mine = byShooter[playerId] || [];
+  const all = Object.values(byShooter).flat();
+  if (all.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">No shots have been traced from film yet.</p>';
+    return;
+  }
+  if (mine.length < SHOT_ARC_MIN) {
+    wrap.innerHTML = `<p class="empty-state">${mine.length} of this player's shots ${mine.length === 1 ? "has" : "have"} been traced from film. It needs at least ${SHOT_ARC_MIN} to describe a typical arc.</p>`;
+    return;
+  }
+  const air = mine.map(r => r[2]), peak = mine.map(r => r[3]), arch = mine.map(r => r[4]);
+  const leagueAir = shotArcMedian(all.map(r => r[2])), leaguePeak = shotArcMedian(all.map(r => r[3]));
+  const myAir = shotArcMedian(air), myPeak = shotArcMedian(peak), myArch = shotArcMedian(arch);
+  const archWord = myArch >= 1.12 ? `${Math.round((myArch - 1) * 100)}% higher than a typical arc`
+    : myArch <= 0.88 ? `${Math.round((1 - myArch) * 100)}% flatter than a typical arc` : "about a typical arc height";
+  const peakWord = myPeak - leaguePeak >= 0.08 ? "later in the flight than most"
+    : myPeak - leaguePeak <= -0.08 ? "earlier in the flight than most" : "about the same point as most";
+  const lo = shotArcMedian(air, 0.25), hi = shotArcMedian(air, 0.75);
+  const W = 220, H = 96, PAD = 8, leagueHeight = 0.62;
+  const heightFor = rel => Math.min(0.95, leagueHeight * rel);
+  wrap.innerHTML = `
+    <p class="hint" style="margin:0 0 8px">Based on ${mine.length} shots followed on film from release to the hoop.</p>
+    <div class="shot-arc-body">
+      <svg class="shot-arc-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="This player's typical arc compared with the league's">
+        <path d="${shotArcPath(leaguePeak, heightFor(1), W, H, PAD)}" class="shot-arc-league" />
+        <path d="${shotArcPath(myPeak, heightFor(myArch), W, H, PAD)}" class="shot-arc-mine" />
+      </svg>
+      <ul class="shot-arc-facts">
+        <li><strong>${myAir.toFixed(2)} s</strong> in the air (league ${leagueAir.toFixed(2)} s). Most shots fall between ${lo.toFixed(2)} and ${hi.toFixed(2)} s.</li>
+        <li>Arc height: <strong>${archWord}</strong>.</li>
+        <li>Highest point: ${peakWord}.</li>
+      </ul>
+    </div>
+    <div class="shot-chart-legend" style="margin-top:6px">
+      <span class="legend-item"><span class="legend-dot shot-arc-key-mine"></span>This player</span>
+      <span class="legend-item"><span class="legend-dot shot-arc-key-league"></span>League</span>
     </div>`;
 }
 

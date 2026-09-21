@@ -911,6 +911,12 @@
     </div>
 
     <div class="panel">
+      <h2>Shot Arc</h2>
+      <p class="hint">The shape of this player's shots, from the ones followed on film from release to the hoop. It describes how the player shoots and does not predict whether a shot goes in. Needs 8 followed shots before it shows.</p>
+      <div id="playerShotArc"></div>
+    </div>
+
+    <div class="panel">
       <h2>Game Log</h2>
       <p class="hint">Every game this player was in, most recent first.</p>
       <div class="table-scroll">
@@ -1154,6 +1160,7 @@
 
 <!-- viewer-seed-data.js already loaded at the top of <body>, ahead of the PIN gate's own name
      picker; no need to load it a second time here. -->
+<script src="shot-arcs-data.js"></script>
 <script src="app.js"></script>
 <script src="viewer-clips.js"></script>
 <script src="viewer-videos.js"></script>

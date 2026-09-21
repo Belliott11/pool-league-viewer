@@ -2082,3 +2082,13 @@ button:disabled {
 .shot-seg-type-drive, .legend-swatch.shot-seg-type-drive { background: var(--success); }
 .shot-seg-type-move, .legend-swatch.shot-seg-type-move { background: var(--warning); }
 .shot-seg-type-dunk, .legend-swatch.shot-seg-type-dunk { background: var(--muted); }
+
+/* Shot Arc panel on the player page */
+.shot-arc-body { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: center; }
+.shot-arc-svg { width: min(100%, 260px); height: auto; flex: none; }
+.shot-arc-mine { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; }
+.shot-arc-league { fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-dasharray: 4 3; stroke-linecap: round; }
+.shot-arc-facts { margin: 0; padding-left: 18px; flex: 1 1 220px; }
+.shot-arc-facts li { margin: 3px 0; }
+.shot-arc-key-mine { background: var(--accent); }
+.shot-arc-key-league { background: var(--muted); }
