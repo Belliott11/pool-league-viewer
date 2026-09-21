@@ -2081,3 +2081,4 @@ button:disabled {
 .shot-seg-type-heave, .legend-swatch.shot-seg-type-heave { background: var(--danger); }
 .shot-seg-type-drive, .legend-swatch.shot-seg-type-drive { background: var(--success); }
 .shot-seg-type-move, .legend-swatch.shot-seg-type-move { background: var(--warning); }
+.shot-seg-type-dunk, .legend-swatch.shot-seg-type-dunk { background: var(--muted); }

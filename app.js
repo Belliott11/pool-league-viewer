@@ -2616,13 +2616,14 @@ function renderPlayerShotChart(playerId) {
   const makes = shots.filter(ev => ev.made !== false).length;
   const misses = shots.length - makes;
   const typeCounts = {};
-  shots.forEach(ev => { const k = ev.shotType || "untagged"; typeCounts[k] = (typeCounts[k] || 0) + 1; });
+  shots.forEach(ev => { const k = effShotType(ev) || "untagged"; typeCounts[k] = (typeCounts[k] || 0) + 1; });
   const dotsSvg = shots.map(ev => {
     const cx = shotChartVbX(ev.shotLocation.x);
     const cy = shotChartVbY(ev.shotLocation.y);
-    const cls = (ev.made !== false ? "shot-dot-make" : "shot-dot-miss") + (ev.shotType ? "" : " shot-dot-untagged");
-    const label = `${ev.made !== false ? "Make" : "Miss"}, ${ev.points}pt${ev.shotType ? ", " + shotTypeLabel(ev.shotType) : ", no shot type yet"}`;
-    return shotTypeShape(ev.shotType, cx, cy, cls, label);
+    const type = effShotType(ev);
+    const cls = (ev.made !== false ? "shot-dot-make" : "shot-dot-miss") + (type ? "" : " shot-dot-untagged");
+    const label = `${ev.made !== false ? "Make" : "Miss"}, ${ev.points}pt${type ? ", " + shotTypeLabel(type) : ", no shot type yet"}`;
+    return shotTypeShape(type, cx, cy, cls, label);
   }).join("");
   // The legend keys the shapes (only the types this player has), next to the make/miss colors.
   const shapeLegend = Object.keys(typeCounts).some(k => k !== "untagged") ? SHOT_TYPES.filter(t => typeCounts[t.key]).map(t =>
@@ -2649,11 +2650,19 @@ function renderPlayerShotChart(playerId) {
 }
 
 // One marker per shot, its shape set by the shot type: circle for catch-and-shoot, square for a
-// drive, triangle for a deep heave, diamond for a Move. Color stays make (green) / miss (red).
+// drive, triangle for a deep heave, diamond for a Move, star for a dunk. Color stays make (green) / miss (red).
 // Untagged shots are a faint circle so a partly tagged player still reads at a glance.
 function shotTypeShape(type, cx, cy, cls, label) {
   const title = label ? `<title>${escapeHtml(label)}</title>` : "";
   const c = `class="${cls}"`;
+  if (type === "dunk") {
+    const pts = [];
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 === 0 ? 3.4 : 1.5, a = -Math.PI / 2 + (i * Math.PI) / 5;
+      pts.push(`${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`);
+    }
+    return `<polygon points="${pts.join(" ")}" ${c}>${title}</polygon>`;
+  }
   if (type === "drive") return `<rect x="${cx - 2}" y="${cy - 2}" width="4" height="4" ${c}>${title}</rect>`;
   if (type === "deepHeave") return `<polygon points="${cx},${cy - 2.9} ${cx - 2.6},${cy + 2} ${cx + 2.6},${cy + 2}" ${c}>${title}</polygon>`;
   if (type === "move") return `<polygon points="${cx},${cy - 3} ${cx + 3},${cy} ${cx},${cy + 3} ${cx - 3},${cy}" ${c}>${title}</polygon>`;
@@ -3268,7 +3277,7 @@ function renderShotEditRow(game, ev) {
   tr.innerHTML = `
     <td colspan="8" class="stat-cell expanded" style="text-align:left">
       <div class="stat-label">Editing ${scorer ? escapeHtml(scorer.name) : "?"}'s ${made ? "make" : "miss"} (defender/assist/block/rebound only)</div>
-      ${ev.points === 2 || ev.points === 3 ? `
+      ${(ev.points === 2 || ev.points === 3) && ev.dunk !== true ? `
         <div class="stat-label" style="margin-top:6px">Shot type</div>
         <div class="defender-pick-list">${shotTypeButtonsHtml(editShotType, "edit-shot-type")}</div>
       ` : ""}
@@ -3459,7 +3468,7 @@ function renderScoringLog(game) {
         resultBadge += ` <span class="badge" title="Rebound Battles: reviewed, nobody was actually contesting this rebound">No contest</span>`;
       }
     }
-    if (ev.shotType) resultBadge += ` <span class="badge" title="Shot type">${escapeHtml(shotTypeLabel(ev.shotType))}</span>`;
+    if (effShotType(ev)) resultBadge += ` <span class="badge" title="Shot type">${escapeHtml(shotTypeLabel(effShotType(ev)))}</span>`;
     if (ev.shotLocation) {
       const zone = ev.shotLocation.y >= 60 ? "3PT range" : "2PT range";
       resultBadge += ` <span class="badge">📍 ${zone}</span>`;
@@ -3886,8 +3895,8 @@ function renderBoxScore(game) {
             <div class="stat-label" style="margin-top:6px">
               <button type="button" class="secondary-btn${pendingDunk ? " selected" : ""}" data-toggle-dunk="1">🏀 ${pendingDunk ? "Dunk" : "Not a dunk"}</button>
             </div>
-            <div class="stat-label" style="margin-top:6px">Shot type? ${pendingShotType ? escapeHtml(shotTypeLabel(pendingShotType)) : "(not set)"}</div>
-            <div class="defender-pick-list">${shotTypeButtonsHtml(pendingShotType, "shot-type")}</div>
+            ${pendingDunk ? "" : `<div class="stat-label" style="margin-top:6px">Shot type? ${pendingShotType ? escapeHtml(shotTypeLabel(pendingShotType)) : "(not set)"}</div>
+            <div class="defender-pick-list">${shotTypeButtonsHtml(pendingShotType, "shot-type")}</div>`}
           `}
           ${pendingScore.isMiss ? `
             <div class="stat-label" style="margin-top:6px">Blocked by? ${blocker ? escapeHtml(blocker.name) : "No block"}</div>
@@ -10987,8 +10996,17 @@ const SHOT_TYPES = [
   { key: "catchAndShoot", label: "Catch-and-shoot", cssClass: "shot-seg-type-cs", about: "Received the ball and shot without a dribble move or drive first." },
   { key: "deepHeave", label: "Deep heave", cssClass: "shot-seg-type-heave", about: "A long attempt taken right off a checked-in ball or a rebound, before the defense sets up." },
   { key: "drive", label: "Drive", cssClass: "shot-seg-type-drive", about: "Put the ball on the floor and attacked toward the basket before shooting, whether or not it ended at the rim." },
-  { key: "move", label: "Move", cssClass: "shot-seg-type-move", about: "A shot after a specific move without a full drive: a spin, a hesitation, a pump fake, and so on." }
+  { key: "move", label: "Move", cssClass: "shot-seg-type-move", about: "A shot after a specific move without a full drive: a spin, a hesitation, a pump fake, and so on." },
+  // Not tagged by hand: any shot marked as a dunk lands here automatically (see effShotType).
+  { key: "dunk", label: "Dunk", cssClass: "shot-seg-type-dunk", about: "Any shot marked as a dunk. Set automatically, not tagged.", auto: true }
 ];
+const TAGGABLE_SHOT_TYPES = SHOT_TYPES.filter(t => !t.auto);
+
+// The type a shot counts under: a dunk is its own category whatever was tagged, otherwise the
+// tagged type (null = not tagged yet). A type already tagged on a dunk stays saved but is ignored.
+function effShotType(ev) {
+  return ev.dunk === true ? "dunk" : (ev.shotType || null);
+}
 const SHOT_TYPE_MIN_ATTEMPTS = 5;      // tagged attempts of one type before its efficiency shows
 const SHOT_TYPE_DEEP_CHECK_MIN = 10;   // tagged deep attempts before the league deep-shot split shows
 
@@ -10999,7 +11017,7 @@ function shotTypeLabel(key) {
 
 // One row of buttons per picker; `attr` is the data attribute the caller wires its click handler to.
 function shotTypeButtonsHtml(current, attr) {
-  return SHOT_TYPES.map(t => `<button type="button" class="secondary-btn${current === t.key ? " selected" : ""}" data-${attr}="${t.key}" title="${escapeHtml(t.about)}">${escapeHtml(t.label)}</button>`).join("");
+  return TAGGABLE_SHOT_TYPES.map(t => `<button type="button" class="secondary-btn${current === t.key ? " selected" : ""}" data-${attr}="${t.key}" title="${escapeHtml(t.about)}">${escapeHtml(t.label)}</button>`).join("");
 }
 
 function computeShotTypeStats() {
@@ -11012,7 +11030,7 @@ function computeShotTypeStats() {
       const p = byPlayer[ev.scorerId] = byPlayer[ev.scorerId] || blank();
       [p, league].forEach(t => {
         t.fga++;
-        const b = ev.shotType ? t.types[ev.shotType] : null;
+        const b = effShotType(ev) ? t.types[effShotType(ev)] : null;
         if (!b) return;
         t.tagged++;
         b.a++;
@@ -11071,7 +11089,7 @@ function renderDeepShotCheckPanel() {
     game.scoringEvents.forEach(ev => {
       if (ev.points !== 3 || !ev.shotLocation || shotBand(ev.shotLocation, 3) !== "deep") return;
       deepTotal++;
-      const b = ev.shotType ? counts[ev.shotType] : null;
+      const b = effShotType(ev) ? counts[effShotType(ev)] : null;
       if (!b) return;
       tagged++;
       b.a++;
@@ -11085,7 +11103,7 @@ function renderDeepShotCheckPanel() {
   const heave = counts.deepHeave;
   const otherA = tagged - heave.a, otherM = SHOT_TYPES.reduce((s, t) => s + (t.key === "deepHeave" ? 0 : counts[t.key].m), 0);
   const p = (m, a) => a > 0 ? `${m}/${a} (${Math.round((m / a) * 100)}%)` : "no shots";
-  const rows = SHOT_TYPES.map(t => {
+  const rows = TAGGABLE_SHOT_TYPES.map(t => {
     const b = counts[t.key];
     return `<tr><td>${escapeHtml(t.label)}</td><td>${b.a}</td><td>${Math.round((b.a / tagged) * 100)}%</td><td>${b.a > 0 ? Math.round((b.m / b.a) * 100) + "%" : "—"}</td></tr>`;
   }).join("");
@@ -11118,12 +11136,13 @@ function computeShotTypeCuts() {
   ["close", "mid", "arc", "deep"].forEach(z => { byZone[z] = { open: { a: 0, m: 0 }, contested: { a: 0, m: 0 } }; });
   state.games.filter(isQualifyingGame).forEach(game => {
     game.scoringEvents.forEach(ev => {
-      if ((ev.points !== 2 && ev.points !== 3) || !ev.shotType || !contest[ev.shotType]) return;
+      const type = effShotType(ev);
+      if ((ev.points !== 2 && ev.points !== 3) || !type || !contest[type]) return;
       const side = (ev.defenderIds || []).length > 0 ? "contested" : "open";
-      const c = contest[ev.shotType][side];
+      const c = contest[type][side];
       c.a++;
       if (ev.made !== false) c.m++;
-      if (ev.shotType === "catchAndShoot" && ev.shotLocation) {
+      if (type === "catchAndShoot" && ev.shotLocation) {
         const z = byZone[shotBand(ev.shotLocation, ev.points)];
         if (z) { z[side].a++; if (ev.made !== false) z[side].m++; }
       }
@@ -11139,7 +11158,7 @@ function appendShotTypeExclusionNote(panelIds) {
   let left = 0;
   state.games.forEach(game => {
     if (isQualifyingGame(game)) return;
-    game.scoringEvents.forEach(ev => { if ((ev.points === 2 || ev.points === 3) && ev.shotType) left++; });
+    game.scoringEvents.forEach(ev => { if ((ev.points === 2 || ev.points === 3) && effShotType(ev)) left++; });
   });
   if (left === 0) return;
   panelIds.forEach(id => {
@@ -11191,7 +11210,7 @@ function renderMoveCheckPanel() {
   const tsOf = b => (b.a > 0 ? (b.pts / (2 * b.a)) * 100 : null);
   const combine = (r, excludeKey) => {
     const acc = { a: 0, m: 0, pts: 0 };
-    SHOT_TYPES.forEach(t => { if (t.key !== excludeKey) { acc.a += r.types[t.key].a; acc.m += r.types[t.key].m; acc.pts += r.types[t.key].pts; } });
+    TAGGABLE_SHOT_TYPES.forEach(t => { if (t.key !== excludeKey) { acc.a += r.types[t.key].a; acc.m += r.types[t.key].m; acc.pts += r.types[t.key].pts; } });
     return acc;
   };
   const verdict = gap => (gap >= MOVE_CHECK_EDGE_PTS ? "Move is working" : gap <= -MOVE_CHECK_EDGE_PTS ? "Move is trailing" : "About the same");
@@ -11210,14 +11229,14 @@ function renderMoveCheckPanel() {
     return;
   }
   wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
-    <thead><tr><th>Player</th><th>Move</th><th>All other tagged shots</th><th>Catch-and-shoot</th><th>Move minus other (pts of TS%)</th><th>Read</th></tr></thead>
+    <thead><tr><th>Player</th><th>Move</th><th>All other tagged shots (no dunks)</th><th>Catch-and-shoot</th><th>Move minus other (pts of TS%)</th><th>Read</th></tr></thead>
     <tbody>${body.join("")}</tbody></table></div>`;
 }
 
 // Watch-film links for a player's tagged shots of one type (most recent games first).
 function gamesForShotType(playerId, typeKey, made) {
   const games = state.games.filter(isQualifyingGame).map(g => {
-    const hits = g.scoringEvents.filter(ev => ev.scorerId === playerId && ev.shotType === typeKey && (ev.made !== false) === made);
+    const hits = g.scoringEvents.filter(ev => ev.scorerId === playerId && effShotType(ev) === typeKey && (ev.made !== false) === made);
     return hits.length ? { id: g.id, date: g.date, videoTime: hits[hits.length - 1].videoTime } : null;
   }).filter(Boolean);
   return games.sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 3);
@@ -11230,7 +11249,7 @@ function shotTypeTipCandidates(playerId) {
   const mine = rows.find(r => r.player.id === playerId);
   if (!mine) return out;
   const ts = b => (b.pts / (2 * b.a)) * 100;
-  SHOT_TYPES.forEach(t => {
+  TAGGABLE_SHOT_TYPES.forEach(t => {
     const b = mine.types[t.key], l = league.types[t.key];
     if (b.a < SHOT_TYPE_MIN_ATTEMPTS || l.a < SHOT_TYPE_MIN_ATTEMPTS * 3) return;
     const gap = ts(b) - ts(l);
@@ -11241,12 +11260,13 @@ function shotTypeTipCandidates(playerId) {
     }
   });
   const heave = mine.types.deepHeave;
-  const otherA = mine.tagged - heave.a;
-  if (mine.tagged >= 12 && heave.a / mine.tagged >= 0.35 && heave.a >= SHOT_TYPE_MIN_ATTEMPTS && otherA >= SHOT_TYPE_MIN_ATTEMPTS) {
-    const otherPts = SHOT_TYPES.reduce((s, t) => s + (t.key === "deepHeave" ? 0 : mine.types[t.key].pts), 0);
+  const noDunkTagged = mine.tagged - mine.types.dunk.a;
+  const otherA = noDunkTagged - heave.a;
+  if (noDunkTagged >= 12 && heave.a / noDunkTagged >= 0.35 && heave.a >= SHOT_TYPE_MIN_ATTEMPTS && otherA >= SHOT_TYPE_MIN_ATTEMPTS) {
+    const otherPts = TAGGABLE_SHOT_TYPES.reduce((s, t) => s + (t.key === "deepHeave" ? 0 : mine.types[t.key].pts), 0);
     const otherTs = (otherPts / (2 * otherA)) * 100;
     if (otherTs - ts(heave) >= 8) {
-      out.push({ diff: (otherTs - ts(heave)) / 2, icon: "🎯", text: `Shot selection: ${formatPct(Math.round((heave.a / mine.tagged) * 100))} of your tagged shots are deep heaves off a check or rebound, at ${formatPct(Math.round(ts(heave)))} TS against ${formatPct(Math.round(otherTs))} on everything else. Letting the possession develop before shooting could raise the efficiency.`, games: gamesForShotType(playerId, "deepHeave", false) });
+      out.push({ diff: (otherTs - ts(heave)) / 2, icon: "🎯", text: `Shot selection: ${formatPct(Math.round((heave.a / noDunkTagged) * 100))} of your tagged shots (not counting dunks) are deep heaves off a check or rebound, at ${formatPct(Math.round(ts(heave)))} TS against ${formatPct(Math.round(otherTs))} on everything else. Letting the possession develop before shooting could raise the efficiency.`, games: gamesForShotType(playerId, "deepHeave", false) });
     }
   }
   return out;
@@ -11298,9 +11318,10 @@ const SHOT_TYPE_REVIEW_MODES = {
 
 function shotTypeReviewMatches(ev) {
   if (ev.points !== 2 && ev.points !== 3) return false;
-  if (shotTypeReviewMode === "untagged") return !ev.shotType;
-  if (shotTypeReviewMode === "guardedCatch") return ev.shotType === "catchAndShoot" && (ev.defenderIds || []).length > 0;
-  if (shotTypeReviewMode === "farDrives") return ev.shotType === "drive" && ev.shotLocation && shotDistanceFromHoop(ev.shotLocation) >= DRIVE_FAR_UNITS;
+  const type = effShotType(ev);
+  if (shotTypeReviewMode === "untagged") return !type;
+  if (shotTypeReviewMode === "guardedCatch") return type === "catchAndShoot" && (ev.defenderIds || []).length > 0;
+  if (shotTypeReviewMode === "farDrives") return type === "drive" && ev.shotLocation && shotDistanceFromHoop(ev.shotLocation) >= DRIVE_FAR_UNITS;
   return false;
 }
 
