@@ -586,7 +586,7 @@ function showTab(tab) {
   document.getElementById("tab-" + tab).classList.add("active");
   const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
   if (btn) btn.classList.add("active");
-  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); }
+  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderSameMomentReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); }
   if (tab === "leaderboard") renderLeaderboard();
   // Refreshes the attendee picker against the current roster — cheap, and a player added while
   // on a different tab shouldn't require a page reload to show up here.
@@ -11409,6 +11409,84 @@ function renderShotTypeReview() {
   });
   const moreBtn = wrap.querySelector("[data-shot-type-more]");
   if (moreBtn) moreBtn.addEventListener("click", () => { shotTypeReviewLimit += SHOT_TYPE_REVIEW_PAGE; renderShotTypeReview(); });
+}
+
+// ---------- Shots logged at the same moment ----------
+// Two shots with exactly the same video time usually mean a miss and its putback were logged
+// back to back while the video was paused, so the putback inherited the miss's time. That breaks
+// anything keyed to the moment of the shot (film links, shot-arc matching). This lists each such
+// pair with a link to the film and a box to give one of the two its real time. The later shot of
+// the pair (or the one who rebounded the other's miss) is offered first, since that is the putback.
+const sameMomentDismissed = new Set();
+
+function parseVideoTimeInput(text) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  const m = t.match(/^(?:(\d+):)?(\d+(?:\.\d+)?)$/);
+  if (!m) return null;
+  const secs = (m[1] ? parseInt(m[1], 10) * 60 : 0) + parseFloat(m[2]);
+  return Number.isFinite(secs) ? secs : null;
+}
+
+function computeSameMomentGroups() {
+  const groups = [];
+  state.games.forEach(game => {
+    const byTime = new Map();
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (ev.videoTime === null || ev.videoTime === undefined) return;
+      const k = ev.videoTime.toFixed(3);
+      if (!byTime.has(k)) byTime.set(k, []);
+      byTime.get(k).push(ev);
+    });
+    byTime.forEach((evs, k) => {
+      if (evs.length < 2) return;
+      const id = game.id + "@" + k;
+      if (sameMomentDismissed.has(id)) return;
+      groups.push({ id, game, time: evs[0].videoTime, evs });
+    });
+  });
+  return groups.sort((a, b) => (a.game.date || "").localeCompare(b.game.date || "") || a.time - b.time);
+}
+
+function renderSameMomentReview() {
+  const wrap = document.getElementById("sameMomentReview");
+  if (!wrap) return;
+  const groups = computeSameMomentGroups();
+  if (groups.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">No two shots share a video time.</p>';
+    return;
+  }
+  const nameOf = id => (state.players.find(p => p.id === id) || {}).name || "?";
+  wrap.innerHTML = `<p class="hint shot-type-review-summary" style="margin-top:0">${groups.length} moment${groups.length === 1 ? "" : "s"} with more than one shot.</p>
+  <ul class="player-tips-list">${groups.map(g => {
+    const later = g.evs.find(e => g.evs.some(o => o !== e && o.rebounderId === e.scorerId)) || g.evs[g.evs.length - 1];
+    const line = g.evs.map(e => `${escapeHtml(nameOf(e.scorerId))} ${e.made !== false ? "made" : "missed"} a ${e.points}pt`).join(", then ");
+    return `<li data-group="${g.id}">
+      <span>${escapeHtml(formatDateDisplay(g.game.date))} at ${escapeHtml(formatVideoTime(g.time))}: ${line}</span>
+      ${watchFilmLinksHtml([{ id: g.game.id, date: g.game.date, videoTime: Math.max(0, g.time - 3) }])}
+      <div class="button-row" style="margin-top:4px;gap:8px;align-items:center">
+        <label>New time for ${escapeHtml(nameOf(later.scorerId))}'s shot <input type="text" data-new-time size="7" placeholder="m:ss"></label>
+        <button type="button" class="secondary-btn" data-save-time="${later.id}">Set time</button>
+        <button type="button" class="icon-btn" data-same-ok="1">Same moment is right</button>
+      </div>
+    </li>`;
+  }).join("")}</ul>`;
+  wireWatchFilmButtons(wrap);
+  wrap.querySelectorAll("li").forEach(li => {
+    const gid = li.dataset.group;
+    li.querySelector("[data-same-ok]").addEventListener("click", () => { sameMomentDismissed.add(gid); renderSameMomentReview(); });
+    const btn = li.querySelector("[data-save-time]");
+    btn.addEventListener("click", () => {
+      const secs = parseVideoTimeInput(li.querySelector("[data-new-time]").value);
+      if (secs === null) { alert("Enter the time as m:ss (for example 17:24) or as seconds."); return; }
+      const ev = state.games.flatMap(x => x.scoringEvents).find(e => e.id === btn.dataset.saveTime);
+      if (!ev) return;
+      ev.videoTime = secs;
+      saveState();
+      renderSameMomentReview();
+    });
+  });
 }
 
 // ---------- Rebound Battles backfill (see poolean-rebound-battles-spec.md) ----------
