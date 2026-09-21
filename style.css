@@ -1451,8 +1451,12 @@ button:disabled {
   stroke: var(--panel-bg);
   stroke-width: 0.4;
 }
+.shot-dot-untagged { fill-opacity: 0.32; }
+.legend-shape-fill { fill: var(--muted); }
+.legend-shape { display: inline-block; flex: none; }
 .shot-chart-legend {
   display: flex;
+  flex-wrap: wrap;
   gap: 14px;
   justify-content: center;
   margin-top: 8px;

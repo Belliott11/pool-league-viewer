@@ -2615,12 +2615,19 @@ function renderPlayerShotChart(playerId) {
   }
   const makes = shots.filter(ev => ev.made !== false).length;
   const misses = shots.length - makes;
+  const typeCounts = {};
+  shots.forEach(ev => { const k = ev.shotType || "untagged"; typeCounts[k] = (typeCounts[k] || 0) + 1; });
   const dotsSvg = shots.map(ev => {
     const cx = shotChartVbX(ev.shotLocation.x);
     const cy = shotChartVbY(ev.shotLocation.y);
-    const cls = ev.made !== false ? "shot-dot-make" : "shot-dot-miss";
-    return `<circle cx="${cx}" cy="${cy}" r="2.2" class="${cls}" />`;
+    const cls = (ev.made !== false ? "shot-dot-make" : "shot-dot-miss") + (ev.shotType ? "" : " shot-dot-untagged");
+    const label = `${ev.made !== false ? "Make" : "Miss"}, ${ev.points}pt${ev.shotType ? ", " + shotTypeLabel(ev.shotType) : ", no shot type yet"}`;
+    return shotTypeShape(ev.shotType, cx, cy, cls, label);
   }).join("");
+  // The legend keys the shapes (only the types this player has), next to the make/miss colors.
+  const shapeLegend = Object.keys(typeCounts).some(k => k !== "untagged") ? SHOT_TYPES.filter(t => typeCounts[t.key]).map(t =>
+    `<span class="legend-item"><svg class="legend-shape" viewBox="-4 -4 8 8" width="11" height="11">${shotTypeShape(t.key, 0, 0, "legend-shape-fill")}</svg>${escapeHtml(t.label)} (${typeCounts[t.key]})</span>`
+  ).join("") + (typeCounts.untagged ? `<span class="legend-item"><svg class="legend-shape" viewBox="-4 -4 8 8" width="11" height="11">${shotTypeShape(null, 0, 0, "legend-shape-fill shot-dot-untagged")}</svg>Not tagged (${typeCounts.untagged})</span>` : "") : "";
   const threePtVbY = shotChartVbY(60);
   const hoopVbY = shotChartVbY(7);
   wrap.innerHTML = `
@@ -2636,8 +2643,21 @@ function renderPlayerShotChart(playerId) {
         <span class="legend-item"><span class="legend-dot legend-dot-make"></span>Make (${makes})</span>
         <span class="legend-item"><span class="legend-dot legend-dot-miss"></span>Miss (${misses})</span>
       </div>
+      ${shapeLegend ? `<div class="shot-chart-legend">${shapeLegend}</div>` : ""}
     </div>
   `;
+}
+
+// One marker per shot, its shape set by the shot type: circle for catch-and-shoot, square for a
+// drive, triangle for a deep heave, diamond for a Move. Color stays make (green) / miss (red).
+// Untagged shots are a faint circle so a partly tagged player still reads at a glance.
+function shotTypeShape(type, cx, cy, cls, label) {
+  const title = label ? `<title>${escapeHtml(label)}</title>` : "";
+  const c = `class="${cls}"`;
+  if (type === "drive") return `<rect x="${cx - 2}" y="${cy - 2}" width="4" height="4" ${c}>${title}</rect>`;
+  if (type === "deepHeave") return `<polygon points="${cx},${cy - 2.9} ${cx - 2.6},${cy + 2} ${cx + 2.6},${cy + 2}" ${c}>${title}</polygon>`;
+  if (type === "move") return `<polygon points="${cx},${cy - 3} ${cx + 3},${cy} ${cx},${cy + 3} ${cx - 3},${cy}" ${c}>${title}</polygon>`;
+  return `<circle cx="${cx}" cy="${cy}" r="2.2" ${c}>${title}</circle>`;
 }
 
 function renderLeagueHeatmap() {
