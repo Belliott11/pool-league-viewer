@@ -11112,15 +11112,24 @@ function shotTypeFgCell(m, a) {
 function computeShotTypeCuts() {
   const contest = {};
   SHOT_TYPES.forEach(t => { contest[t.key] = { open: { a: 0, m: 0 }, contested: { a: 0, m: 0 } }; });
+  // Catch-and-shoot again, but within each distance zone, so open vs. guarded is compared at the
+  // same range instead of open shots (usually the longer ones) against guarded ones.
+  const byZone = {};
+  ["close", "mid", "arc", "deep"].forEach(z => { byZone[z] = { open: { a: 0, m: 0 }, contested: { a: 0, m: 0 } }; });
   state.games.filter(isQualifyingGame).forEach(game => {
     game.scoringEvents.forEach(ev => {
       if ((ev.points !== 2 && ev.points !== 3) || !ev.shotType || !contest[ev.shotType]) return;
-      const c = contest[ev.shotType][(ev.defenderIds || []).length > 0 ? "contested" : "open"];
+      const side = (ev.defenderIds || []).length > 0 ? "contested" : "open";
+      const c = contest[ev.shotType][side];
       c.a++;
       if (ev.made !== false) c.m++;
+      if (ev.shotType === "catchAndShoot" && ev.shotLocation) {
+        const z = byZone[shotBand(ev.shotLocation, ev.points)];
+        if (z) { z[side].a++; if (ev.made !== false) z[side].m++; }
+      }
     });
   });
-  return { contest };
+  return { contest, byZone };
 }
 
 // The shot type panels follow the same "Include Imbalanced Games" / "Include Past Seasons" switches
@@ -11142,7 +11151,7 @@ function appendShotTypeExclusionNote(panelIds) {
 function renderShotTypeContestPanel() {
   const wrap = document.getElementById("shotTypeContestPanel");
   if (!wrap) return;
-  const { contest } = computeShotTypeCuts();
+  const { contest, byZone } = computeShotTypeCuts();
   const total = SHOT_TYPES.reduce((s, t) => s + contest[t.key].open.a + contest[t.key].contested.a, 0);
   if (total === 0) {
     wrap.innerHTML = '<p class="empty-state">No tagged shots yet.</p>';
@@ -11155,9 +11164,19 @@ function renderShotTypeContestPanel() {
       : "—";
     return `<tr><td>${escapeHtml(t.label)}</td>${shotTypeFgCell(o.m, o.a)}${shotTypeFgCell(c.m, c.a)}<td>${gap}</td></tr>`;
   }).join("");
+  const zoneLabels = { close: "Close", mid: "Midrange", arc: "3PT Line", deep: "3PT Deep" };
+  const zoneRows = Object.keys(zoneLabels).map(z => {
+    const o = byZone[z].open, c = byZone[z].contested;
+    const gap = o.a >= SHOT_TYPE_MIN_ATTEMPTS && c.a >= SHOT_TYPE_MIN_ATTEMPTS ? `${Math.round((o.m / o.a - c.m / c.a) * 100) > 0 ? "+" : ""}${Math.round((o.m / o.a - c.m / c.a) * 100)} pts` : "—";
+    return `<tr><td>${zoneLabels[z]}</td>${shotTypeFgCell(o.m, o.a)}${shotTypeFgCell(c.m, c.a)}<td>${gap}</td></tr>`;
+  }).join("");
   wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
     <thead><tr><th>Shot type</th><th>Open</th><th>Contested</th><th>Open minus contested</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
+    <tbody>${rows}</tbody></table></div>
+    <h3 style="margin:14px 0 4px;font-size:1rem">Catch-and-shoot at the same distance</h3>
+    <div class="table-scroll"><table class="matchup-table">
+    <thead><tr><th>Distance</th><th>Open</th><th>Contested</th><th>Open minus contested</th></tr></thead>
+    <tbody>${zoneRows}</tbody></table></div>`;
 }
 
 // Is the Move actually producing better shots than the player's other tagged shots? Compares each
@@ -11257,20 +11276,42 @@ function renderPlayerShotTypes(playerId) {
     </div>`;
 }
 
-// ---------- Review Shot Types (backfill) ----------
-// Every 2- and 3-point attempt with no shot type yet, oldest first, a page at a time. One click
-// tags the shot and removes just that row (same reason as the dunk review: a full redraw would
-// stop a clip that's playing in this panel). Skip hides a row for this visit only and writes
-// nothing, so a reload brings it back.
+// ---------- Review Shot Types (backfill and re-check) ----------
+// Default view: every 2- and 3-point attempt with no shot type yet, oldest first, a page at a time,
+// optionally narrowed to one player (so one player's shots can be tagged first). The re-check views
+// list shots that ARE tagged but worth a second look: guarded catch-and-shoots (a guarded "standing"
+// shot may really have been a Move) and drives that ended far from the hoop (a real drive rarely
+// ends 65+ units out). One click tags/retags the shot and removes just that row (a full redraw
+// would stop a clip that's playing in this panel). Skip / "Looks right" hides a row for this visit
+// only and writes nothing, so a reload brings it back.
 const SHOT_TYPE_REVIEW_PAGE = 20;
+const DRIVE_FAR_UNITS = 65;
 let shotTypeReviewLimit = SHOT_TYPE_REVIEW_PAGE;
+let shotTypeReviewPlayer = "";
+let shotTypeReviewMode = "untagged";
 const shotTypeSkipped = new Set();
+const SHOT_TYPE_REVIEW_MODES = {
+  untagged: { label: "Shots with no type yet", noun: "field goals still without a shot type", empty: "Every field goal has a shot type." },
+  guardedCatch: { label: "Re-check: guarded catch-and-shoots", noun: "guarded catch-and-shoots to re-check", empty: "No guarded catch-and-shoots to re-check." },
+  farDrives: { label: `Re-check: drives ${DRIVE_FAR_UNITS}+ units from the hoop`, noun: "far-out drives to re-check", empty: "No far-out drives to re-check." }
+};
 
-function computeUntypedShots() {
+function shotTypeReviewMatches(ev) {
+  if (ev.points !== 2 && ev.points !== 3) return false;
+  if (shotTypeReviewMode === "untagged") return !ev.shotType;
+  if (shotTypeReviewMode === "guardedCatch") return ev.shotType === "catchAndShoot" && (ev.defenderIds || []).length > 0;
+  if (shotTypeReviewMode === "farDrives") return ev.shotType === "drive" && ev.shotLocation && shotDistanceFromHoop(ev.shotLocation) >= DRIVE_FAR_UNITS;
+  return false;
+}
+
+function computeShotTypeReviewRows() {
   const rows = [];
   state.games.forEach(game => {
     game.scoringEvents.forEach(ev => {
-      if ((ev.points === 2 || ev.points === 3) && !ev.shotType) rows.push({ game, ev });
+      if (!shotTypeReviewMatches(ev)) return;
+      if (shotTypeReviewPlayer && ev.scorerId !== shotTypeReviewPlayer) return;
+      if (shotTypeSkipped.has(ev.id)) return;
+      rows.push({ game, ev });
     });
   });
   return rows.sort((a, b) => (a.game.date || "").localeCompare(b.game.date || "") || (a.ev.videoTime || 0) - (b.ev.videoTime || 0));
@@ -11279,33 +11320,46 @@ function computeUntypedShots() {
 function renderShotTypeReview() {
   const wrap = document.getElementById("shotTypeReview");
   if (!wrap) return;
-  const all = computeUntypedShots().filter(r => !shotTypeSkipped.has(r.ev.id));
-  if (all.length === 0) {
-    wrap.innerHTML = '<p class="empty-state">Every field goal has a shot type.</p>';
-    return;
-  }
+  const mode = SHOT_TYPE_REVIEW_MODES[shotTypeReviewMode];
+  const all = computeShotTypeReviewRows();
   const shown = all.slice(0, shotTypeReviewLimit);
-  wrap.innerHTML = `<p class="hint shot-type-review-summary" style="margin-top:0"></p>
+  // Players who have something in this view, so the filter never offers an empty choice.
+  const inMode = new Set();
+  state.games.forEach(g => g.scoringEvents.forEach(ev => { if (shotTypeReviewMatches(ev) && !shotTypeSkipped.has(ev.id)) inMode.add(ev.scorerId); }));
+  const playerOptions = state.players.filter(p => inMode.has(p.id) || p.id === shotTypeReviewPlayer)
+    .map(p => `<option value="${p.id}"${p.id === shotTypeReviewPlayer ? " selected" : ""}>${escapeHtml(p.name)}</option>`).join("");
+  const controls = `<div class="button-row" style="margin:0 0 8px;gap:10px;align-items:center">
+      <label>Show <select data-review-mode>${Object.entries(SHOT_TYPE_REVIEW_MODES).map(([k, m]) => `<option value="${k}"${k === shotTypeReviewMode ? " selected" : ""}>${escapeHtml(m.label)}</option>`).join("")}</select></label>
+      <label>Player <select data-review-player><option value="">Everyone</option>${playerOptions}</select></label>
+    </div>`;
+  const recheck = shotTypeReviewMode !== "untagged";
+  wrap.innerHTML = `${controls}
+  ${all.length === 0 ? `<p class="empty-state">${escapeHtml(mode.empty)}</p>` : `<p class="hint shot-type-review-summary" style="margin-top:0"></p>
   <ul class="player-tips-list">${shown.map(({ game, ev }) => {
     const scorer = state.players.find(p => p.id === ev.scorerId);
     const hasTime = ev.videoTime !== null && ev.videoTime !== undefined;
     const watchLinks = watchFilmLinksHtml(hasTime ? [{ id: game.id, date: game.date, videoTime: ev.videoTime }] : []);
     const band = ev.shotLocation ? ` · ${escapeHtml(({ close: "close", mid: "midrange", arc: "at the line", deep: "deep" })[shotBand(ev.shotLocation, ev.points)])}` : "";
+    const guarded = (ev.defenderIds || []).length > 0 ? " · guarded" : " · no defender tagged";
     return `<li data-event-id="${ev.id}">
-      <span>${scorer ? escapeHtml(scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt${band}, ${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
+      <span>${scorer ? escapeHtml(scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt${band}${recheck ? guarded : ""}, ${escapeHtml(formatDateDisplay(game.date))})${recheck ? ` · currently ${escapeHtml(shotTypeLabel(ev.shotType))}` : ""}${watchLinks}</span>
       <div class="button-row" style="margin-top:4px">
-        ${shotTypeButtonsHtml(null, "mark-shot-type")}
-        <button type="button" class="icon-btn" data-skip-shot-type="${ev.id}">Skip</button>
+        ${shotTypeButtonsHtml(recheck ? ev.shotType : null, "mark-shot-type")}
+        <button type="button" class="icon-btn" data-skip-shot-type="${ev.id}">${recheck ? "Looks right" : "Skip"}</button>
       </div>
     </li>`;
   }).join("")}</ul>
-  ${all.length > shown.length ? '<button type="button" class="secondary-btn" data-shot-type-more="1">Show more</button>' : ""}`;
+  ${all.length > shown.length ? '<button type="button" class="secondary-btn" data-shot-type-more="1">Show more</button>' : ""}`}`;
   wireWatchFilmButtons(wrap);
+
+  wrap.querySelector("[data-review-mode]").addEventListener("change", e => { shotTypeReviewMode = e.target.value; shotTypeReviewLimit = SHOT_TYPE_REVIEW_PAGE; renderShotTypeReview(); });
+  wrap.querySelector("[data-review-player]").addEventListener("change", e => { shotTypeReviewPlayer = e.target.value; shotTypeReviewLimit = SHOT_TYPE_REVIEW_PAGE; renderShotTypeReview(); });
+  if (all.length === 0) return;
 
   const summaryEl = wrap.querySelector(".shot-type-review-summary");
   const updateSummary = () => {
-    const left = computeUntypedShots().filter(r => !shotTypeSkipped.has(r.ev.id)).length;
-    summaryEl.textContent = `${left} field goal${left === 1 ? "" : "s"} still without a shot type.`;
+    const left = computeShotTypeReviewRows().length;
+    summaryEl.textContent = `${left} ${mode.noun}.`;
   };
   updateSummary();
   const dropRow = eventId => {
@@ -11321,6 +11375,9 @@ function renderShotTypeReview() {
         if (!ev) return;
         ev.shotType = btn.dataset.markShotType;
         saveState();
+        // A re-check shot that is still a match after the change (same type picked) would otherwise
+        // reappear on the next render, so it is also set aside for this visit.
+        if (shotTypeReviewMatches(ev)) shotTypeSkipped.add(eventId);
         dropRow(eventId);
       });
     });
