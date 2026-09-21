@@ -11190,13 +11190,24 @@ function renderShotTypeContestPanel() {
     const gap = o.a >= SHOT_TYPE_MIN_ATTEMPTS && c.a >= SHOT_TYPE_MIN_ATTEMPTS ? `${Math.round((o.m / o.a - c.m / c.a) * 100) > 0 ? "+" : ""}${Math.round((o.m / o.a - c.m / c.a) * 100)} pts` : "—";
     return `<tr><td>${zoneLabels[z]}</td>${shotTypeFgCell(o.m, o.a)}${shotTypeFgCell(c.m, c.a)}<td>${gap}</td></tr>`;
   }).join("");
+  // Defenders tend to get recorded on shots that go in, so "no defender tagged" often means nobody
+  // noted who was guarding. Say how lopsided that is in the current data.
+  let makesAll = 0, makesGuarded = 0, missesAll = 0, missesGuarded = 0;
+  SHOT_TYPES.forEach(t => {
+    const o = contest[t.key].open, c = contest[t.key].contested;
+    makesAll += o.m + c.m; makesGuarded += c.m;
+    missesAll += (o.a - o.m) + (c.a - c.m); missesGuarded += c.a - c.m;
+  });
+  const loggingNote = makesAll >= 10 && missesAll >= 10
+    ? `<p class="hint" style="margin:8px 0 0">A defender is recorded on ${Math.round((makesGuarded / makesAll) * 100)}% of made shots but only ${Math.round((missesGuarded / missesAll) * 100)}% of misses here. So no defender tagged often just means nobody noted who was guarding, which makes shots with a defender look better than they really are. Read the difference as a pattern in what got recorded, not as proof that a defender helps.</p>`
+    : "";
   wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
-    <thead><tr><th>Shot type</th><th>Open</th><th>Contested</th><th>Open minus contested</th></tr></thead>
+    <thead><tr><th>Shot type</th><th>No defender tagged</th><th>Defender tagged</th><th>Difference</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
     <h3 style="margin:14px 0 4px;font-size:1rem">Catch-and-shoot at the same distance</h3>
     <div class="table-scroll"><table class="matchup-table">
-    <thead><tr><th>Distance</th><th>Open</th><th>Contested</th><th>Open minus contested</th></tr></thead>
-    <tbody>${zoneRows}</tbody></table></div>`;
+    <thead><tr><th>Distance</th><th>No defender tagged</th><th>Defender tagged</th><th>Difference</th></tr></thead>
+    <tbody>${zoneRows}</tbody></table></div>${loggingNote}`;
 }
 
 // Is the Move actually producing better shots than the player's other tagged shots? Compares each
