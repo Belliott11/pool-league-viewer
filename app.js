@@ -9497,6 +9497,7 @@ function renderLeaderboard() {
   renderDeepShotCheckPanel();
   renderMoveCheckPanel();
   renderShotTypeContestPanel();
+  appendShotTypeExclusionNote(["shotTypePanel", "deepShotCheckPanel", "moveCheckPanel", "shotTypeContestPanel"]);
   renderCalibrationPanel();
   renderLeagueDirectionSplits();
   renderLeagueTsByZoneChart();
@@ -11100,6 +11101,22 @@ function computeShotTypeCuts() {
     });
   });
   return { contest };
+}
+
+// The shot type panels follow the same "Include Imbalanced Games" / "Include Past Seasons" switches
+// as everything else on this page, so tagged shots from a game those leave out don't show. Say so,
+// with the count, instead of the panel silently showing fewer shots than were tagged.
+function appendShotTypeExclusionNote(panelIds) {
+  let left = 0;
+  state.games.forEach(game => {
+    if (isQualifyingGame(game)) return;
+    game.scoringEvents.forEach(ev => { if ((ev.points === 2 || ev.points === 3) && ev.shotType) left++; });
+  });
+  if (left === 0) return;
+  panelIds.forEach(id => {
+    const wrap = document.getElementById(id);
+    if (wrap) wrap.insertAdjacentHTML("beforeend", `<p class="hint" style="margin:8px 0 0">${left} more tagged shot${left === 1 ? " is" : "s are"} in games left out by the Include Imbalanced Games and Include Past Seasons switches at the top of the Leaderboard. Turn them on to count ${left === 1 ? "it" : "them"}.</p>`);
+  });
 }
 
 function renderShotTypeContestPanel() {
