@@ -9614,6 +9614,7 @@ function renderLeaderboard() {
     });
     body.appendChild(tr);
   });
+  renderLeaderboardSectionTeasers();
 }
 
 // Every stat with a clear "which direction is better" reads that way here; everything else
@@ -11470,9 +11471,46 @@ function renderPlayerSectionTeasers(playerId) {
 // Wired once at load (the nav buttons are static markup, never re-rendered) -- opens the target
 // section if it was collapsed, then scrolls to it.
 function wirePlayerSectionNav() {
-  document.querySelectorAll(".player-section-nav-link").forEach(btn => {
+  // Scoped to #tab-player: the Leaderboard tab's own section nav (wireLeaderboardSectionNav)
+  // reuses the same .player-section-nav-link class and would otherwise get a second, wrong
+  // click handler here too (its data-section values collide with this tab's section ids).
+  document.querySelectorAll("#tab-player .player-section-nav-link").forEach(btn => {
     btn.addEventListener("click", () => {
       const section = document.getElementById(`section-${btn.dataset.section}`);
+      if (!section) return;
+      section.open = true;
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
+// ---------- Leaderboard page: section teasers + jump nav ----------
+function computeLeaderboardSectionTeasers() {
+  const board = computeLeaderboard().filter(r => r.gp >= LEAGUE_RANK_MIN_GP);
+  const tsVals = board.map(r => trueShootingPct(r.totals.pts, r.shooting.fga, r.shooting.fta)).filter(v => v !== null);
+  const leagueTs = tsVals.length ? Math.round(tsVals.reduce((a, b) => a + b, 0) / tsVals.length) : null;
+  return {
+    comparison: "Full stat table, head-to-head player comparison, and season-long trends",
+    shooting: leagueTs !== null ? `League averaging ${leagueTs}% TS` : "Shot zones, shot types, and shooting splits",
+    matchups: "Head-to-head records, rebound battles, and teammate synergy",
+    situational: "Out-of-bounds, second-chance, and close-game splits",
+    style: "Play style clusters and the advanced models built on top of them",
+    media: "Best and worst individual games, plus every clipped highlight"
+  };
+}
+
+function renderLeaderboardSectionTeasers() {
+  const teasers = computeLeaderboardSectionTeasers();
+  Object.entries(teasers).forEach(([key, text]) => {
+    const el = document.getElementById(`lb-teaser-${key}`);
+    if (el) el.textContent = text;
+  });
+}
+
+function wireLeaderboardSectionNav() {
+  document.querySelectorAll("#tab-leaderboard .player-section-nav-link").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const section = document.getElementById(`lb-section-${btn.dataset.section}`);
       if (!section) return;
       section.open = true;
       section.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -12212,6 +12250,7 @@ function collapseSectionHints() {
 // ---------- Init ----------
 collapseSectionHints();
 wirePlayerSectionNav();
+wireLeaderboardSectionNav();
 renderPlayers();
 document.getElementById("rsvpDateInput").value = new Date().toISOString().slice(0, 10);
 loadRsvpForDate(document.getElementById("rsvpDateInput").value);
