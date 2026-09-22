@@ -2246,3 +2246,10 @@ button:disabled {
 .real-partner-label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .real-partner-record { font-weight: 700; }
 .real-partner-pct { color: var(--muted); font-size: 0.85rem; }
+
+/* Player page header: rank pill + attendance tag */
+.player-rank-pill { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 2px 0 4px; }
+.player-rank-pill-main { font-weight: 700; color: var(--accent); }
+.player-rank-pill-up { color: var(--success, #3fbf6f); font-weight: 700; }
+.player-rank-pill-down { color: var(--danger, #e0555a); font-weight: 700; }
+.player-rank-pill-attendance { color: var(--muted); font-size: 0.85rem; }

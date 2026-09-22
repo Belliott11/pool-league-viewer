@@ -5867,6 +5867,74 @@ function computePlayerAwardTier(playerId) {
   return { tier, color: AWARD_TIER_COLOR[tier], isCurrent: true };
 }
 
+// A shareable one-screen recap of the real (closed) season: the MVP as champion, every award and
+// its winner(s), the final top of the real power rankings, and the season's biggest mover in
+// either direction. Everything here comes from the real site's own data (AWARD_RESULTS/
+// POOLEAN_SEASON_CARDS/POOLEAN_RANKINGS), not this app's own locally logged subset — same
+// "frozen historical record" reasoning as Power Rankings and Real Game Record above it.
+function computeSeasonRecap() {
+  if (typeof POOLEAN_SEASON_CARDS === "undefined") return null;
+  const mvp = AWARD_RESULTS.find(a => a.key === "mvp");
+  const champion = mvp ? state.players.find(p => p.id === mvp.winners[0]) : null;
+  const awardRows = AWARD_RESULTS.map(a => ({
+    label: a.label, icon: AWARD_ICONS[a.key] || "🏅", color: AWARD_TIER_COLOR[AWARD_TIER[a.key]] || null,
+    winners: a.winners.map(id => state.players.find(p => p.id === id)).filter(Boolean)
+  }));
+  const topPower = Object.entries(POOLEAN_SEASON_CARDS)
+    .map(([slug, card]) => ({ player: state.players.find(p => p.id === slug), card }))
+    .filter(r => r.player)
+    .sort((a, b) => b.card.powerPct - a.card.powerPct)
+    .slice(0, 3);
+  let riser = null, faller = null;
+  if (typeof POOLEAN_RANKINGS !== "undefined" && POOLEAN_RANKINGS.length >= 2) {
+    const first = POOLEAN_RANKINGS[0], last = POOLEAN_RANKINGS[POOLEAN_RANKINGS.length - 1];
+    state.players.forEach(p => {
+      const f = first.players.find(x => x.slug === p.id), l = last.players.find(x => x.slug === p.id);
+      if (!f || !l) return;
+      const delta = l.pct - f.pct;
+      if (!riser || delta > riser.delta) riser = { player: p, delta, from: f.pct, to: l.pct };
+      if (!faller || delta < faller.delta) faller = { player: p, delta, from: f.pct, to: l.pct };
+    });
+  }
+  return { champion, mvpAward: mvp, awardRows, topPower, riser, faller };
+}
+
+function renderSeasonRecap() {
+  const wrap = document.getElementById("seasonRecap");
+  if (!wrap) return;
+  const recap = computeSeasonRecap();
+  if (!recap) {
+    wrap.innerHTML = '<p class="empty-state">No real-site season data loaded yet.</p>';
+    return;
+  }
+  const championHtml = recap.champion ? `
+    <div class="award-marquee">
+      <span class="award-marquee-icon">🏆</span>
+      <span class="award-marquee-text"><strong>${escapeHtml(recap.champion.name)}</strong><span>Season Champion · ${escapeHtml(recap.mvpAward.label)}</span></span>
+    </div>` : "";
+  const awardsHtml = recap.awardRows.map(a => `
+    <span class="award-badge${a.color ? ` award-badge-${a.color}` : " award-badge-untiered"}">
+      <span class="award-badge-icon">${a.icon}</span>
+      <span class="award-badge-label">${escapeHtml(a.label)}</span>
+      <span class="award-badge-sub">${a.winners.map(w => escapeHtml(w.name)).join(" + ") || "—"}</span>
+    </span>`).join("");
+  const topPowerHtml = recap.topPower.map((r, i) => `
+    <li>${i + 1}. ${playerLink(r.player.id, r.player.name)} <span class="hint" style="margin:0">${r.card.powerPct}% · ${r.card.crowns}× #1</span></li>`).join("");
+  const mover = (label, m) => !m ? "" : `<div class="real-partner-tile">
+      <span class="real-partner-label">${label}</span>
+      ${playerLink(m.player.id, m.player.name)}
+      <span class="real-partner-pct">${Math.round(m.from)}% → ${Math.round(m.to)}% (${m.delta >= 0 ? "+" : ""}${Math.round(m.delta)})</span>
+    </div>`;
+  wrap.innerHTML = `
+    ${championHtml}
+    <h4 style="margin:14px 0 8px">Season awards</h4>
+    <div class="award-badge-grid">${awardsHtml}</div>
+    <h4 style="margin:14px 0 8px">Final power rankings, top 3</h4>
+    <ol class="award-standings">${topPowerHtml}</ol>
+    <h4 style="margin:14px 0 8px">Biggest movers</h4>
+    <div class="real-partner-grid">${mover("Biggest riser", recap.riser)}${mover("Biggest faller", recap.faller)}</div>`;
+}
+
 function renderPlayerAwardBadges(playerId) {
   const wrap = document.getElementById("playerAwardBadges");
   if (!wrap) return;
@@ -6529,6 +6597,39 @@ function computeTwoWayRankOverSeason() {
     });
   });
   return { dates, series };
+}
+
+// This player's standing as of the latest checkpoint (same Two-Way/20-cumulative ranking the
+// chart above plots), plus how many places they've moved since the checkpoint just before it —
+// the "#3 overall ▲2" pill on the profile header. "Overall" really means "this season" right now
+// (only one season of data exists); the same number becomes genuinely all-time once past seasons
+// are tracked the same way, without this needing to change.
+function computePlayerOverallRank(playerId) {
+  const { dates, series } = computeTwoWayRankOverSeason();
+  const s = series[playerId];
+  if (!s || s.length === 0 || dates.length === 0) return null;
+  const lastDate = dates[dates.length - 1];
+  const idx = s.findIndex(e => e.date === lastDate);
+  const current = idx === -1 ? s[s.length - 1] : s[idx];
+  const fieldSize = Object.values(series).filter(arr => arr.some(e => e.date === current.date)).length;
+  const prev = idx > 0 ? s[idx - 1] : null;
+  const delta = prev ? prev.rank - current.rank : null; // positive: moved up (a smaller rank number)
+  return { rank: current.rank, fieldSize, delta };
+}
+
+function renderPlayerRankPill(playerId) {
+  const wrap = document.getElementById("playerRankPill");
+  if (!wrap) return;
+  const rank = computePlayerOverallRank(playerId);
+  const summary = computePowerRankingSummary(playerId);
+  const parts = [];
+  if (rank) {
+    const arrow = rank.delta === null || rank.delta === 0 ? "" : rank.delta > 0
+      ? `<span class="player-rank-pill-up">▲${rank.delta}</span>` : `<span class="player-rank-pill-down">▼${Math.abs(rank.delta)}</span>`;
+    parts.push(`<span class="player-rank-pill-main">#${rank.rank} overall</span>${arrow}`);
+  }
+  if (summary) parts.push(`<span class="player-rank-pill-attendance">📅 ${summary.of} part${summary.of === 1 ? "y" : "ies"} this season</span>`);
+  wrap.innerHTML = parts.join("");
 }
 
 function renderTwoWayRankChart() {
@@ -9796,6 +9897,7 @@ function renderLeaderboard() {
   renderWinSharesModelPanel();
   renderCloseGameShootingPanel();
   renderCloseGameDefensePanel();
+  renderSeasonRecap();
   renderIndividualGamePerformances();
   renderLeagueHighlights();
   renderPlayerComparisonSelects();
@@ -9966,6 +10068,7 @@ function renderPlayerDetail() {
   leaderboardCache = null;
   const row = computeLeaderboard().find(r => r.player.id === currentPlayerId);
   document.getElementById("playerDetailTitle").innerHTML = `${renderPlayerAvatar(player, "large", playerAvatarRingClass(player.id))}<span>${escapeHtml(player.name)}</span>`;
+  renderPlayerRankPill(player.id);
   document.getElementById("playerDetailSummary").textContent = row
     ? `${row.wins}-${row.losses}${row.ties ? `-${row.ties}` : ""} · ${row.rate.pts.toFixed(1)} PTS/20 · ${row.offRatingPer20.toFixed(1)} Off Rating/20 · ${row.twoWayPer20.toFixed(1)} Two-Way/20`
     : "No games yet";
@@ -12517,11 +12620,67 @@ function collapseSectionHints() {
   });
 }
 
+// ---------- Real Poolean data: what changed since last import ----------
+// poolean-external-data.js gets manually regenerated and copied in every so often (see
+// build_poolean_data.py); there's no server to diff old vs. new for you. So this browser
+// remembers the last snapshot it saw (localStorage, not app state — purely a per-browser "have I
+// seen this" marker, never exported/shared) and, on the load right after a refreshed file lands,
+// shows what moved: games played, win-loss, power ranking %, crowns. Silent when nothing's
+// changed (including the very first time this browser has ever seen the file) — no banner to
+// dismiss when there's nothing to say.
+const POOL_DATA_SNAPSHOT_KEY = "poolDataSnapshot";
+function computePoolDataDigest() {
+  if (typeof POOLEAN_SEASON_CARDS === "undefined") return null;
+  let previous = null;
+  try { previous = JSON.parse(localStorage.getItem(POOL_DATA_SNAPSHOT_KEY) || "null"); } catch (e) { previous = null; }
+  try { localStorage.setItem(POOL_DATA_SNAPSHOT_KEY, JSON.stringify(POOLEAN_SEASON_CARDS)); } catch (e) { /* storage full/blocked: digest just won't have a next-time comparison */ }
+  if (!previous) return null; // first time this browser's seen real data at all -- nothing to compare against
+  const changes = [];
+  Object.entries(POOLEAN_SEASON_CARDS).forEach(([slug, now]) => {
+    const before = previous[slug];
+    if (!before) { changes.push({ slug, isNew: true }); return; }
+    const gpDelta = now.parties - before.parties;
+    const gamesDelta = (now.w + now.l) - (before.w + before.l);
+    const powerDelta = now.powerPct - before.powerPct;
+    const crownsDelta = now.crowns - before.crowns;
+    if (gpDelta || gamesDelta || powerDelta || crownsDelta) changes.push({ slug, gpDelta, gamesDelta, powerDelta, crownsDelta });
+  });
+  return changes.length > 0 ? changes : null;
+}
+function renderPoolDataDigest() {
+  const wrap = document.getElementById("poolDataDigest");
+  if (!wrap) return;
+  const changes = computePoolDataDigest();
+  if (!changes) { wrap.innerHTML = ""; return; }
+  const rows = changes.map(c => {
+    const player = state.players.find(p => p.id === c.slug);
+    const name = player ? playerLink(player.id, player.name) : escapeHtml(c.slug);
+    if (c.isNew) return `<li>${name} — new in this import</li>`;
+    const bits = [];
+    if (c.gamesDelta) bits.push(`${c.gamesDelta > 0 ? "+" : ""}${c.gamesDelta} game${Math.abs(c.gamesDelta) === 1 ? "" : "s"}`);
+    if (c.powerDelta) bits.push(`power ${c.powerDelta > 0 ? "+" : ""}${c.powerDelta.toFixed(1)}%`);
+    if (c.crownsDelta) bits.push(`${c.crownsDelta > 0 ? "+" : ""}${c.crownsDelta} crown${Math.abs(c.crownsDelta) === 1 ? "" : "s"}`);
+    return `<li>${name} — ${bits.join(", ") || "updated"}</li>`;
+  }).join("");
+  wrap.innerHTML = `<div class="award-marquee" style="background:none;border-color:color-mix(in srgb, var(--accent) 45%, transparent)">
+    <span class="award-marquee-icon">🔄</span>
+    <span class="award-marquee-text" style="flex:1">
+      <strong style="color:var(--accent)">Real site data updated</strong>
+      <span style="text-transform:none;letter-spacing:0;color:var(--fg);font-size:0.85rem;margin-top:4px">
+        <ul style="margin:4px 0 0;padding-left:18px">${rows}</ul>
+      </span>
+    </span>
+    <button type="button" class="icon-btn" data-dismiss-digest="1">Dismiss</button>
+  </div>`;
+  wrap.querySelector("[data-dismiss-digest]").addEventListener("click", () => { wrap.innerHTML = ""; });
+}
+
 // ---------- Init ----------
 collapseSectionHints();
 wirePlayerSectionNav();
 wireLeaderboardSectionNav();
 wirePlayerNameLinks();
+renderPoolDataDigest();
 renderPlayers();
 document.getElementById("rsvpDateInput").value = new Date().toISOString().slice(0, 10);
 loadRsvpForDate(document.getElementById("rsvpDateInput").value);
