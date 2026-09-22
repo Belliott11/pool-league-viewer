@@ -876,6 +876,13 @@ button:disabled {
   height: 52px;
   font-size: 1.5rem;
 }
+.player-avatar-small {
+  width: 17px;
+  height: 17px;
+  font-size: 0.6rem;
+  margin-right: 4px;
+  vertical-align: -3px;
+}
 .player-name-btn {
   display: inline-flex;
   align-items: center;
@@ -2166,3 +2173,19 @@ button:disabled {
   cursor: pointer;
 }
 .player-name-link:hover { color: var(--accent); text-decoration: underline; }
+
+/* Real Site Awards badges on the player page */
+.award-badge-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.award-badge {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-bg) 88%, var(--fg) 12%);
+  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  font-size: 0.82rem; font-weight: 600;
+}
+.award-badge-icon { font-size: 1rem; line-height: 1; }
+.award-badge-win {
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel-bg));
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.award-badge-sub { color: var(--muted); font-weight: 400; font-size: 0.75rem; }

@@ -724,7 +724,7 @@ function renderPlayers() {
     const tagsHtml = tags.length > 0
       ? `<span class="profile-tags"${tagsTitle}>${tags.map(t => `<span class="profile-tag profile-tag-${t.kind}">${escapeHtml(t.label)}</span>`).join("")}</span>`
       : "";
-    row.innerHTML = `<span class="roster-row-name">${renderPlayerAvatar(p)}${playerLink(p.id, p.name)}${tagsHtml}</span>`;
+    row.innerHTML = `<span class="roster-row-name">${renderPlayerAvatar(p)}${playerLink(p.id, p.name, false)}${tagsHtml}</span>`;
 
     const editBtn = document.createElement("button");
     editBtn.className = "icon-btn";
@@ -4242,14 +4242,14 @@ function defenderNamesLinked(defenderIds) {
   if (!defenderIds || defenderIds.length === 0) return "No defender";
   return defenderIds.map(id => {
     const p = state.players.find(pl => pl.id === id);
-    return p ? playerLink(p.id, p.name) : "?";
+    return p ? playerLink(p.id, p.name, false) : "?";
   }).join(" + ");
 }
 
 function playerLinksJoined(ids, sep = " + ") {
   return ids.map(id => {
     const p = state.players.find(pl => pl.id === id);
-    return p ? playerLink(p.id, p.name) : "?";
+    return p ? playerLink(p.id, p.name, false) : "?";
   }).join(sep);
 }
 
@@ -5776,6 +5776,78 @@ const AWARD_NOT_FOUND_TEXT = {
   teammateLift: "Not enough With/Without games logged yet"
 };
 
+const AWARD_ICONS = {
+  mvp: "🏆", "best-player": "🛡️", dpoy: "🧱", clutch: "🧊", "mip-season": "📈", "mip-yoy": "📊",
+  teammate: "🤝", "first-team": "⭐", "second-team": "🥈", "best-duo": "🔥", "worst-duo": "🥴"
+};
+
+// This player's real award history: a win (they're in award.winners) or a runner-up (2nd place
+// in award.votedStandings, the real ballot tally -- not this tool's own approximate stat
+// standings, which is a different, already-shown thing). A duo award's votedStandings slugs are
+// "a|b" pairs, so those are checked by membership instead of an exact match.
+function computePlayerAwardBadges(playerId) {
+  return AWARD_RESULTS.map(award => {
+    const isWinner = award.winners.includes(playerId);
+    const runnerUpEntry = award.votedStandings[1];
+    const isRunnerUp = !isWinner && !!runnerUpEntry && runnerUpEntry.slug.split("|").includes(playerId);
+    if (!isWinner && !isRunnerUp) return null;
+    return { key: award.key, label: award.label, icon: AWARD_ICONS[award.key] || "🏅", isWinner };
+  }).filter(Boolean);
+}
+
+function renderPlayerAwardBadges(playerId) {
+  const wrap = document.getElementById("playerAwardBadges");
+  if (!wrap) return;
+  const badges = computePlayerAwardBadges(playerId);
+  if (badges.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">No award wins or runner-up finishes for this player yet.</p>';
+    return;
+  }
+  wrap.innerHTML = `<div class="award-badge-row">${badges.map(b => `
+    <span class="award-badge${b.isWinner ? " award-badge-win" : ""}" title="${escapeHtml(b.label)}${b.isWinner ? "" : " (runner-up)"}">
+      <span class="award-badge-icon">${b.icon}</span>
+      <span class="award-badge-label">${escapeHtml(b.label)}</span>
+      ${b.isWinner ? "" : '<span class="award-badge-sub">Runner-up</span>'}
+    </span>`).join("")}</div>`;
+}
+
+function renderPlayerPowerRanking(playerId) {
+  const wrap = document.getElementById("playerPowerRanking");
+  if (!wrap) return;
+  const summary = computePowerRankingSummary(playerId);
+  if (!summary) {
+    wrap.innerHTML = '<p class="empty-state">No real-site power ranking history for this player yet.</p>';
+    return;
+  }
+  wrap.innerHTML = `
+    <div class="league-rank-grid">
+      <div class="league-rank-badge"><span class="league-rank-place">${Math.round(summary.avgPct)}%</span><span class="league-rank-label">Season average</span></div>
+      <div class="league-rank-badge${summary.firsts > 0 ? " league-rank-top" : ""}"><span class="league-rank-place">${summary.firsts}×</span><span class="league-rank-label">Times at #1</span></div>
+      <div class="league-rank-badge"><span class="league-rank-place">${summary.of}</span><span class="league-rank-label">of ${summary.of} parties</span></div>
+    </div>`;
+}
+
+function renderPlayerRealRecord(playerId) {
+  const wrap = document.getElementById("playerRealRecord");
+  if (!wrap) return;
+  const real = poolRealRecord(playerId);
+  if (!real) {
+    wrap.innerHTML = '<p class="empty-state">No real-site game record for this player yet.</p>';
+    return;
+  }
+  const row = computeLeaderboard().find(r => r.player.id === playerId);
+  const loggedGp = row ? row.gp : 0;
+  const loggedRecord = row ? `${row.wins}-${row.losses}${row.ties ? `-${row.ties}` : ""}` : "0-0";
+  const realWinPct = real.gp > 0 ? Math.round((real.w / real.gp) * 100) : 0;
+  wrap.innerHTML = `
+    <div class="league-rank-grid">
+      <div class="league-rank-badge"><span class="league-rank-place">${real.w}-${real.l}</span><span class="league-rank-label">Real record</span></div>
+      <div class="league-rank-badge"><span class="league-rank-place">${realWinPct}%</span><span class="league-rank-label">Real win rate</span></div>
+      <div class="league-rank-badge"><span class="league-rank-place">${real.gp}</span><span class="league-rank-label">Real games</span></div>
+    </div>
+    <p class="hint" style="margin:10px 0 0">Reviewed in this app: <strong>${escapeHtml(loggedRecord)}</strong> across ${loggedGp} game${loggedGp === 1 ? "" : "s"}, ${real.gp > 0 ? `${Math.round((loggedGp / real.gp) * 100)}% of the real total` : "—"}.</p>`;
+}
+
 function computeAwardsVsStats() {
   const standings = computeAwardStandings();
 
@@ -5862,12 +5934,12 @@ function renderAwardsVsStats() {
 
 // Historical per-party ("night") power rankings — Adam's real site computes a rank/percentile
 // per player per party and averages those into a season-long "power ranking" number; this is
-// that same frozen historical record (rankings_long in the season spreadsheet), not something
-// this tool derives. RANK 1 is best that night; PCT is field-size-normalized (100 = first place
-// that night, 0 = last), same definition the site uses. Only the 5 parties that actually have
-// logged game video are included here — the other 10 parties in the real record predate any
-// footage existing at all, so "performance on the night" could never be computed for them.
-const PARTY_RANKINGS = [
+// that same frozen historical record, not something this tool derives. RANK 1 is best that
+// night; PCT is field-size-normalized (100 = first place that night), same definition the site
+// uses. Sourced from POOLEAN_RANKINGS (poolean-external-data.js, built by build_poolean_data.py
+// from the real site's own data export) when that file is loaded; falls back to just the nights
+// that also have logged game film if it isn't, so this still works before anyone's run the export.
+const PARTY_RANKINGS = typeof POOLEAN_RANKINGS !== "undefined" ? POOLEAN_RANKINGS : [
   { date: "2026-07-29", players: [
     { slug: "ben", rank: 1, fieldSize: 5, pct: 100 }, { slug: "adam", rank: 2, fieldSize: 5, pct: 75 },
     { slug: "zach", rank: 3, fieldSize: 5, pct: 50 }, { slug: "g-ian", rank: 4, fieldSize: 5, pct: 25 },
@@ -5896,6 +5968,28 @@ const PARTY_RANKINGS = [
     { slug: "alex", rank: 5, fieldSize: 5, pct: 0 }
   ] }
 ];
+
+// Season-long power ranking summary for one player, straight off the full real-site history
+// (every party night, not just the ones with logged film -- unlike computePowerRankingVsPerformance()
+// above, which needs a reviewed game to compare against and so only covers a handful of nights).
+function computePowerRankingSummary(playerId) {
+  const nights = PARTY_RANKINGS.filter(party => party.players.some(p => p.slug === playerId));
+  if (nights.length === 0) return null;
+  let pctSum = 0, firsts = 0;
+  nights.forEach(party => {
+    const p = party.players.find(x => x.slug === playerId);
+    pctSum += p.pct;
+    if (p.rank === 1) firsts++;
+  });
+  return { avgPct: pctSum / nights.length, firsts, of: nights.length, nights };
+}
+
+// Real overall win-loss for one player across every game the site has ever recorded (POOLEAN_RECORD,
+// same source file as above) -- almost always more games than this app's own locally logged subset,
+// since re-logging a game shot-by-shot from film is real work nobody's caught up on for every game.
+function poolRealRecord(playerId) {
+  return typeof POOLEAN_RECORD !== "undefined" ? POOLEAN_RECORD[playerId] || null : null;
+}
 
 // For each historical party, pairs its frozen power ranking with that same player's *actual*
 // per-20 performance in just the games logged for that date — scoped per player to the games
@@ -9751,6 +9845,9 @@ function renderPlayerDetail() {
   // them), then defense detail (same shape, mirrored), then team context, then media. Keep the
   // two in sync.
   renderPlayerLeagueRank(player.id);
+  renderPlayerAwardBadges(player.id);
+  renderPlayerPowerRanking(player.id);
+  renderPlayerRealRecord(player.id);
   renderPlayerTips(player.id);
   renderNotableMatchups(player.id);
   renderSeasonHistoryPanel(player.id);
@@ -12250,8 +12347,10 @@ function escapeHtml(str) {
 // at load) covers every use of this instead of each render function wiring its own listener.
 // Deliberately NOT used in Stat Entry's live tagging pickers, roster/Balance Teams editing, RSVP,
 // or any <select>/<option> — those need the click for something other than navigation.
-function playerLink(id, name) {
-  return `<button type="button" class="icon-btn player-name-link" data-player-link="${id}">${escapeHtml(name)}</button>`;
+function playerLink(id, name, showAvatar = true) {
+  const player = showAvatar ? state.players.find(p => p.id === id) : null;
+  const avatar = player ? renderPlayerAvatar(player, "small") : "";
+  return `<button type="button" class="icon-btn player-name-link" data-player-link="${id}">${avatar}${escapeHtml(name)}</button>`;
 }
 function wirePlayerNameLinks() {
   document.addEventListener("click", e => {
