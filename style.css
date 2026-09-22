@@ -2092,3 +2092,13 @@ button:disabled {
 .shot-arc-facts li { margin: 3px 0; }
 .shot-arc-key-mine { background: var(--accent); }
 .shot-arc-key-league { background: var(--muted); }
+
+/* League Rank badges on the player page */
+.league-rank-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.league-rank-badge { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 84px; padding: 8px 10px; border-radius: 10px; background: var(--panel-alt-bg, color-mix(in srgb, var(--panel-bg) 92%, var(--fg) 8%)); border: 1px solid var(--border, transparent); }
+.league-rank-place { font-size: 1.15rem; font-weight: 700; line-height: 1; }
+.league-rank-label { font-size: 0.72rem; color: var(--muted); text-align: center; }
+.league-rank-of { font-size: 0.68rem; color: var(--muted); }
+.league-rank-badge.league-rank-top .league-rank-place { color: var(--accent); }
+.league-rank-badge.league-rank-first { background: color-mix(in srgb, var(--accent) 16%, var(--panel-bg)); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.league-rank-badge.league-rank-first .league-rank-place { color: var(--accent); }

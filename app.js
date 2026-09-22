@@ -9732,6 +9732,7 @@ function renderPlayerDetail() {
   // past-season context, then season overview, then offense detail (shots, then who defended
   // them), then defense detail (same shape, mirrored), then team context, then media. Keep the
   // two in sync.
+  renderPlayerLeagueRank(player.id);
   renderPlayerTips(player.id);
   renderNotableMatchups(player.id);
   renderSeasonHistoryPanel(player.id);
@@ -11378,6 +11379,57 @@ function renderPlayerShotArc(playerId) {
       <span class="legend-item"><span class="legend-dot shot-arc-key-mine"></span>This player</span>
       <span class="legend-item"><span class="legend-dot shot-arc-key-league"></span>League</span>
     </div>`;
+}
+
+// ---------- League Rank (player page) ----------
+// Quick "where does this player stand" badges next to the header, using the same season numbers
+// the Leaderboard already computes -- no new tracking. Same games-played bar as the Leaderboard
+// itself (LEAGUE_RANK_MIN_GP), so a player who has barely played doesn't crowd out real ranks.
+const LEAGUE_RANK_MIN_GP = 2;
+const LEAGUE_RANK_STATS = [
+  { key: "pts", label: "PTS/20", higherBetter: true, value: r => r.rate.pts },
+  { key: "ast", label: "AST/20", higherBetter: true, value: r => r.rate.ast },
+  { key: "stocks", label: "STL+BLK/20", higherBetter: true, value: r => r.rate.stl + r.rate.blk },
+  { key: "ts", label: "TS%", higherBetter: true, value: r => trueShootingPct(r.totals.pts, r.shooting.fga, r.shooting.fta) },
+  { key: "tov", label: "TOV/20", higherBetter: false, value: r => r.rate.tov },
+  { key: "offRating", label: "Off Rating/20", higherBetter: true, value: r => r.offRatingPer20 },
+  { key: "defRating", label: "Def Rating/20", higherBetter: true, value: r => r.twoWayPer20 - r.offRatingPer20 },
+  { key: "twoWay", label: "Two-Way/20", higherBetter: true, value: r => r.twoWayPer20 },
+  { key: "winShares", label: "Win Shares", higherBetter: true, value: r => r.winShares ? r.winShares.winShares : null }
+];
+
+function computeLeagueRanks(playerId) {
+  const board = computeLeaderboard().filter(r => r.gp >= LEAGUE_RANK_MIN_GP);
+  return LEAGUE_RANK_STATS.map(s => {
+    const entries = board.map(r => ({ id: r.player.id, value: s.value(r) })).filter(e => e.value !== null && e.value !== undefined && !Number.isNaN(e.value));
+    entries.sort((a, b) => s.higherBetter ? b.value - a.value : a.value - b.value);
+    const i = entries.findIndex(e => e.id === playerId);
+    return i === -1 ? null : { ...s, rank: i + 1, of: entries.length, value: entries[i].value };
+  }).filter(Boolean);
+}
+
+function renderPlayerLeagueRank(playerId) {
+  const wrap = document.getElementById("playerLeagueRank");
+  if (!wrap) return;
+  const ranks = computeLeagueRanks(playerId);
+  if (ranks.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">Needs at least 2 games played to show a league rank.</p>';
+    return;
+  }
+  wrap.innerHTML = ranks.map(r => {
+    const tier = r.rank === 1 ? " league-rank-first" : r.rank <= 3 ? " league-rank-top" : "";
+    const shown = r.decimals === undefined ? (Number.isInteger(r.value) ? r.value : r.value.toFixed(1)) : r.value.toFixed(r.decimals);
+    return `<div class="league-rank-badge${tier}" title="${escapeHtml(r.label)}: ${shown}${r.key === "ts" ? "%" : ""} among players with at least ${LEAGUE_RANK_MIN_GP} games played">
+      <span class="league-rank-place">${ordinal(r.rank)}</span>
+      <span class="league-rank-label">${escapeHtml(r.label)}</span>
+      <span class="league-rank-of">of ${r.of}</span>
+    </div>`;
+  }).join("");
+}
+
+function ordinal(n) {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
 // ---------- Review Shot Types (backfill and re-check) ----------
