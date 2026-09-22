@@ -549,7 +549,7 @@ function renderLeaderboardHighlights() {
   const topDuo = computeAssistConnections()[0];
   if (topDuo) {
     cards.push({ icon: "🤝", label: "Top Assist Duo", player: topDuo.passer,
-      detail: `${topDuo.count} assist${topDuo.count === 1 ? "" : "s"} to ${escapeHtml(topDuo.scorer.name)}` });
+      detail: `${topDuo.count} assist${topDuo.count === 1 ? "" : "s"} to ${playerLink(topDuo.scorer.id, topDuo.scorer.name)}` });
   }
 
   // League's top Def Rating/20 — every other card here leans offense/situational, so this rounds
@@ -724,7 +724,7 @@ function renderPlayers() {
     const tagsHtml = tags.length > 0
       ? `<span class="profile-tags"${tagsTitle}>${tags.map(t => `<span class="profile-tag profile-tag-${t.kind}">${escapeHtml(t.label)}</span>`).join("")}</span>`
       : "";
-    row.innerHTML = `<span class="roster-row-name">${renderPlayerAvatar(p)}${escapeHtml(p.name)}${tagsHtml}</span>`;
+    row.innerHTML = `<span class="roster-row-name">${renderPlayerAvatar(p)}${playerLink(p.id, p.name)}${tagsHtml}</span>`;
 
     const editBtn = document.createElement("button");
     editBtn.className = "icon-btn";
@@ -1224,9 +1224,9 @@ function renderGames() {
       if (performances.length >= 2) {
         const best = performances.reduce((a, b) => b.twoWay > a.twoWay ? b : a);
         const worst = performances.reduce((a, b) => b.twoWay < a.twoWay ? b : a);
-        starBadge = ` <span class="badge badge-highlight" title="Best individual performance this game by Two-Way score.">🔥 ${escapeHtml(best.player.name)} ${best.twoWay >= 0 ? "+" : ""}${best.twoWay.toFixed(1)}</span>`;
+        starBadge = ` <span class="badge badge-highlight" title="Best individual performance this game by Two-Way score.">🔥 ${playerLink(best.player.id, best.player.name)} ${best.twoWay >= 0 ? "+" : ""}${best.twoWay.toFixed(1)}</span>`;
         if (worst.player.id !== best.player.id) {
-          coldBadge = ` <span class="badge badge-lowlight" title="Worst individual performance this game by Two-Way score.">👎 ${escapeHtml(worst.player.name)} ${worst.twoWay >= 0 ? "+" : ""}${worst.twoWay.toFixed(1)}</span>`;
+          coldBadge = ` <span class="badge badge-lowlight" title="Worst individual performance this game by Two-Way score.">👎 ${playerLink(worst.player.id, worst.player.name)} ${worst.twoWay >= 0 ? "+" : ""}${worst.twoWay.toFixed(1)}</span>`;
         }
       }
     }
@@ -3456,14 +3456,14 @@ function renderScoringLog(game) {
     let resultBadge = made
       ? '<span class="badge badge-highlight">✅ Make</span>'
       : '<span class="badge badge-lowlight">❌ Miss</span>';
-    if (blocker) resultBadge += ` <span class="badge">Blocked: ${escapeHtml(blocker.name)}</span>`;
+    if (blocker) resultBadge += ` <span class="badge">Blocked: ${playerLink(blocker.id, blocker.name)}</span>`;
     if (ev.turnoverEventId) resultBadge += ' <span class="badge">Out of bounds → TOV</span>';
     if (rebounder) {
       const kind = sameTeam(game, ev.scorerId, rebounder.id) ? "OREB" : "DREB";
-      resultBadge += ` <span class="badge">${kind}: ${escapeHtml(rebounder.name)}</span>`;
+      resultBadge += ` <span class="badge">${kind}: ${playerLink(rebounder.id, rebounder.name)}</span>`;
       if ((ev.reboundContesterIds || []).length > 0) {
-        const contesterNames = ev.reboundContesterIds.map(id => state.players.find(p => p.id === id)?.name).filter(Boolean).join(" + ");
-        resultBadge += ` <span class="badge" title="Rebound Battles: who was contesting ${escapeHtml(rebounder.name)}">Contested by: ${escapeHtml(contesterNames)}</span>`;
+        const contesterNames = playerLinksJoined((ev.reboundContesterIds || []).filter(id => state.players.some(p => p.id === id)));
+        resultBadge += ` <span class="badge" title="Rebound Battles: who was contesting ${escapeHtml(rebounder.name)}">Contested by: ${contesterNames}</span>`;
       } else if (ev.reboundNoContest) {
         resultBadge += ` <span class="badge" title="Rebound Battles: reviewed, nobody was actually contesting this rebound">No contest</span>`;
       }
@@ -3475,11 +3475,11 @@ function renderScoringLog(game) {
     }
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${scorer ? escapeHtml(scorer.name) : "?"}</td>
+      <td>${scorer ? playerLink(scorer.id, scorer.name) : "?"}</td>
       <td>${resultBadge}</td>
       <td>${ev.points}</td>
-      <td>${assister ? escapeHtml(assister.name) : "—"}</td>
-      <td>${defenderNames(ev.defenderIds)}</td>
+      <td>${assister ? playerLink(assister.id, assister.name) : "—"}</td>
+      <td>${defenderNamesLinked(ev.defenderIds)}</td>
       <td>${formatVideoTime(ev.videoTime)}</td>
     `;
     const tdJump = document.createElement("td");
@@ -4236,6 +4236,23 @@ function defenderNames(defenderIds) {
   }).join(" + ");
 }
 
+// Same as defenderNames() but each name links to that player's page -- for HTML display only
+// (defenderNames() itself stays plain text, since it also feeds the CSV export and sort keys).
+function defenderNamesLinked(defenderIds) {
+  if (!defenderIds || defenderIds.length === 0) return "No defender";
+  return defenderIds.map(id => {
+    const p = state.players.find(pl => pl.id === id);
+    return p ? playerLink(p.id, p.name) : "?";
+  }).join(" + ");
+}
+
+function playerLinksJoined(ids, sep = " + ") {
+  return ids.map(id => {
+    const p = state.players.find(pl => pl.id === id);
+    return p ? playerLink(p.id, p.name) : "?";
+  }).join(sep);
+}
+
 // `asRate` formats m/a to one decimal (per-20 rate values, e.g. "12.3/20.0 (61%)") instead of
 // plain integers (raw counts, e.g. "8/13 (61%)") — same "m/a (pct%)" shape either way.
 function formatShootingSplit(m, a, asRate = false) {
@@ -4341,7 +4358,7 @@ function renderGameStatsTable(game) {
   rows.forEach(r => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td class="sticky-col">${escapeHtml(r.player.name)}</td>
+      <td class="sticky-col">${playerLink(r.player.id, r.player.name)}</td>
       <td>${r.team}</td>
       <td>${r.s.pts}</td>
       <td>${formatShootingSplit(r.sh.fgm, r.sh.fga)}</td>
@@ -5359,7 +5376,7 @@ function renderGameWinningBucketsPanel() {
   const rows = computeGameWinningBuckets();
   body.innerHTML = rows.length === 0
     ? '<tr><td colspan="2" class="empty-state">No game-winning buckets identified yet. Needs a timestamped make that closes out a decided game.</td></tr>'
-    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.count}</td></tr>`).join("");
+    : rows.map(r => `<tr><td>${playerLink(r.player.id, r.player.name)}</td><td>${r.count}</td></tr>`).join("");
 }
 
 // League-wide Defensive Load table (see computeDefensiveLoad()/describeDefensiveLoad() above) --
@@ -5480,7 +5497,7 @@ function renderCloseGameShootingPanel() {
   rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), closeGameShootingSort.dir));
   body.innerHTML = rows.length === 0
     ? `<tr><td colspan="4" class="empty-state">No games decided by ${clutchMarginThreshold()} points or fewer yet.</td></tr>`
-    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.gp}</td><td>${r.attempts}</td><td>${formatPct(r.ts)}</td></tr>`).join("");
+    : rows.map(r => `<tr><td>${playerLink(r.player.id, r.player.name)}</td><td>${r.gp}</td><td>${r.attempts}</td><td>${formatPct(r.ts)}</td></tr>`).join("");
 }
 
 // ---------- Close-Game Defense (see poolean-defensive-mirrors-spec.md) ----------
@@ -5534,7 +5551,7 @@ function renderCloseGameDefensePanel() {
   rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), closeGameDefenseSort.dir));
   body.innerHTML = rows.length === 0
     ? `<tr><td colspan="4" class="empty-state">No games decided by ${clutchMarginThreshold()} points or fewer yet.</td></tr>`
-    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.gp}</td><td>${r.attempts}</td><td>${formatPct(r.oppFgPct)}</td></tr>`).join("");
+    : rows.map(r => `<tr><td>${playerLink(r.player.id, r.player.name)}</td><td>${r.gp}</td><td>${r.attempts}</td><td>${formatPct(r.oppFgPct)}</td></tr>`).join("");
 }
 
 // Best & Worst Individual Games — ranks every player-game line by that single game's actual
@@ -5803,15 +5820,15 @@ function renderAwardsVsStats() {
     const isExpanded = expandedAwards.has(award.key);
     const winnersHtml = award.winners.map(w => `
       <div class="award-winner">
-        <span class="award-winner-name">${w.player ? escapeHtml(w.player.name) : `${escapeHtml(w.slug)} (not in current roster)`}</span>
+        <span class="award-winner-name">${w.player ? playerLink(w.player.id, w.player.name) : `${escapeHtml(w.slug)} (not in current roster)`}</span>
         <span class="hint" style="margin:0">${escapeHtml(w.detail)}</span>
       </div>
     `).join("");
     const votedHtml = award.votedStandings && award.votedStandings.length > 0
-      ? `<ol class="award-standings">${award.votedStandings.map(v => `<li><span class="award-standings-name">${escapeHtml(v.name)}</span><span class="hint" style="margin:0">${v.points} pt${v.points === 1 ? "" : "s"}</span></li>`).join("")}</ol>`
+      ? `<ol class="award-standings">${award.votedStandings.map(v => { const vp = state.players.find(pl => pl.id === v.slug); return `<li><span class="award-standings-name">${vp ? playerLink(vp.id, v.name) : escapeHtml(v.name)}</span><span class="hint" style="margin:0">${v.points} pt${v.points === 1 ? "" : "s"}</span></li>`; }).join("")}</ol>`
       : '<p class="empty-state" style="margin:0">No ballot data for this award.</p>';
     const statHtml = award.standings.length > 0
-      ? `<ol class="award-standings">${award.standings.map(s => `<li><span class="award-standings-name">${escapeHtml(s.player.name)}</span><span class="hint" style="margin:0">${escapeHtml(s.display)}</span></li>`).join("")}</ol>`
+      ? `<ol class="award-standings">${award.standings.map(s => `<li><span class="award-standings-name">${playerLink(s.player.id, s.player.name)}</span><span class="hint" style="margin:0">${escapeHtml(s.display)}</span></li>`).join("")}</ol>`
       : '<p class="empty-state" style="margin:0">No standings yet for this stat.</p>';
     const standingsHtml = isExpanded
       ? `
@@ -5916,7 +5933,7 @@ function renderPowerRankingVsPerformance() {
     const rowsHtml = party.players.map(r => `
       <tr>
         <td>${r.rank} <span class="hint" style="margin:0">(of ${r.fieldSize})</span></td>
-        <td>${r.player ? escapeHtml(r.player.name) : `${escapeHtml(r.slug)} (not in current roster)`}</td>
+        <td>${r.player ? playerLink(r.player.id, r.player.name) : `${escapeHtml(r.slug)} (not in current roster)`}</td>
         <td>${r.pct}%</td>
         <td>${r.perf ? `${r.perf.twoWayPer20.toFixed(1)} <span class="hint" style="margin:0">(${r.perf.gp} game${r.perf.gp === 1 ? "" : "s"})</span>` : "—"}</td>
       </tr>
@@ -6245,7 +6262,7 @@ function renderPlayStyleClusters() {
         <div class="play-style-cluster">
           <h4>${escapeHtml(c.label)} <span class="hint" style="margin:0">(${c.members.length})</span></h4>
           <p class="hint play-style-explain">${escapeHtml(c.explain)}</p>
-          <ul>${c.members.map(m => `<li>${renderPlayerAvatar(m.player)}${escapeHtml(m.player.name)}</li>`).join("")}</ul>
+          <ul>${c.members.map(m => `<li>${renderPlayerAvatar(m.player)}${playerLink(m.player.id, m.player.name)}</li>`).join("")}</ul>
         </div>
       `).join("")}
     </div>
@@ -6395,7 +6412,7 @@ function renderMatchupGrid() {
     wrap.innerHTML = '<p class="empty-state">No shots with a tagged defender yet.</p>';
     return;
   }
-  const headerHtml = defenders.map(d => `<th>${escapeHtml(d.name)}</th>`).join("");
+  const headerHtml = defenders.map(d => `<th>${playerLink(d.id, d.name)}</th>`).join("");
   const rowsHtml = scorers.map(scorer => {
     const cellsHtml = defenders.map(defender => {
       const cell = cellFor(scorer.id, defender.id);
@@ -6405,7 +6422,7 @@ function renderMatchupGrid() {
       const opacity = Math.min(0.85, 0.32 + cell.fga * 0.08);
       return `<td class="matchup-grid-cell" style="background: hsla(${hue}, 85%, 42%, ${opacity})" title="${escapeHtml(scorer.name)} vs. ${escapeHtml(defender.name)}: ${cell.fgm}/${cell.fga}">${fgPct}%</td>`;
     }).join("");
-    return `<tr><td class="sticky-col">${escapeHtml(scorer.name)}</td>${cellsHtml}</tr>`;
+    return `<tr><td class="sticky-col">${playerLink(scorer.id, scorer.name)}</td>${cellsHtml}</tr>`;
   }).join("");
   wrap.innerHTML = `
     <div class="table-scroll">
@@ -6466,7 +6483,7 @@ function renderWideOpenShootingPanel() {
   rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), wideOpenSort.dir));
   body.innerHTML = rows.length === 0
     ? '<tr><td colspan="4" class="empty-state">No field goals without a tagged defender yet.</td></tr>'
-    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.wideOpenFga}</td><td>${formatPct(r.share)}</td><td>${formatPct(r.ts)}</td></tr>`).join("");
+    : rows.map(r => `<tr><td>${playerLink(r.player.id, r.player.name)}</td><td>${r.wideOpenFga}</td><td>${formatPct(r.share)}</td><td>${formatPct(r.ts)}</td></tr>`).join("");
 }
 
 // League-wide Assist Connections is trimmed to "top by count," not the full O(players^2) list —
@@ -6485,7 +6502,7 @@ function renderAssistSynergy() {
   const rows = computeAssistConnections().slice(0, rowLimit);
   body.innerHTML = rows.length === 0
     ? '<tr><td colspan="3" class="empty-state">No assists logged yet.</td></tr>'
-    : rows.map(r => `<tr><td>${escapeHtml(r.passer.name)}</td><td>${escapeHtml(r.scorer.name)}</td><td>${r.count}</td></tr>`).join("");
+    : rows.map(r => `<tr><td>${playerLink(r.passer.id, r.passer.name)}</td><td>${playerLink(r.scorer.id, r.scorer.name)}</td><td>${r.count}</td></tr>`).join("");
 }
 
 // Teammate Lift Matrix — the same pairwise With/Without comparison Average Teammate Lift (the
@@ -6526,7 +6543,7 @@ function renderTeammateLiftMatrix() {
     wrap.innerHTML = '<p class="empty-state">Not enough With/Without games logged yet for any pairing.</p>';
     return;
   }
-  const headerHtml = players.map(p => `<th>${escapeHtml(p.name)}</th>`).join("");
+  const headerHtml = players.map(p => `<th>${playerLink(p.id, p.name)}</th>`).join("");
   const rowsHtml = players.map(rowP => {
     const cellsHtml = players.map(colP => {
       if (rowP.id === colP.id) return '<td class="matchup-grid-cell matchup-grid-empty">&#8212;</td>';
@@ -6538,7 +6555,7 @@ function renderTeammateLiftMatrix() {
       const sign = cell.lift >= 0 ? "+" : "";
       return `<td class="matchup-grid-cell" style="background: hsla(${hue}, 70%, 45%, ${opacity})" title="With ${escapeHtml(rowP.name)} on their team, ${escapeHtml(colP.name)}'s Two-Way/20 is ${sign}${cell.lift.toFixed(1)} (${cell.withGp} with / ${cell.withoutGp} without)">${sign}${cell.lift.toFixed(1)}</td>`;
     }).join("");
-    return `<tr><td class="sticky-col">${escapeHtml(rowP.name)}</td>${cellsHtml}</tr>`;
+    return `<tr><td class="sticky-col">${playerLink(rowP.id, rowP.name)}</td>${cellsHtml}</tr>`;
   }).join("");
   wrap.innerHTML = `
     <div class="table-scroll">
@@ -6593,7 +6610,7 @@ function renderTeammateContextPanel() {
   body.innerHTML = rows.length === 0
     ? '<tr><td colspan="8" class="empty-state">No games with players yet.</td></tr>'
     : rows.map(r => `<tr>
-        <td>${escapeHtml(r.player.name)}</td>
+        <td>${playerLink(r.player.id, r.player.name)}</td>
         <td>${r.gp}</td>
         <td>${r.offRatingPer20.toFixed(1)}</td>
         <td>${r.teammateQuality !== null ? r.teammateQuality.toFixed(1) : "—"}</td>
@@ -6735,7 +6752,7 @@ function renderShotZonePanel() {
       const share = (a / total) * 100;
       return `<div class="shot-seg ${z.cssClass}" style="width:${share}%"><title>${escapeHtml(r.player.name)}: ${a} ${escapeHtml(z.label)} attempt${a === 1 ? "" : "s"} (${Math.round(share)}%)</title></div>`;
     }).join("");
-    return `<tr><td>${escapeHtml(r.player.name)}</td>${zoneCellsHtml}<td>${total}</td><td><div class="shot-selection-bar">${mixHtml}</div></td></tr>`;
+    return `<tr><td>${playerLink(r.player.id, r.player.name)}</td>${zoneCellsHtml}<td>${total}</td><td><div class="shot-selection-bar">${mixHtml}</div></td></tr>`;
   }).join("");
 }
 
@@ -6801,7 +6818,7 @@ function renderDefensiveShotZonePanel() {
       const share = (a / total) * 100;
       return `<div class="shot-seg ${z.cssClass}" style="width:${share}%"><title>${escapeHtml(r.player.name)}: ${a} ${escapeHtml(z.label)} attempt${a === 1 ? "" : "s"} allowed (${Math.round(share)}%)</title></div>`;
     }).join("");
-    return `<tr><td>${escapeHtml(r.player.name)}</td>${zoneCellsHtml}<td>${total}</td><td><div class="shot-selection-bar">${mixHtml}</div></td></tr>`;
+    return `<tr><td>${playerLink(r.player.id, r.player.name)}</td>${zoneCellsHtml}<td>${total}</td><td><div class="shot-selection-bar">${mixHtml}</div></td></tr>`;
   }).join("");
 }
 
@@ -7060,7 +7077,7 @@ function renderPointsOffTakeawaysPanel() {
   const body = document.getElementById("pointsOffTakeawaysBody");
   body.innerHTML = rows.length === 0
     ? '<tr><td colspan="4" class="empty-state">No steals logged yet.</td></tr>'
-    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.pointsOffTakeaways.takeaways}</td><td>${r.pointsOffTakeaways.pointsOff}</td><td>${r.pointsOffTakeaways.perTakeaway.toFixed(2)}</td></tr>`).join("");
+    : rows.map(r => `<tr><td>${playerLink(r.player.id, r.player.name)}</td><td>${r.pointsOffTakeaways.takeaways}</td><td>${r.pointsOffTakeaways.pointsOff}</td><td>${r.pointsOffTakeaways.perTakeaway.toFixed(2)}</td></tr>`).join("");
 }
 
 // ---------- Turnover Credit Rate (see poolean-shot-creation-and-mirrors-spec.md) ----------
@@ -7287,7 +7304,7 @@ function renderReboundBattleGridPanel() {
     wrap.innerHTML = `<p class="empty-state">Nobody has ${REBOUND_BATTLE_MIN_CONTESTS}+ real rebound contests yet.</p>`;
     return;
   }
-  const headerHtml = players.map(p => `<th>${escapeHtml(p.name)}</th>`).join("");
+  const headerHtml = players.map(p => `<th>${playerLink(p.id, p.name)}</th>`).join("");
   const rowsHtml = players.map(row => {
     const cellsHtml = players.map(col => {
       if (row.id === col.id) return `<td class="matchup-grid-cell matchup-grid-empty">&#8212;</td>`;
@@ -7297,7 +7314,7 @@ function renderReboundBattleGridPanel() {
       const opacity = Math.min(0.85, 0.32 + cell.total * 0.08);
       return `<td class="matchup-grid-cell" style="background: hsla(${hue}, 85%, 42%, ${opacity})" title="${escapeHtml(row.name)} vs. ${escapeHtml(col.name)}: ${cell.wins}-${cell.losses}">${cell.winPct}%</td>`;
     }).join("");
-    return `<tr><td class="sticky-col">${escapeHtml(row.name)}</td>${cellsHtml}</tr>`;
+    return `<tr><td class="sticky-col">${playerLink(row.id, row.name)}</td>${cellsHtml}</tr>`;
   }).join("");
   wrap.innerHTML = `
     <div class="table-scroll">
@@ -7828,7 +7845,7 @@ function renderSecondChancePanel() {
   const body = document.getElementById("secondChanceBody");
   body.innerHTML = rows.length === 0
     ? '<tr><td colspan="4" class="empty-state">No offensive rebounds logged yet.</td></tr>'
-    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.oreb}</td><td>${r.converted}</td><td>${formatPct(pct(r.converted, r.oreb))}</td></tr>`).join("");
+    : rows.map(r => `<tr><td>${playerLink(r.player.id, r.player.name)}</td><td>${r.oreb}</td><td>${r.converted}</td><td>${formatPct(pct(r.converted, r.oreb))}</td></tr>`).join("");
 }
 
 // ---------- Second-Chance Points Allowed (see poolean-rebound-battle-panels-spec.md) ----------
@@ -7921,7 +7938,7 @@ function renderSecondChanceAllowedPanel() {
         // a thin sample doesn't read as equally settled next to a real one.
         const thin = r.situations < REBOUND_BATTLE_MIN_CONTESTS;
         const thinFlag = thin ? ` <span class="hint" style="margin:0" title="Fewer than ${REBOUND_BATTLE_MIN_CONTESTS} situations: too little data to treat as a settled number yet">(small sample)</span>` : "";
-        return `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.situations}${thinFlag}</td><td>${r.allowed}</td><td>${formatPct(pct(r.allowed, r.situations))}</td></tr>`;
+        return `<tr><td>${playerLink(r.player.id, r.player.name)}</td><td>${r.situations}${thinFlag}</td><td>${r.allowed}</td><td>${formatPct(pct(r.allowed, r.situations))}</td></tr>`;
       }).join("");
 }
 
@@ -7962,7 +7979,7 @@ function renderOutOfBoundsPanel() {
   const body = document.getElementById("outOfBoundsBody");
   body.innerHTML = rows.length === 0
     ? '<tr><td colspan="4" class="empty-state">No missed shots logged yet.</td></tr>'
-    : rows.map(r => `<tr><td>${escapeHtml(r.player.name)}</td><td>${r.misses}</td><td>${r.oob}</td><td>${formatPct(pct(r.oob, r.misses))}</td></tr>`).join("");
+    : rows.map(r => `<tr><td>${playerLink(r.player.id, r.player.name)}</td><td>${r.misses}</td><td>${r.oob}</td><td>${formatPct(pct(r.oob, r.misses))}</td></tr>`).join("");
 }
 
 // Same per-20 math as computeLeaderboard(), just scoped to a specific subset of one player's
@@ -8778,7 +8795,7 @@ function renderTeammateSynergy(playerId) {
   const fmt = (v, gp) => gp > 0 ? v.toFixed(1) : "—";
   body.innerHTML = rows.length === 0
     ? '<tr><td colspan="7" class="empty-state">No games with teammates and real shots logged yet.</td></tr>'
-    : rows.map(r => `<tr><td>${escapeHtml(r.teammate.name)}</td><td>${r.with.gp}</td><td>${r.without.gp}</td><td>${fmt(r.with.offRatingPer20, r.with.gp)}</td><td>${fmt(r.without.offRatingPer20, r.without.gp)}</td><td>${fmt(r.with.twoWayPer20, r.with.gp)}</td><td>${fmt(r.without.twoWayPer20, r.without.gp)}</td></tr>`).join("");
+    : rows.map(r => `<tr><td>${playerLink(r.teammate.id, r.teammate.name)}</td><td>${r.with.gp}</td><td>${r.without.gp}</td><td>${fmt(r.with.offRatingPer20, r.with.gp)}</td><td>${fmt(r.without.offRatingPer20, r.without.gp)}</td><td>${fmt(r.with.twoWayPer20, r.with.gp)}</td><td>${fmt(r.without.twoWayPer20, r.without.gp)}</td></tr>`).join("");
 }
 
 // Per-game Two-Way/20 over the season for one player — the line-graph version of the "Last 5: X
@@ -9221,7 +9238,7 @@ function renderAssistedByPanel(playerId) {
     : "";
   const rows = assisters.length === 0
     ? '<tr><td colspan="3" class="empty-state">No assisted makes yet.</td></tr>'
-    : assisters.map(a => `<tr><td>${escapeHtml(a.player.name)}</td><td>${a.assists}</td><td>${a.offRatingPer20 !== null ? a.offRatingPer20.toFixed(1) : "—"}</td></tr>`).join("");
+    : assisters.map(a => `<tr><td>${playerLink(a.player.id, a.player.name)}</td><td>${a.assists}</td><td>${a.offRatingPer20 !== null ? a.offRatingPer20.toFixed(1) : "—"}</td></tr>`).join("");
   wrap.innerHTML = `
     <p class="hint" style="margin:0 0 10px">${assistedFgm} of ${fgm} makes were assisted (${formatPct(assistedPct)}${assistedPctNote})${qualityNote}.</p>
     <div class="table-scroll">
@@ -9683,7 +9700,7 @@ function renderPlayerComparison() {
   wrap.innerHTML = `
     <div class="table-scroll">
       <table class="matchup-table compare-table">
-        <thead><tr><th></th><th>${escapeHtml(row1.player.name)}</th><th>${escapeHtml(row2.player.name)}</th></tr></thead>
+        <thead><tr><th></th><th>${playerLink(row1.player.id, row1.player.name)}</th><th>${playerLink(row2.player.id, row2.player.name)}</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
     </div>
@@ -9883,7 +9900,7 @@ function renderLeagueHighlights() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${formatDateDisplay(clip.gameDate)}</td>
-      <td>${escapeHtml(clip.player.name)}</td>
+      <td>${playerLink(clip.player.id, clip.player.name)}</td>
       <td>${clip.type === "highlight" ? '<span class="badge badge-highlight">🔥 Highlight</span>' : '<span class="badge badge-lowlight">👎 Lowlight</span>'}</td>
       <td>${formatTime(clip.start)}–${formatTime(clip.end)}</td>
       <td>${escapeHtml(clip.note || "")}</td>
@@ -10418,7 +10435,7 @@ function renderHeadToHead(playerId) {
   scorerRows.sort((a, b) => compareForSort(scorerSortCol.accessor(a), scorerSortCol.accessor(b), h2hScorerSort.dir));
   scorerBody.innerHTML = scorerRows.length === 0
     ? '<tr><td colspan="3" class="empty-state">No tagged shots yet.</td></tr>'
-    : scorerRows.map(r => `<tr><td>${r.defender ? escapeHtml(r.defender.name) : "No defender"}</td><td>${formatShootingSplit(r.fgm, r.fga)}</td><td>${formatPct(pct(r.fgm, r.fga))}</td></tr>`).join("");
+    : scorerRows.map(r => `<tr><td>${r.defender ? playerLink(r.defender.id, r.defender.name) : "No defender"}</td><td>${formatShootingSplit(r.fgm, r.fga)}</td><td>${formatPct(pct(r.fgm, r.fga))}</td></tr>`).join("");
 
   const defenderHeaderRow = document.getElementById("h2hDefenderHeaderRow");
   const defenderBody = document.getElementById("h2hDefenderBody");
@@ -10428,7 +10445,7 @@ function renderHeadToHead(playerId) {
   defenderRows.sort((a, b) => compareForSort(defenderSortCol.accessor(a), defenderSortCol.accessor(b), h2hDefenderSort.dir));
   defenderBody.innerHTML = defenderRows.length === 0
     ? '<tr><td colspan="3" class="empty-state">No tagged shots yet.</td></tr>'
-    : defenderRows.map(r => `<tr><td>${r.scorer ? escapeHtml(r.scorer.name) : "?"}</td><td>${formatShootingSplit(r.fgm, r.fga)}</td><td>${formatPct(pct(r.fgm, r.fga))}</td></tr>`).join("");
+    : defenderRows.map(r => `<tr><td>${r.scorer ? playerLink(r.scorer.id, r.scorer.name) : "?"}</td><td>${formatShootingSplit(r.fgm, r.fga)}</td><td>${formatPct(pct(r.fgm, r.fga))}</td></tr>`).join("");
 }
 
 // ---------- Export ----------
@@ -10957,7 +10974,7 @@ function renderDunkReview() {
     const hasTime = ev.videoTime !== null && ev.videoTime !== undefined;
     const watchLinks = watchFilmLinksHtml(hasTime ? [{ id: game.id, date: game.date, videoTime: ev.videoTime }] : []);
     return `<li data-event-id="${ev.id}">
-      <span>${scorer ? escapeHtml(scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt, ${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
+      <span>${scorer ? playerLink(scorer.id, scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt, ${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
       <div class="button-row" style="margin-top:4px">
         <button type="button" class="secondary-btn" data-mark-dunk="${ev.id}">🏀 Dunk</button>
         <button type="button" class="secondary-btn" data-mark-notdunk="${ev.id}">Not a dunk</button>
@@ -11585,7 +11602,7 @@ function renderShotTypeReview() {
     const band = ev.shotLocation ? ` · ${escapeHtml(({ close: "close", mid: "midrange", arc: "at the line", deep: "deep" })[shotBand(ev.shotLocation, ev.points)])}` : "";
     const guarded = (ev.defenderIds || []).length > 0 ? " · guarded" : " · no defender tagged";
     return `<li data-event-id="${ev.id}">
-      <span>${scorer ? escapeHtml(scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt${band}${recheck ? guarded : ""}, ${escapeHtml(formatDateDisplay(game.date))})${recheck ? ` · currently ${escapeHtml(shotTypeLabel(ev.shotType))}` : ""}${watchLinks}</span>
+      <span>${scorer ? playerLink(scorer.id, scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt${band}${recheck ? guarded : ""}, ${escapeHtml(formatDateDisplay(game.date))})${recheck ? ` · currently ${escapeHtml(shotTypeLabel(ev.shotType))}` : ""}${watchLinks}</span>
       <div class="button-row" style="margin-top:4px">
         ${shotTypeButtonsHtml(recheck ? ev.shotType : null, "mark-shot-type")}
         <button type="button" class="icon-btn" data-skip-shot-type="${ev.id}">${recheck ? "Looks right" : "Skip"}</button>
@@ -11754,7 +11771,7 @@ function renderReboundBattleReview() {
     const contesters = contesterIds.map(id => state.players.find(p => p.id === id)).filter(Boolean);
     const kind = rebounderOnScorerSide ? "OREB" : "DREB";
     return `<li data-event-id="${ev.id}">
-      <span>${scorer ? escapeHtml(scorer.name) : "?"} miss, ${kind} by ${rebounder ? escapeHtml(rebounder.name) : "?"} (${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
+      <span>${scorer ? playerLink(scorer.id, scorer.name) : "?"} miss, ${kind} by ${rebounder ? playerLink(rebounder.id, rebounder.name) : "?"} (${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
       <div class="button-row" style="margin-top:4px">
         ${contesters.map(c => `<button type="button" class="secondary-btn" data-tag-contester="${ev.id}" data-contester-id="${c.id}">${escapeHtml(c.name)} contested</button>`).join("")}
         <button type="button" class="secondary-btn" data-no-contest="${ev.id}">No contest</button>
@@ -11896,7 +11913,7 @@ function renderBackfillShotLocations() {
       row.className = ev.shotLocation ? "backfill-shot-row backfill-shot-row-marked" : "backfill-shot-row";
       row.innerHTML = `
         <div class="backfill-shot-label">
-          ${scorer ? escapeHtml(scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt)
+          ${scorer ? playerLink(scorer.id, scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt)
         </div>
         <button type="button" class="secondary-btn" data-watch="1" ${hasTime ? "" : "disabled"}>▶ Watch</button>
         ${renderShotChartBaseSvg("data-shot-chart")}
@@ -12033,7 +12050,7 @@ function renderFlaggedShotMismatches() {
       row.className = "backfill-shot-row backfill-shot-row-marked";
       row.innerHTML = `
         <div class="backfill-shot-label">
-          ${scorer ? escapeHtml(scorer.name) : "?"}: picked ${ev.points}pt, marked at 📍 ${zoneLabel}
+          ${scorer ? playerLink(scorer.id, scorer.name) : "?"}: picked ${ev.points}pt, marked at 📍 ${zoneLabel}
         </div>
         <button type="button" class="secondary-btn" data-watch="1" ${hasTime ? "" : "disabled"}>▶ Watch</button>
         ${renderShotChartBaseSvg("data-shot-chart")}
@@ -12228,6 +12245,21 @@ function escapeHtml(str) {
   }[c]));
 }
 
+// A player's name, wherever it's shown read-only (tables, lists, tips, chart keys), as a link to
+// their Player Detail page. One shared delegated click handler (wirePlayerNameLinks(), called once
+// at load) covers every use of this instead of each render function wiring its own listener.
+// Deliberately NOT used in Stat Entry's live tagging pickers, roster/Balance Teams editing, RSVP,
+// or any <select>/<option> — those need the click for something other than navigation.
+function playerLink(id, name) {
+  return `<button type="button" class="icon-btn player-name-link" data-player-link="${id}">${escapeHtml(name)}</button>`;
+}
+function wirePlayerNameLinks() {
+  document.addEventListener("click", e => {
+    const btn = e.target.closest("[data-player-link]");
+    if (btn) openPlayerDetail(btn.dataset.playerLink);
+  });
+}
+
 // Wraps every panel's explanatory paragraph (the <p class="hint"> immediately after a panel's
 // <h2>) in a collapsed <details>/<summary> — the app has grown enough panels that a page full of
 // always-visible explainer paragraphs was more wall-of-text than helpful; each one's still there
@@ -12251,6 +12283,7 @@ function collapseSectionHints() {
 collapseSectionHints();
 wirePlayerSectionNav();
 wireLeaderboardSectionNav();
+wirePlayerNameLinks();
 renderPlayers();
 document.getElementById("rsvpDateInput").value = new Date().toISOString().slice(0, 10);
 loadRsvpForDate(document.getElementById("rsvpDateInput").value);

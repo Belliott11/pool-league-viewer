@@ -2158,3 +2158,11 @@ button:disabled {
   margin-bottom: 12px;
 }
 .player-section-body .panel:last-child { margin-bottom: 0; }
+
+.player-name-link {
+  color: inherit;
+  font-weight: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.player-name-link:hover { color: var(--accent); text-decoration: underline; }
