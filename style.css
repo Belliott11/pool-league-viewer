@@ -2189,3 +2189,61 @@ button:disabled {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .award-badge-sub { color: var(--muted); font-weight: 400; font-size: 0.75rem; }
+
+/* Poolean Awards UI: avatar ring, marquee, tiered badge grid */
+:root {
+  --award-gold: #E3A93A; --award-gold-glow: rgba(227,169,58,.55);
+  --award-silver: #3FE0D4; --award-silver-dark: #0F8C82; --award-silver-glow: rgba(63,224,212,.5);
+  --award-bronze: #F0873A; --award-bronze-dark: #C0521C; --award-bronze-glow: rgba(240,135,58,.5);
+  --award-none: #565C68;
+}
+.player-avatar-large { outline: 2px solid var(--line, var(--border, color-mix(in srgb, var(--muted) 40%, transparent))); outline-offset: 3px; }
+.player-avatar-ring-gold-current { outline: 3px solid var(--award-gold); outline-offset: 3px; box-shadow: 0 0 12px 2px var(--award-gold-glow); }
+.player-avatar-ring-gold-past { outline: 2px solid var(--award-gold); outline-offset: 3px; }
+.player-avatar-ring-silver-current { outline: 3px solid var(--award-silver); outline-offset: 3px; box-shadow: 0 0 12px 2px var(--award-silver-glow); }
+.player-avatar-ring-silver-past { outline: 2px solid var(--award-silver); outline-offset: 3px; }
+.player-avatar-ring-bronze-current { outline: 3px solid var(--award-bronze); outline-offset: 3px; box-shadow: 0 0 12px 2px var(--award-bronze-glow); }
+.player-avatar-ring-bronze-past { outline: 2px solid var(--award-bronze); outline-offset: 3px; }
+
+.award-marquee {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px; margin-bottom: 12px; border-radius: 12px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--award-gold) 22%, var(--panel-bg)), var(--panel-bg));
+  border: 1px solid color-mix(in srgb, var(--award-gold) 50%, transparent);
+}
+.award-marquee-icon { font-size: 2.2rem; line-height: 1; }
+.award-marquee-text { display: flex; flex-direction: column; gap: 2px; }
+.award-marquee-text strong { font-size: 1.1rem; color: var(--award-gold); }
+.award-marquee-text span { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+.award-badge-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 640px) { .award-badge-grid { grid-template-columns: repeat(2, 1fr); } }
+.award-badge {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 3px;
+  padding: 12px 8px; border-radius: 10px; border: 1px solid transparent;
+}
+.award-badge-icon { font-size: 1.4rem; line-height: 1; }
+.award-badge-label { font-size: 0.78rem; font-weight: 700; }
+.award-badge-sub { font-size: 0.7rem; color: var(--muted); }
+.award-badge-gold { background: color-mix(in srgb, var(--award-gold) 16%, var(--panel-bg)); border-color: color-mix(in srgb, var(--award-gold) 45%, transparent); }
+.award-badge-gold .award-badge-label { color: var(--award-gold); }
+.award-badge-silver { background: linear-gradient(160deg, color-mix(in srgb, var(--award-silver) 18%, var(--panel-bg)), color-mix(in srgb, var(--award-silver-dark) 12%, var(--panel-bg))); border-color: color-mix(in srgb, var(--award-silver) 45%, transparent); }
+.award-badge-silver .award-badge-label { color: var(--award-silver); }
+.award-badge-bronze { background: linear-gradient(160deg, color-mix(in srgb, var(--award-bronze) 18%, var(--panel-bg)), color-mix(in srgb, var(--award-bronze-dark) 12%, var(--panel-bg))); border-color: color-mix(in srgb, var(--award-bronze) 45%, transparent); }
+.award-badge-bronze .award-badge-label { color: var(--award-bronze); }
+.award-badge-untiered { background: var(--panel-bg); border: 1px dashed color-mix(in srgb, var(--award-none) 70%, transparent); opacity: 0.75; }
+.award-badge-untiered .award-badge-icon { filter: grayscale(1); }
+.award-badge-untiered .award-badge-label { color: var(--muted); }
+
+/* Real Partners & Matchups tiles */
+.real-partner-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+@media (max-width: 520px) { .real-partner-grid { grid-template-columns: 1fr; } }
+.real-partner-tile {
+  display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+  padding: 10px 12px; border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-bg) 88%, var(--fg) 12%);
+  border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+}
+.real-partner-label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.real-partner-record { font-weight: 700; }
+.real-partner-pct { color: var(--muted); font-size: 0.85rem; }

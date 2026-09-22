@@ -678,15 +678,25 @@ function avatarHueForPlayer(id) {
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   return hash % 360;
 }
-function renderPlayerAvatar(player, size = "normal") {
+function renderPlayerAvatar(player, size = "normal", ringClass = "") {
   if (!player) return "";
+  const ring = ringClass ? ` ${ringClass}` : "";
   const photoFile = PLAYER_PHOTO_FILES[player.id];
   if (photoFile) {
-    return `<img src="photos/${photoFile}" alt="" class="player-avatar player-avatar-${size}">`;
+    return `<img src="photos/${photoFile}" alt="" class="player-avatar player-avatar-${size}${ring}">`;
   }
   const initial = (player.name.trim().charAt(0) || "?").toUpperCase();
   const hue = avatarHueForPlayer(player.id);
-  return `<span class="player-avatar player-avatar-${size}" style="background:hsl(${hue}, 55%, 42%)">${escapeHtml(initial)}</span>`;
+  return `<span class="player-avatar player-avatar-${size}${ring}" style="background:hsl(${hue}, 55%, 42%)">${escapeHtml(initial)}</span>`;
+}
+
+// The CSS class for a player's avatar ring (Poolean Awards UI spec): color by highest current-
+// season tier they've actually won, thick+glow since every award this app knows about is this
+// season's (no past-season history to compare against yet — see computePlayerAwardTier()).
+// Empty string when they've never won a tiered award, which leaves the avatar's plain border.
+function playerAvatarRingClass(playerId) {
+  const t = computePlayerAwardTier(playerId);
+  return t ? `player-avatar-ring-${t.color}-${t.isCurrent ? "current" : "past"}` : "";
 }
 
 function renderPlayers() {
@@ -1689,26 +1699,40 @@ function teamChemistryAdjustment(team, liftMap) {
 // as half a win, matching how win% is computed everywhere else in this tool. Dampened by
 // min(1, gp / 3), same confidence curve as chemistry, for the same reason: 1-2 shared games
 // isn't a settled record yet. A pair who's never shared a team contributes nothing.
+// Prefers the real Poolean site's own full pairwise history (POOLEAN_TOGETHER, every game the
+// site has ever recorded — usually a much bigger sample than this browser's own locally logged
+// subset) when it has that pair, since a bigger real sample is a strictly better estimate of the
+// same fact; falls back to this app's own locally logged games otherwise, or when no export has
+// been loaded at all (see build_poolean_data.py). Same confidence damping and Two-Way/20-scale
+// conversion either way, so which source answered a given pair is invisible downstream.
 function computeTeamWinRateMap(attendeeIds) {
   const map = {};
   const qualifyingGames = state.games.filter(isQualifyingGame);
+  const hasRealTogether = typeof POOLEAN_TOGETHER !== "undefined";
   for (let i = 0; i < attendeeIds.length; i++) {
     for (let j = i + 1; j < attendeeIds.length; j++) {
       const [a, b] = [attendeeIds[i], attendeeIds[j]];
-      let wins = 0, losses = 0, ties = 0;
-      qualifyingGames.forEach(g => {
-        const together = (g.teamA.includes(a) && g.teamA.includes(b)) || (g.teamB.includes(a) && g.teamB.includes(b));
-        if (!together) return;
-        const result = playerGameResult(g, a); // same team, so same result for b
-        if (result === "W") wins++;
-        else if (result === "L") losses++;
-        else if (result === "T") ties++;
-      });
-      const gp = wins + losses + ties;
-      if (gp === 0) continue;
-      const winPct = ((wins + ties * 0.5) / gp) * 100;
+      let gp, winPct;
+      const real = hasRealTogether ? POOLEAN_TOGETHER[[a, b].sort().join("|")] : null;
+      if (real) {
+        gp = real.gp;
+        winPct = (real.w / real.gp) * 100;
+      } else {
+        let wins = 0, losses = 0, ties = 0;
+        qualifyingGames.forEach(g => {
+          const together = (g.teamA.includes(a) && g.teamA.includes(b)) || (g.teamB.includes(a) && g.teamB.includes(b));
+          if (!together) return;
+          const result = playerGameResult(g, a); // same team, so same result for b
+          if (result === "W") wins++;
+          else if (result === "L") losses++;
+          else if (result === "T") ties++;
+        });
+        gp = wins + losses + ties;
+        if (gp === 0) continue;
+        winPct = ((wins + ties * 0.5) / gp) * 100;
+      }
       const confidence = Math.min(1, gp / 3);
-      map[`${a}|${b}`] = { value: ((winPct - 50) / 10) * confidence, gp };
+      map[`${a}|${b}`] = { value: ((winPct - 50) / 10) * confidence, gp, real: !!real };
     }
   }
   return map;
@@ -1718,8 +1742,8 @@ function computeTeamWinRateMap(attendeeIds) {
 // lookup, so unlike teamChemistryAdjustment() this only needs each unordered pair once. minGp
 // carried the same way and for the same reason as teamChemistryAdjustment()'s own.
 function teamWinRateAdjustment(team, winRateMap) {
-  if (team.length < 2) return { value: 0, minGp: null };
-  let sum = 0, count = 0, minGp = null;
+  if (team.length < 2) return { value: 0, minGp: null, anyReal: false };
+  let sum = 0, count = 0, minGp = null, anyReal = false;
   for (let i = 0; i < team.length; i++) {
     for (let j = i + 1; j < team.length; j++) {
       const key = team[i] < team[j] ? `${team[i]}|${team[j]}` : `${team[j]}|${team[i]}`;
@@ -1728,10 +1752,11 @@ function teamWinRateAdjustment(team, winRateMap) {
         sum += entry.value;
         count++;
         minGp = minGp === null ? entry.gp : Math.min(minGp, entry.gp);
+        if (entry.real) anyReal = true;
       }
     }
   }
-  return { value: count > 0 ? sum / count : 0, minGp };
+  return { value: count > 0 ? sum / count : 0, minGp, anyReal };
 }
 
 // ---------- Balance Teams: win probability model ----------
@@ -2109,9 +2134,9 @@ function renderBalanceResults() {
         ? `<div class="balance-team-physical" title="Average Two-Way/20 lift from real past games with these specific teammates, already included in the avg above.">Chemistry: ${chem.value >= 0 ? "+" : ""}${chem.value.toFixed(1)}${chemGamesNote}</div>`
         : "";
       const winAdj = teamWinRateAdjustment(team, winRateMap);
-      const winGamesNote = winAdj.minGp !== null ? ` (min ${winAdj.minGp} game${winAdj.minGp === 1 ? "" : "s"} together)` : "";
+      const winGamesNote = winAdj.minGp !== null ? ` (min ${winAdj.minGp} game${winAdj.minGp === 1 ? "" : "s"} together${winAdj.anyReal ? ", real site record" : ""})` : "";
       const winLine = Math.abs(winAdj.value) >= 0.1
-        ? `<div class="balance-team-physical" title="Two-Way/20-scale adjustment from this pairing's actual win rate in past games together, already included in the avg above.">Past record: ${winAdj.value >= 0 ? "+" : ""}${winAdj.value.toFixed(1)}${winGamesNote}</div>`
+        ? `<div class="balance-team-physical" title="Two-Way/20-scale adjustment from this pairing's actual win rate in past games together, already included in the avg above. Uses the real Poolean site's full game history when it has these two as teammates, not just this browser's own logged subset.">Past record: ${winAdj.value >= 0 ? "+" : ""}${winAdj.value.toFixed(1)}${winGamesNote}</div>`
         : "";
       // Below WIN_PROBABILITY_CONFIDENCE_GAMES, predictWinProbability() is already blending its
       // raw output toward 50/50 internally (see that function's own comment) — this is just the
@@ -5781,18 +5806,65 @@ const AWARD_ICONS = {
   teammate: "🤝", "first-team": "⭐", "second-team": "🥈", "best-duo": "🔥", "worst-duo": "🥴"
 };
 
+// Poolean Awards UI spec: three real tiers (gold/silver/bronze) plus one deliberately untiered
+// house award (Worst Duo — stays visible everywhere an award shows, just never gold/silver/bronze
+// and never sets a ring color). Tier 1 is the two headline individual awards; tier 2 is the other
+// individual honors plus the stronger of the two All-Poolean squads; tier 3 is the pair/role
+// awards plus the weaker squad. All-Poolean is two separate honors (First Team outranks Second),
+// and Most Improved is two separate awards (Season vs. Year-over-Year) — never collapse either
+// pair into one label.
+const AWARD_TIER = {
+  mvp: 1, "best-player": 1,
+  "mip-season": 2, "mip-yoy": 2, dpoy: 2, "first-team": 2,
+  "best-duo": 3, "second-team": 3, teammate: 3, clutch: 3,
+  "worst-duo": null
+};
+const AWARD_TIER_COLOR = { 1: "gold", 2: "silver", 3: "bronze" };
+const AWARD_PLACEMENT_LABEL = { 0: "2026", 1: "Runner-up", 2: "Honorable mention" };
+
 // This player's real award history: a win (they're in award.winners) or a runner-up (2nd place
 // in award.votedStandings, the real ballot tally -- not this tool's own approximate stat
 // standings, which is a different, already-shown thing). A duo award's votedStandings slugs are
 // "a|b" pairs, so those are checked by membership instead of an exact match.
+// This player's real award history: 1st (they're in award.winners), 2nd or 3rd place (that
+// position in award.votedStandings, the real ballot tally — not this tool's own approximate stat
+// standings, which is a different, already-shown thing). A duo award's votedStandings slugs are
+// "a|b" pairs, checked by membership, and its badge names the other half of the pair.
 function computePlayerAwardBadges(playerId) {
   return AWARD_RESULTS.map(award => {
     const isWinner = award.winners.includes(playerId);
-    const runnerUpEntry = award.votedStandings[1];
-    const isRunnerUp = !isWinner && !!runnerUpEntry && runnerUpEntry.slug.split("|").includes(playerId);
-    if (!isWinner && !isRunnerUp) return null;
-    return { key: award.key, label: award.label, icon: AWARD_ICONS[award.key] || "🏅", isWinner };
+    let placementIndex = isWinner ? 0 : -1;
+    if (!isWinner) {
+      placementIndex = award.votedStandings.findIndex(entry => entry.slug.split("|").includes(playerId));
+      if (placementIndex < 1 || placementIndex > 2) return null; // only 2nd/3rd count as a placement badge
+    }
+    // The duo this placement actually belongs to — the winning pair when it's a win, otherwise
+    // whichever votedStandings pair this player's own placement came from (not necessarily the
+    // winning pair at all, for a runner-up).
+    const pairSlugs = award.isDuo
+      ? (isWinner ? award.winners : award.votedStandings[placementIndex].slug.split("|"))
+      : null;
+    const partnerId = pairSlugs ? pairSlugs.find(id => id !== playerId) || null : null;
+    const partner = partnerId ? state.players.find(p => p.id === partnerId) : null;
+    return {
+      key: award.key, label: award.label, icon: AWARD_ICONS[award.key] || "🏅",
+      isWinner, tier: AWARD_TIER[award.key] || null, color: AWARD_TIER_COLOR[AWARD_TIER[award.key]] || null,
+      placementLabel: AWARD_PLACEMENT_LABEL[placementIndex],
+      partnerName: partner ? partner.name : null, partnerId
+    };
   }).filter(Boolean);
+}
+
+// The ring's color/thickness: highest tier among this player's actual WINS only (a runner-up
+// finish shows in the badge grid but never sets the ring — the ring answers "what have they won,"
+// not "how close did they come"). Only one season of award data exists right now, so every award
+// here counts as "current" — the past-season/thin-ring case is real per the spec, just unreachable
+// until this app has more than one closed season of awards to compare against.
+function computePlayerAwardTier(playerId) {
+  const wins = AWARD_RESULTS.filter(a => a.winners.includes(playerId) && AWARD_TIER[a.key]);
+  if (wins.length === 0) return null;
+  const tier = Math.min(...wins.map(a => AWARD_TIER[a.key]));
+  return { tier, color: AWARD_TIER_COLOR[tier], isCurrent: true };
 }
 
 function renderPlayerAwardBadges(playerId) {
@@ -5803,12 +5875,30 @@ function renderPlayerAwardBadges(playerId) {
     wrap.innerHTML = '<p class="empty-state">No award wins or runner-up finishes for this player yet.</p>';
     return;
   }
-  wrap.innerHTML = `<div class="award-badge-row">${badges.map(b => `
-    <span class="award-badge${b.isWinner ? " award-badge-win" : ""}" title="${escapeHtml(b.label)}${b.isWinner ? "" : " (runner-up)"}">
+  // Marquee: only when they hold a real current tier-1 (gold) win — skipped entirely otherwise,
+  // never an empty placeholder version.
+  const goldWin = badges.find(b => b.isWinner && b.tier === 1);
+  const marquee = goldWin ? `
+    <div class="award-marquee">
+      <span class="award-marquee-icon">${goldWin.icon}</span>
+      <span class="award-marquee-text"><strong>${escapeHtml(goldWin.label)}</strong><span>2026 · reigning</span></span>
+    </div>` : "";
+  const grid = badges.map(b => {
+    const untiered = !b.color; // Worst Duo: deliberately never gold/silver/bronze, never a ring
+    const cls = untiered ? "award-badge award-badge-untiered" : `award-badge award-badge-${b.color}`;
+    let sub = escapeHtml(b.placementLabel);
+    if (b.partnerName) {
+      const together = typeof POOLEAN_TOGETHER !== "undefined" ? POOLEAN_TOGETHER[[playerId, b.partnerId].sort().join("|")] : null;
+      const withPart = `with ${escapeHtml(b.partnerName)}${together ? ` · ${together.w}-${together.l} together` : ""}`;
+      sub = b.isWinner ? withPart : `${escapeHtml(b.placementLabel)} · ${withPart}`;
+    }
+    return `<span class="${cls}">
       <span class="award-badge-icon">${b.icon}</span>
       <span class="award-badge-label">${escapeHtml(b.label)}</span>
-      ${b.isWinner ? "" : '<span class="award-badge-sub">Runner-up</span>'}
-    </span>`).join("")}</div>`;
+      <span class="award-badge-sub">${sub}</span>
+    </span>`;
+  }).join("");
+  wrap.innerHTML = `${marquee}<div class="award-badge-grid">${grid}</div>`;
 }
 
 function renderPlayerPowerRanking(playerId) {
@@ -5846,6 +5936,50 @@ function renderPlayerRealRecord(playerId) {
       <div class="league-rank-badge"><span class="league-rank-place">${real.gp}</span><span class="league-rank-label">Real games</span></div>
     </div>
     <p class="hint" style="margin:10px 0 0">Reviewed in this app: <strong>${escapeHtml(loggedRecord)}</strong> across ${loggedGp} game${loggedGp === 1 ? "" : "s"}, ${real.gp > 0 ? `${Math.round((loggedGp / real.gp) * 100)}% of the real total` : "—"}.</p>`;
+}
+
+const REAL_PARTNER_MIN_GP = 3; // "Needs at least 3 games together to count" (matches the real site's own bar)
+
+// Best/worst teammate and best/worst opponent for one player, from the real site's full pairwise
+// history (POOLEAN_TOGETHER/POOLEAN_AGAINST) rather than this app's own locally logged subset —
+// almost always a bigger, steadier sample. AGAINST is directional (this player's own record facing
+// each opponent), TOGETHER is the shared record with each teammate.
+function computePlayerRealPartners(playerId) {
+  if (typeof POOLEAN_TOGETHER === "undefined") return null;
+  const withRows = [], againstRows = [];
+  state.players.forEach(p => {
+    if (p.id === playerId) return;
+    const t = POOLEAN_TOGETHER[[playerId, p.id].sort().join("|")];
+    if (t && t.gp >= REAL_PARTNER_MIN_GP) withRows.push({ player: p, w: t.w, l: t.l, gp: t.gp, pct: t.w / t.gp });
+    const a = POOLEAN_AGAINST[`${playerId}|${p.id}`];
+    if (a && a.gp >= REAL_PARTNER_MIN_GP) againstRows.push({ player: p, w: a.w, l: a.l, gp: a.gp, pct: a.w / a.gp });
+  });
+  if (withRows.length === 0 && againstRows.length === 0) return null;
+  const best = rows => rows.length ? rows.reduce((a, b) => (b.pct > a.pct ? b : a)) : null;
+  const worst = rows => rows.length ? rows.reduce((a, b) => (b.pct < a.pct ? b : a)) : null;
+  return { bestWith: best(withRows), worstWith: worst(withRows), bestAgainst: best(againstRows), worstAgainst: worst(againstRows) };
+}
+
+function renderPlayerRealPartners(playerId) {
+  const wrap = document.getElementById("playerRealPartners");
+  if (!wrap) return;
+  const p = computePlayerRealPartners(playerId);
+  if (!p) {
+    wrap.innerHTML = `<p class="empty-state">Needs at least ${REAL_PARTNER_MIN_GP} real games together or against someone to show a split.</p>`;
+    return;
+  }
+  const tile = (label, entry) => !entry ? "" : `
+    <div class="real-partner-tile">
+      <span class="real-partner-label">${label}</span>
+      ${playerLink(entry.player.id, entry.player.name)}
+      <span class="real-partner-record">${entry.w}-${entry.l}</span>
+      <span class="real-partner-pct">${Math.round(entry.pct * 100)}%</span>
+    </div>`;
+  wrap.innerHTML = `<div class="real-partner-grid">
+    ${tile("Best with", p.bestWith)}${tile("Worst with", p.worstWith)}
+    ${tile("Best against", p.bestAgainst)}${tile("Worst against", p.worstAgainst)}
+  </div>
+  <p class="hint" style="margin:10px 0 0">Needs at least ${REAL_PARTNER_MIN_GP} real games together (or against) to count.</p>`;
 }
 
 function computeAwardsVsStats() {
@@ -5975,6 +6109,10 @@ const PARTY_RANKINGS = typeof POOLEAN_RANKINGS !== "undefined" ? POOLEAN_RANKING
 function computePowerRankingSummary(playerId) {
   const nights = PARTY_RANKINGS.filter(party => party.players.some(p => p.slug === playerId));
   if (nights.length === 0) return null;
+  // The site's own frozen season line (POOLEAN_SEASON_CARDS), when available, instead of
+  // recomputing the average here — matches the site exactly rather than approximating it.
+  const card = typeof POOLEAN_SEASON_CARDS !== "undefined" ? POOLEAN_SEASON_CARDS[playerId] : null;
+  if (card) return { avgPct: card.powerPct, firsts: card.crowns, of: card.parties, nights };
   let pctSum = 0, firsts = 0;
   nights.forEach(party => {
     const p = party.players.find(x => x.slug === playerId);
@@ -9827,7 +9965,7 @@ function renderPlayerDetail() {
   // so it can't just rely on renderLeaderboard() having already primed the cache.
   leaderboardCache = null;
   const row = computeLeaderboard().find(r => r.player.id === currentPlayerId);
-  document.getElementById("playerDetailTitle").innerHTML = `${renderPlayerAvatar(player, "large")}<span>${escapeHtml(player.name)}</span>`;
+  document.getElementById("playerDetailTitle").innerHTML = `${renderPlayerAvatar(player, "large", playerAvatarRingClass(player.id))}<span>${escapeHtml(player.name)}</span>`;
   document.getElementById("playerDetailSummary").textContent = row
     ? `${row.wins}-${row.losses}${row.ties ? `-${row.ties}` : ""} · ${row.rate.pts.toFixed(1)} PTS/20 · ${row.offRatingPer20.toFixed(1)} Off Rating/20 · ${row.twoWayPer20.toFixed(1)} Two-Way/20`
     : "No games yet";
@@ -9848,6 +9986,7 @@ function renderPlayerDetail() {
   renderPlayerAwardBadges(player.id);
   renderPlayerPowerRanking(player.id);
   renderPlayerRealRecord(player.id);
+  renderPlayerRealPartners(player.id);
   renderPlayerTips(player.id);
   renderNotableMatchups(player.id);
   renderSeasonHistoryPanel(player.id);
