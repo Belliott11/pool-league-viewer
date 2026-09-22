@@ -9755,6 +9755,7 @@ function renderPlayerDetail() {
   renderPlayerReel(player.id);
   renderAreasToWorkOn(player.id);
   renderShootingByDirection(player.id);
+  renderPlayerSectionTeasers(player.id);
 }
 
 const SHOOTING_BY_DIRECTION_MIN_FGA = 5;
@@ -9785,11 +9786,16 @@ function computeShootingByDirection(playerId) {
 function renderShootingByDirection(playerId) {
   const wrap = document.getElementById("playerShootingByDirection");
   if (!wrap) return;
+  const panel = wrap.closest(".panel");
   const { left, right } = computeShootingByDirection(playerId);
+  // Almost no historical game has "Where is Team A shooting?" set, so this panel is an empty
+  // state for nearly every player -- hidden until there's real data instead of adding to the
+  // wall of empty-state text on the page.
   if (!left && !right) {
-    wrap.innerHTML = `<p class="empty-state">No games with a set direction yet (${SHOOTING_BY_DIRECTION_MIN_FGA}+ attempts on a side needed once there are). Set it per game in Stat Entry: "Where is Team A shooting?"</p>`;
+    if (panel) panel.style.display = "none";
     return;
   }
+  if (panel) panel.style.display = "";
   const row = (label, t) => t
     ? `<tr><td>${label}</td><td>${t.fga}</td><td>${formatPct(t.fgPct)}</td><td>${formatPct(t.tsPct)}</td></tr>`
     : `<tr><td>${label}</td><td colspan="3" class="hint">Not enough attempts yet (${SHOOTING_BY_DIRECTION_MIN_FGA}+ needed)</td></tr>`;
@@ -11432,6 +11438,48 @@ function ordinal(n) {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
+// ---------- Player page: section teasers + jump nav ----------
+// One-line preview text shown next to each collapsed section's title, built from stats already
+// computed for the Leaderboard/League Rank -- no new tracking. Static sections (no player-specific
+// number readily at hand) get a plain description instead of a fake number.
+function computePlayerSectionTeasers(playerId) {
+  const row = computeLeaderboard().find(r => r.player.id === playerId);
+  if (!row) return {};
+  const tsPct = trueShootingPct(row.totals.pts, row.shooting.fga, row.shooting.fta);
+  const defAttempts = row.defense.timesBeaten + row.defense.stops;
+  const record = `${row.wins}-${row.losses}${row.ties ? `-${row.ties}` : ""}`;
+  return {
+    shooting: tsPct !== null ? `${tsPct}% TS, ${row.rate.pts.toFixed(1)} PTS/20` : "Not enough field goals yet",
+    passing: `${row.rate.ast.toFixed(1)} AST/20 · ${formatPct(row.tovPct)} turnover rate`,
+    defense: defAttempts >= 5 ? `Opponents shooting ${formatPct(pct(row.defense.timesBeaten, defAttempts))} against` : "Not enough tagged defensive plays yet",
+    matchups: "Individual matchup history, as scorer and as defender",
+    team: "How this player's own numbers shift with and without each teammate",
+    trends: `${record} · ${row.twoWayPer20.toFixed(1)} Two-Way/20`,
+    media: "Every logged game, plus any clipped highlights and lowlights"
+  };
+}
+
+function renderPlayerSectionTeasers(playerId) {
+  const teasers = computePlayerSectionTeasers(playerId);
+  Object.entries(teasers).forEach(([key, text]) => {
+    const el = document.getElementById(`teaser-${key}`);
+    if (el) el.textContent = text;
+  });
+}
+
+// Wired once at load (the nav buttons are static markup, never re-rendered) -- opens the target
+// section if it was collapsed, then scrolls to it.
+function wirePlayerSectionNav() {
+  document.querySelectorAll(".player-section-nav-link").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const section = document.getElementById(`section-${btn.dataset.section}`);
+      if (!section) return;
+      section.open = true;
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
 // ---------- Review Shot Types (backfill and re-check) ----------
 // Default view: every 2- and 3-point attempt with no shot type yet, oldest first, a page at a time,
 // optionally narrowed to one player (so one player's shots can be tagged first). The re-check views
@@ -12163,6 +12211,7 @@ function collapseSectionHints() {
 
 // ---------- Init ----------
 collapseSectionHints();
+wirePlayerSectionNav();
 renderPlayers();
 document.getElementById("rsvpDateInput").value = new Date().toISOString().slice(0, 10);
 loadRsvpForDate(document.getElementById("rsvpDateInput").value);

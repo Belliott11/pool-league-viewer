@@ -857,52 +857,37 @@
       <button id="sharePlayerBtn" type="button" class="icon-btn" title="Copy a link straight to this player">Share</button>
     </div>
 
-    <!-- League Rank -->
+    <div class="player-section-nav">
+      <button type="button" class="player-section-nav-link" data-section="shooting">Shooting</button>
+      <button type="button" class="player-section-nav-link" data-section="passing">Passing & Ball Security</button>
+      <button type="button" class="player-section-nav-link" data-section="defense">Defense</button>
+      <button type="button" class="player-section-nav-link" data-section="matchups">Matchups</button>
+      <button type="button" class="player-section-nav-link" data-section="team">Team Context</button>
+      <button type="button" class="player-section-nav-link" data-section="trends">Trends & History</button>
+      <button type="button" class="player-section-nav-link" data-section="media">Media & Log</button>
+    </div>
+
+    <div id="player-section-overview">
     <div class="panel">
       <h2>League Rank</h2>
       <p class="hint">Where this player stands against everyone else this season, needing at least 2 games played to count. Built entirely from stats already tracked elsewhere on this page.</p>
       <div id="playerLeagueRank" class="league-rank-grid"></div>
     </div>
-
-    <!-- Personalized Tips -->
     <div class="panel">
       <h2>Personalized Tips</h2>
       <p class="hint">This player's own numbers next to the league average for that same stat, only shown when something actually stands out, not a fixed checklist. Doubles as a real scouting note on whoever you're looking at: their preferred shot zone and a real strength/weakness zone (checked against the league's own FG% from that same distance), plus real matchup-specific splits (a defender who's genuinely held them below their own usual shooting, or a scorer who's shot well above what they normally allow), each needing 5+ real attempts before it counts as a pattern rather than one bad or good night. Several tips carry their own "Watch film" links, straight to the actual games behind that number.</p>
       <div id="playerTips"></div>
     </div>
-
-    <!-- Notable Matchups -->
     <div class="panel">
-      <h2>Notable Matchups</h2>
-      <p class="hint">Every real, exploitable shooting swing involving this player, either as scorer or defender, ranked biggest first, each with its own "Watch film" link to the actual games it came from. Needs 5+ attempts against that one specific opponent and at least a 15-point swing from the scorer's own overall FG% before it counts as a pattern rather than one lucky or unlucky night.</p>
-      <div id="playerNotableMatchups"></div>
+      <h2>Areas to Work On</h2>
+      <p class="hint">This player's own rate in each category next to the league median for that same stat, not the average and not the league's best: a real "behind (or ahead of) where a typical player in this league is" bar, one specific thing at a time. Every category needs its own minimum real sample before it can be flagged at all (shot zones: 5+ attempts in that zone; turnover rate: 10+ FGA+FTA+TOV; assist-to-turnover: 5+ assists or turnovers combined; wide-open shooting: 5+ open attempts; defense: 10+ shots defended; out-of-bounds rate: 10+ misses; second-chance conversion: 5+ offensive rebounds), below that gate, nothing gets said rather than a confident callout off a handful of shots. Both directions show up, not just weaknesses. This tool only ever names the area; deciding how to work on it is yours.</p>
+      <div id="areasToWorkOn"></div>
+    </div>
     </div>
 
-    <!-- Past Seasons -->
-    <div class="panel">
-      <h2>Past Seasons</h2>
-      <p class="hint">This player's final numbers from every season closed out via Export → Data Management → Start New Season, one row per season, computed live off the actual archived games, not a frozen snapshot, so these stay correct even if a stat's formula changes later. The current season's own numbers are everywhere else on this page; toggle <strong>Include Past Seasons</strong> to blend these into the live totals instead of viewing them separately (same toggle as the Leaderboard's; flipping it here updates both).</p>
-      <label class="ios-switch-row" style="margin-bottom:10px">
-        <span>Include Past Seasons</span>
-        <span class="ios-switch"><input type="checkbox" id="togglePastSeasonsBtnPlayer"><span class="ios-switch-track"><span class="ios-switch-knob"></span></span></span>
-      </label>
-      <div id="playerSeasonHistory"></div>
-    </div>
-
-    <!-- Flake % -->
-    <div class="panel">
-      <h2>Flake %</h2>
-      <p class="hint">Of the dates this player RSVP'd yes for on the Games tab's <strong>Who's Coming?</strong> panel and that have since had at least one game logged, how many they never actually showed up for. A date they RSVP'd for with no game logged yet isn't counted either way: it's not resolved, not a no-show.</p>
-      <div id="playerFlakeStats"></div>
-    </div>
-
-    <!-- Overview -->
-    <div class="panel">
-      <h2>Two-Way Trend</h2>
-      <p class="hint">Two-Way/20 for every reviewed game this player's played, in order: the line-graph version of the "Last 5" number and arrow already shown elsewhere (feeding the Most Improved comparison on the Leaderboard), since a real trend line makes "up or down lately, and by how much" legible at a glance instead of two numbers to compare in your head. The dashed line is the season average; where the recent points sit relative to it is the whole read.</p>
-      <div id="playerTwoWayTrend"></div>
-    </div>
-
+    <details class="player-section" id="section-shooting">
+      <summary><h3>Shooting</h3><span class="player-section-teaser" id="teaser-shooting"></span></summary>
+      <div class="player-section-body">
     <div class="panel">
       <h2>Stat Trend</h2>
       <p class="hint">Pick one stat to see how it has moved game by game, with the dashed line as this player's season average and the second line as the league average. Handy for checking whether something specific you are working on is actually changing. A game only counts when the player had enough attempts in it, and the line is faded until there are at least 5 games.</p>
@@ -910,43 +895,69 @@
       <p id="playerStatTrendNote" class="hint" style="margin:6px 0 10px"></p>
       <div id="playerStatTrend"></div>
     </div>
-
     <div class="panel">
       <h2>Shot Types</h2>
       <p class="hint">How this player's field goals were created and how each type has gone. Efficiency only shows once a type has at least 5 tagged attempts.</p>
       <div id="playerShotTypes"></div>
     </div>
-
     <div class="panel">
       <h2>Shot Arc</h2>
       <p class="hint">The shape of this player's shots, from the ones followed on film from release to the hoop. It describes how the player shoots and does not predict whether a shot goes in. Needs 8 followed shots before it shows.</p>
       <div id="playerShotArc"></div>
     </div>
-
-    <div class="panel">
-      <h2>Game Log</h2>
-      <p class="hint">Every game this player was in, most recent first.</p>
-      <div class="table-scroll">
-        <table class="matchup-table" id="playerGameLogTable">
-          <thead><tr id="playerGameLogHeaderRow"></tr></thead>
-          <tbody id="playerGameLogBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Offense Detail -->
     <div class="panel">
       <h2>Shot Chart</h2>
       <p class="hint">Every marked field goal this player has taken, plotted at its actual spot on the court: green for a make, red for a miss. The individual-shot pattern the zone-bucketed heatmap below necessarily smooths over: a cluster, a gap, a lean to one side, is visible here in a way no table of percentages shows directly. Only shots with a marked location are included (see Export → Backfill Shot Locations to fill in the rest). The shape shows the shot type once shots are tagged: a circle for catch-and-shoot, a square for a drive, a triangle for a deep heave and a diamond for a move, with a faint circle for shots not yet tagged.</p>
       <div id="playerShotChart"></div>
     </div>
-
     <div class="panel">
       <h2>Shot Heatmap</h2>
       <p class="hint">Every marked field goal this player has taken, bucketed by court zone. Color is FG% in that zone (red low, green high), the number is attempts. Only shots with a marked location are included.</p>
       <div id="playerHeatmap"></div>
     </div>
+    <div class="panel">
+      <h2>Shooting by Direction</h2>
+      <p class="hint">FG%/TS% split by which hoop this player's team was shooting at that game (set per game in Stat Entry: "Where is Team A shooting?"). Real question worth asking with an outdoor pool court: does the sun in one direction actually cost shooting, or is it just a feeling? Only counts games where the game's own direction has been set, and needs at least 5 attempts on a side before showing a number.</p>
+      <div id="playerShootingByDirection"></div>
+    </div>
+      </div>
+    </details>
 
+    <details class="player-section" id="section-passing">
+      <summary><h3>Passing & Ball Security</h3><span class="player-section-teaser" id="teaser-passing"></span></summary>
+      <div class="player-section-body">
+    <div class="panel">
+      <h2>Assisted By</h2>
+      <p class="hint">What share of this player's own made field goals were set up by someone else, and how good (season Off Rating/20) those passers have been: the direct test of "getting fed easy looks by good players" vs. creating shots alone. Field goals only; free throws don't carry an assist by rule.</p>
+      <div id="playerAssistedBy"></div>
+    </div>
+      </div>
+    </details>
+
+    <details class="player-section" id="section-defense">
+      <summary><h3>Defense</h3><span class="player-section-teaser" id="teaser-defense"></span></summary>
+      <div class="player-section-body">
+    <div class="panel">
+      <h2>Defensive Heatmap</h2>
+      <p class="hint">Every shot this player was tagged defending, bucketed by court zone. Color is <strong>opponent</strong> FG% allowed there (red high, green low; inverted from the offensive heatmap above, since a low percentage is good defense). This is what actually answers whether this player's overall Opp FG% holds up at every distance or collapses somewhere specific: a single season number can't say that on its own. A double-teamed shot counts toward every tagged defender, same rule the Head-to-Head: As Defender table below uses.</p>
+      <div id="playerDefensiveHeatmap"></div>
+    </div>
+    <div class="panel">
+      <h2>Defensive Load</h2>
+      <p class="hint">A companion to Def Rating, not a replacement: how much of the team's tagged defensive workload this player is actually carrying, not just how well they handle what they get. Every opponent field goal attempt with at least one tagged defender is divided evenly across the team's own roster that game for an "expected fair share"; this is how many of those this player actually got tagged on, divided by that share. Above 1.0 is more than an even share, below 1.0 is less. A low number here is genuinely ambiguous on its own (avoided as a tough matchup, genuinely uninvolved for other reasons, or just too small a sample) and can't fully separate those, so it's always shown paired with this same player's Opp FG% (leading) and Def Rating/20 (secondary context), never as a standalone verdict. Opp FG% leads deliberately: it means exactly one thing and needs no trust in Def Rating's own unvalidated formula weights. Once there's 10+ tagged defended shots, Pts Allowed Under Exp joins them too: whether the shots actually faced were an easy or hard mix, the same zone-based expected value Expected Points uses on offense.</p>
+      <div id="defensiveLoad"></div>
+    </div>
+      </div>
+    </details>
+
+    <details class="player-section" id="section-matchups">
+      <summary><h3>Matchups</h3><span class="player-section-teaser" id="teaser-matchups"></span></summary>
+      <div class="player-section-body">
+    <div class="panel">
+      <h2>Notable Matchups</h2>
+      <p class="hint">Every real, exploitable shooting swing involving this player, either as scorer or defender, ranked biggest first, each with its own "Watch film" link to the actual games it came from. Needs 5+ attempts against that one specific opponent and at least a 15-point swing from the scorer's own overall FG% before it counts as a pattern rather than one lucky or unlucky night.</p>
+      <div id="playerNotableMatchups"></div>
+    </div>
     <div class="panel">
       <h2>Head-to-Head: As Scorer</h2>
       <p class="hint">Shooting against each defender who has been tagged guarding this player's shots, across the season.</p>
@@ -957,14 +968,6 @@
         </table>
       </div>
     </div>
-
-    <!-- Defense Detail -->
-    <div class="panel">
-      <h2>Defensive Heatmap</h2>
-      <p class="hint">Every shot this player was tagged defending, bucketed by court zone. Color is <strong>opponent</strong> FG% allowed there (red high, green low; inverted from the offensive heatmap above, since a low percentage is good defense). This is what actually answers whether this player's overall Opp FG% holds up at every distance or collapses somewhere specific: a single season number can't say that on its own. A double-teamed shot counts toward every tagged defender, same rule the Head-to-Head: As Defender table below uses.</p>
-      <div id="playerDefensiveHeatmap"></div>
-    </div>
-
     <div class="panel">
       <h2>Head-to-Head: As Defender</h2>
       <p class="hint">Shooting allowed to each scorer this player has been tagged defending, across the season.</p>
@@ -975,8 +978,22 @@
         </table>
       </div>
     </div>
+    <div class="panel">
+      <h2>Offensive Matchup Difficulty</h2>
+      <p class="hint">Average season Def Rating/20 of whoever was tagged defending this player's own shot attempts, game by game, with a dashed season-average line. The mirror of Defensive Matchup Difficulty below, from the scorer's side: how tough have the defenders this player shoots over actually been? A double-teamed shot counts toward every tagged defender, not split, same rule Stops/Beaten/Pts Allowed already use. A wide-open (untagged) shot contributes nothing, since there's no defender to rate.</p>
+      <div id="playerOffensiveMatchupDifficulty"></div>
+    </div>
+    <div class="panel">
+      <h2>Defensive Matchup Difficulty</h2>
+      <p class="hint">Average season Off Rating/20 of whoever this player was tagged defending, game by game, with a dashed season-average line. The defensive-side counterpart to Teammate Quality above: does this player draw the tough offensive assignments, or get sheltered on weaker ones? Weighted per shot, not per opponent: facing the same tough scorer five times in one game counts five times, the same way Stops/Beaten/Pts Allowed already weight every tagged shot equally.</p>
+      <div id="playerDefensiveMatchupDifficulty"></div>
+    </div>
+      </div>
+    </details>
 
-    <!-- Team Context -->
+    <details class="player-section" id="section-team">
+      <summary><h3>Team Context</h3><span class="player-section-teaser" id="teaser-team"></span></summary>
+      <div class="player-section-body">
     <div class="panel">
       <h2>Teammate Synergy (With/Without)</h2>
       <p class="hint">For each teammate this player has shared a team with, this player's own per-20 numbers in games <strong>with</strong> that teammate on their side vs. games <strong>without</strong> them (opposing team or not playing). Only games with real shots logged count either way. "—" means there's no game in that bucket yet to compare against. A small GP on either side makes the comparison noisy, not a verdict.</p>
@@ -987,44 +1004,52 @@
         </table>
       </div>
     </div>
-
     <div class="panel">
       <h2>Teammate Quality</h2>
       <p class="hint">Average season Off Rating/20 of this player's own teammates (not this player), game by game, with a dashed season-average line. Off Rating specifically, not Two-Way: what this measures is a teammate's offensive gravity, how much they draw defensive attention, create mismatches, or set up easy looks, not their own defense. Doesn't correct for this player also counting toward each teammate's own Off Rating/20 (no leave-one-out adjustment), a simplification, same tradeoff every other season-long number on this page already makes.</p>
       <div id="playerTeammateQuality"></div>
     </div>
+      </div>
+    </details>
 
+    <details class="player-section" id="section-trends">
+      <summary><h3>Trends & History</h3><span class="player-section-teaser" id="teaser-trends"></span></summary>
+      <div class="player-section-body">
     <div class="panel">
-      <h2>Assisted By</h2>
-      <p class="hint">What share of this player's own made field goals were set up by someone else, and how good (season Off Rating/20) those passers have been: the direct test of "getting fed easy looks by good players" vs. creating shots alone. Field goals only; free throws don't carry an assist by rule.</p>
-      <div id="playerAssistedBy"></div>
+      <h2>Two-Way Trend</h2>
+      <p class="hint">Two-Way/20 for every reviewed game this player's played, in order: the line-graph version of the "Last 5" number and arrow already shown elsewhere (feeding the Most Improved comparison on the Leaderboard), since a real trend line makes "up or down lately, and by how much" legible at a glance instead of two numbers to compare in your head. The dashed line is the season average; where the recent points sit relative to it is the whole read.</p>
+      <div id="playerTwoWayTrend"></div>
     </div>
-
     <div class="panel">
-      <h2>Offensive Matchup Difficulty</h2>
-      <p class="hint">Average season Def Rating/20 of whoever was tagged defending this player's own shot attempts, game by game, with a dashed season-average line. The mirror of Defensive Matchup Difficulty below, from the scorer's side: how tough have the defenders this player shoots over actually been? A double-teamed shot counts toward every tagged defender, not split, same rule Stops/Beaten/Pts Allowed already use. A wide-open (untagged) shot contributes nothing, since there's no defender to rate.</p>
-      <div id="playerOffensiveMatchupDifficulty"></div>
+      <h2>Flake %</h2>
+      <p class="hint">Of the dates this player RSVP'd yes for on the Games tab's <strong>Who's Coming?</strong> panel and that have since had at least one game logged, how many they never actually showed up for. A date they RSVP'd for with no game logged yet isn't counted either way: it's not resolved, not a no-show.</p>
+      <div id="playerFlakeStats"></div>
     </div>
-
     <div class="panel">
-      <h2>Defensive Matchup Difficulty</h2>
-      <p class="hint">Average season Off Rating/20 of whoever this player was tagged defending, game by game, with a dashed season-average line. The defensive-side counterpart to Teammate Quality above: does this player draw the tough offensive assignments, or get sheltered on weaker ones? Weighted per shot, not per opponent: facing the same tough scorer five times in one game counts five times, the same way Stops/Beaten/Pts Allowed already weight every tagged shot equally.</p>
-      <div id="playerDefensiveMatchupDifficulty"></div>
+      <h2>Past Seasons</h2>
+      <p class="hint">This player's final numbers from every season closed out via Export → Data Management → Start New Season, one row per season, computed live off the actual archived games, not a frozen snapshot, so these stay correct even if a stat's formula changes later. The current season's own numbers are everywhere else on this page; toggle <strong>Include Past Seasons</strong> to blend these into the live totals instead of viewing them separately (same toggle as the Leaderboard's; flipping it here updates both).</p>
+      <label class="ios-switch-row" style="margin-bottom:10px">
+        <span>Include Past Seasons</span>
+        <span class="ios-switch"><input type="checkbox" id="togglePastSeasonsBtnPlayer"><span class="ios-switch-track"><span class="ios-switch-knob"></span></span></span>
+      </label>
+      <div id="playerSeasonHistory"></div>
     </div>
+      </div>
+    </details>
 
+    <details class="player-section" id="section-media">
+      <summary><h3>Media & Log</h3><span class="player-section-teaser" id="teaser-media"></span></summary>
+      <div class="player-section-body">
     <div class="panel">
-      <h2>Defensive Load</h2>
-      <p class="hint">A companion to Def Rating, not a replacement: how much of the team's tagged defensive workload this player is actually carrying, not just how well they handle what they get. Every opponent field goal attempt with at least one tagged defender is divided evenly across the team's own roster that game for an "expected fair share"; this is how many of those this player actually got tagged on, divided by that share. Above 1.0 is more than an even share, below 1.0 is less. A low number here is genuinely ambiguous on its own (avoided as a tough matchup, genuinely uninvolved for other reasons, or just too small a sample) and can't fully separate those, so it's always shown paired with this same player's Opp FG% (leading) and Def Rating/20 (secondary context), never as a standalone verdict. Opp FG% leads deliberately: it means exactly one thing and needs no trust in Def Rating's own unvalidated formula weights. Once there's 10+ tagged defended shots, Pts Allowed Under Exp joins them too: whether the shots actually faced were an easy or hard mix, the same zone-based expected value Expected Points uses on offense.</p>
-      <div id="defensiveLoad"></div>
+      <h2>Game Log</h2>
+      <p class="hint">Every game this player was in, most recent first.</p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="playerGameLogTable">
+          <thead><tr id="playerGameLogHeaderRow"></tr></thead>
+          <tbody id="playerGameLogBody"></tbody>
+        </table>
+      </div>
     </div>
-
-    <div class="panel">
-      <h2>Shooting by Direction</h2>
-      <p class="hint">FG%/TS% split by which hoop this player's team was shooting at that game (set per game in Stat Entry: "Where is Team A shooting?"). Real question worth asking with an outdoor pool court: does the sun in one direction actually cost shooting, or is it just a feeling? Only counts games where the game's own direction has been set, and needs at least 5 attempts on a side before showing a number.</p>
-      <div id="playerShootingByDirection"></div>
-    </div>
-
-      <!-- Media -->
     <div class="panel">
       <h2>Highlights &amp; Lowlights</h2>
       <p class="hint">Every clip tagged to this player, across all games. Tag a clip to a player from the Highlight / Lowlight Reel table in Stat Entry.</p>
@@ -1035,13 +1060,8 @@
         </table>
       </div>
     </div>
-
-    <!-- Areas to Work On -->
-    <div class="panel">
-      <h2>Areas to Work On</h2>
-      <p class="hint">This player's own rate in each category next to the league median for that same stat, not the average and not the league's best: a real "behind (or ahead of) where a typical player in this league is" bar, one specific thing at a time. Every category needs its own minimum real sample before it can be flagged at all (shot zones: 5+ attempts in that zone; turnover rate: 10+ FGA+FTA+TOV; assist-to-turnover: 5+ assists or turnovers combined; wide-open shooting: 5+ open attempts; defense: 10+ shots defended; out-of-bounds rate: 10+ misses; second-chance conversion: 5+ offensive rebounds), below that gate, nothing gets said rather than a confident callout off a handful of shots. Both directions show up, not just weaknesses. This tool only ever names the area; deciding how to work on it is yours.</p>
-      <div id="areasToWorkOn"></div>
-    </div>
+      </div>
+    </details>
   </section>
 
 <!-- EXPORT -->
