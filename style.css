@@ -2197,7 +2197,6 @@ button:disabled {
   --award-bronze: #F0873A; --award-bronze-dark: #C0521C; --award-bronze-glow: rgba(240,135,58,.5);
   --award-none: #565C68;
 }
-.player-avatar-large { outline: 2px solid var(--line, var(--border, color-mix(in srgb, var(--muted) 40%, transparent))); outline-offset: 3px; }
 .player-avatar-ring-gold-current { outline: 3px solid var(--award-gold); outline-offset: 3px; box-shadow: 0 0 12px 2px var(--award-gold-glow); }
 .player-avatar-ring-gold-past { outline: 2px solid var(--award-gold); outline-offset: 3px; }
 .player-avatar-ring-silver-current { outline: 3px solid var(--award-silver); outline-offset: 3px; box-shadow: 0 0 12px 2px var(--award-silver-glow); }
