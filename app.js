@@ -593,6 +593,7 @@ function showTab(tab) {
   if (tab === "games") {
     renderBalanceAttendeePicker();
     renderBalanceRsvpDateSelect();
+    renderPlannerAttendeePicker();
     renderGamesFilterPlayerPicker();
     renderGamesFilterStatPlayerSelect();
     renderRsvpAttendeePicker();
@@ -1786,6 +1787,198 @@ function computeCrossTeamRivalryWarnings(teams) {
   return warnings;
 }
 
+// ---------- Real matchup predictor ----------
+// Win odds for any two teams, from a small logistic model trained on every real game in every
+// imported season (not just this browser's own logged subset). Three inputs, each measured only
+// from what was known BEFORE that game, so the model never learns from a game's own result:
+//   1. power rankings: each side's average percentile from earlier party nights that season
+//      (last season's final number for someone not ranked yet this season, else 50)
+//   2. extra player: team size difference
+//   3. history: how these exact players have done together (each side's pairs) and against each
+//      other (every cross pair), each record pulled toward .500 by 5 phantom games so a 2-0 pair
+//      doesn't count as a sure thing
+// No intercept, so swapping which side is "A" just flips the odds (both sides always sum to 100%).
+// Tested by leave-one-out: refit without each game in turn, then ask it to call that game.
+const REAL_MATCHUP_MIN_GAMES = 15;
+const REAL_MATCHUP_L2 = 0.05;
+const REAL_MATCHUP_FACTOR_LABELS = ["Power rankings", "Extra player", "History together and against"];
+let realMatchupModelCache = null;
+
+function realSeasonsInOrder() {
+  if (typeof POOLEAN_SEASONS === "undefined" || typeof POOLEAN_SEASON_LIST === "undefined") return [];
+  return POOLEAN_SEASON_LIST.map(y => POOLEAN_SEASONS[String(y)]).filter(Boolean);
+}
+
+const sigmoid = z => 1 / (1 + Math.exp(-z));
+const shrunkEdge = rec => rec ? (rec.w + 2.5) / (rec.gp + 5) - 0.5 : 0;
+
+function realMatchupFeatures(a, b, pctOf, togetherOf, againstOf) {
+  const avg = ids => ids.reduce((sum, id) => sum + pctOf(id), 0) / ids.length;
+  const chem = ids => {
+    let sum = 0, n = 0;
+    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) { sum += shrunkEdge(togetherOf(ids[i], ids[j])); n++; }
+    return n ? sum / n : 0;
+  };
+  let h2h = 0, n = 0;
+  a.forEach(x => b.forEach(y => { h2h += shrunkEdge(againstOf(x, y)); n++; }));
+  return [(avg(a) - avg(b)) / 10, a.length - b.length, 10 * (chem(a) - chem(b) + (n ? h2h / n : 0))];
+}
+
+function buildRealMatchupRows() {
+  const rows = [];
+  const together = {}, against = {};
+  const bump = (map, key, won) => { const r = map[key] || (map[key] = { w: 0, gp: 0 }); r.gp++; if (won) r.w++; };
+  let prevCards = null;
+  realSeasonsInOrder().forEach(season => {
+    const nightPcts = {};
+    const rankings = [...season.rankings].sort((x, y) => x.date.localeCompare(y.date));
+    let ri = 0;
+    [...season.games].sort((x, y) => x.n - y.n).forEach(g => {
+      while (ri < rankings.length && rankings[ri].date < g.date) {
+        rankings[ri].players.forEach(p => (nightPcts[p.slug] = nightPcts[p.slug] || []).push(p.pct));
+        ri++;
+      }
+      const pctOf = id => {
+        const v = nightPcts[id];
+        if (v && v.length) return v.reduce((x, y) => x + y, 0) / v.length;
+        return prevCards && prevCards[id] ? prevCards[id].powerPct : 50;
+      };
+      const x = realMatchupFeatures(g.a, g.b, pctOf, (p, q) => together[[p, q].sort().join("|")], (p, q) => against[`${p}|${q}`]);
+      const aWon = g.w === "A";
+      rows.push({ x, y: aWon ? 1 : 0 });
+      const pairs = ids => ids.flatMap((p, i) => ids.slice(i + 1).map(q => [p, q].sort().join("|")));
+      pairs(g.a).forEach(k => bump(together, k, aWon));
+      pairs(g.b).forEach(k => bump(together, k, !aWon));
+      g.a.forEach(p => g.b.forEach(q => { bump(against, `${p}|${q}`, aWon); bump(against, `${q}|${p}`, !aWon); }));
+    });
+    prevCards = season.cards;
+  });
+  return rows;
+}
+
+function fitRealMatchupWeights(rows, start = [0, 0, 0], iterations = 1500) {
+  const w = [...start];
+  const lr = 0.1;
+  for (let it = 0; it < iterations; it++) {
+    const g = [0, 0, 0];
+    rows.forEach(r => {
+      const err = sigmoid(w[0] * r.x[0] + w[1] * r.x[1] + w[2] * r.x[2]) - r.y;
+      for (let k = 0; k < 3; k++) g[k] += err * r.x[k];
+    });
+    for (let k = 0; k < 3; k++) w[k] -= lr * (g[k] / rows.length + REAL_MATCHUP_L2 * w[k]);
+  }
+  return w;
+}
+
+// Where everyone stands right now: latest season's power ranking % (earlier season's for anyone
+// not ranked this season), and every season's together/against records summed.
+function realMatchupLookups() {
+  const pct = {}, together = {}, against = {};
+  const add = (map, src) => Object.entries(src).forEach(([k, v]) => { const r = map[k] || (map[k] = { w: 0, gp: 0 }); r.w += v.w; r.gp += v.gp; });
+  realSeasonsInOrder().forEach(season => {
+    Object.entries(season.cards).forEach(([slug, c]) => { pct[slug] = c.powerPct; });
+    add(together, season.together);
+    add(against, season.against);
+  });
+  return {
+    pctOf: id => pct[id] ?? 50,
+    hasPct: id => id in pct,
+    togetherOf: (p, q) => together[[p, q].sort().join("|")],
+    againstOf: (p, q) => against[`${p}|${q}`]
+  };
+}
+
+function getRealMatchupModel() {
+  if (realMatchupModelCache !== null) return realMatchupModelCache || null;
+  const rows = buildRealMatchupRows();
+  if (rows.length < REAL_MATCHUP_MIN_GAMES) { realMatchupModelCache = false; return null; }
+  const w = fitRealMatchupWeights(rows);
+  let looCorrect = 0, looN = 0;
+  rows.forEach((r, i) => {
+    // Starting from the full fit: dropping one game barely moves the answer, so a short refit
+    // lands in the same place as a from-scratch one at a fraction of the cost.
+    const wi = fitRealMatchupWeights(rows.filter((_, j) => j !== i), w, 150);
+    const p = sigmoid(wi[0] * r.x[0] + wi[1] * r.x[1] + wi[2] * r.x[2]);
+    if (p === 0.5) return;
+    looN++;
+    if ((p > 0.5) === (r.y === 1)) looCorrect++;
+  });
+  realMatchupModelCache = { w, n: rows.length, looCorrect, looN, lookups: realMatchupLookups() };
+  return realMatchupModelCache;
+}
+
+// Team A's chance to win, plus how much each input leans the game on its own (in percentage
+// points above 50, positive toward A). null until there are enough real games to train on.
+function predictRealMatchup(teamA, teamB) {
+  const model = getRealMatchupModel();
+  if (!model || teamA.length === 0 || teamB.length === 0) return null;
+  const L = model.lookups;
+  const x = realMatchupFeatures(teamA, teamB, L.pctOf, L.togetherOf, L.againstOf);
+  const pA = sigmoid(model.w[0] * x[0] + model.w[1] * x[1] + model.w[2] * x[2]);
+  const factors = x.map((v, k) => ({ label: REAL_MATCHUP_FACTOR_LABELS[k], lean: (sigmoid(model.w[k] * v) - 0.5) * 100 }));
+  const unranked = [...teamA, ...teamB].filter(id => !L.hasPct(id));
+  return { pA, factors, unranked, model };
+}
+
+function realMatchupAccuracyText(model) {
+  return model.looN ? `Tested on real games it wasn't trained on, it picked the winner in ${model.looCorrect} of ${model.looN} (${Math.round(model.looCorrect / model.looN * 100)}%).` : "";
+}
+
+// Every player the predictor can use: the local roster plus every real-site player, by name.
+function realMatchupPlayerPool() {
+  const ids = new Set(state.players.map(p => p.id));
+  if (typeof POOLEAN_SEASONS !== "undefined") realSeasonsInOrder().forEach(s => Object.keys(s.names || {}).forEach(id => ids.add(id)));
+  return [...ids].map(id => ({ id, name: poolNameOf(id) })).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Leaderboard panel: tap a chip once for Team A, again for Team B, again to clear.
+const matchupPredictorSides = {};
+function renderMatchupPredictor() {
+  const picker = document.getElementById("matchupPredictorPicker");
+  const result = document.getElementById("matchupPredictorResult");
+  if (!picker || !result) return;
+  const model = getRealMatchupModel();
+  if (!model) {
+    picker.innerHTML = "";
+    result.innerHTML = `<p class="empty-state">Needs at least ${REAL_MATCHUP_MIN_GAMES} real games imported before it can predict anything.</p>`;
+    return;
+  }
+  picker.innerHTML = realMatchupPlayerPool().map(p => {
+    const side = matchupPredictorSides[p.id];
+    return `<button type="button" class="attendee-chip${side ? ` selected matchup-chip-${side.toLowerCase()}` : ""}" data-matchup-id="${escapeHtml(p.id)}">${side ? `${side} · ` : ""}${escapeHtml(p.name)}</button>`;
+  }).join("");
+  picker.querySelectorAll("[data-matchup-id]").forEach(btn => btn.addEventListener("click", () => {
+    const id = btn.dataset.matchupId;
+    const next = { undefined: "A", A: "B", B: undefined }[matchupPredictorSides[id]];
+    if (next) matchupPredictorSides[id] = next; else delete matchupPredictorSides[id];
+    renderMatchupPredictor();
+  }));
+  const teamA = Object.keys(matchupPredictorSides).filter(id => matchupPredictorSides[id] === "A");
+  const teamB = Object.keys(matchupPredictorSides).filter(id => matchupPredictorSides[id] === "B");
+  const pred = predictRealMatchup(teamA, teamB);
+  if (!pred) {
+    result.innerHTML = `<p class="hint" style="margin:10px 0 0">Put at least one player on each team. ${realMatchupAccuracyText(model)}</p>`;
+    return;
+  }
+  result.innerHTML = renderMatchupOddsHtml(teamA, teamB, pred) +
+    `<p class="hint" style="margin:10px 0 0">${realMatchupAccuracyText(model)} Trained on ${model.n} real games.</p>`;
+}
+
+function renderMatchupOddsHtml(teamA, teamB, pred) {
+  const pA = Math.round(pred.pA * 100), pB = 100 - pA;
+  const names = ids => ids.map(poolPlayerLink).join(", ");
+  const factorHtml = pred.factors.filter(f => Math.abs(f.lean) >= 1).map(f =>
+    `<li>${escapeHtml(f.label)}: leans ${f.lean > 0 ? "Team A" : "Team B"} +${Math.round(Math.abs(f.lean))}%</li>`).join("");
+  const unranked = pred.unranked.length ? `<p class="hint" style="margin:6px 0 0">No power ranking yet for ${pred.unranked.map(id => escapeHtml(poolNameOf(id))).join(", ")}, counted as average.</p>` : "";
+  return `<div class="matchup-odds">
+      <div class="matchup-odds-side"><span class="matchup-odds-pct">${pA}%</span><span class="matchup-odds-label">Team A</span><span class="matchup-odds-names">${names(teamA)}</span></div>
+      <div class="matchup-odds-side matchup-odds-side-b"><span class="matchup-odds-pct">${pB}%</span><span class="matchup-odds-label">Team B</span><span class="matchup-odds-names">${names(teamB)}</span></div>
+    </div>
+    <div class="matchup-odds-bar" role="img" aria-label="Team A ${pA} percent, Team B ${pB} percent"><span style="width:${pA}%"></span></div>
+    ${factorHtml ? `<ul class="matchup-odds-factors">${factorHtml}</ul>` : `<p class="hint" style="margin:8px 0 0">Nothing separates these two teams: a coin flip.</p>`}
+    ${unranked}`;
+}
+
 // ---------- Balance Teams: win probability model ----------
 // A small, honestly-scoped machine learning model: retrained on every render straight from this
 // browser's own logged games, never anything hardcoded or pre-fit. Single feature — the gap
@@ -2113,7 +2306,11 @@ function renderBalanceResults() {
     // essentially never is. A 3+ team split has no single winner to begin with (each team's
     // number is "vs. a league-average opponent tonight," not a shared event), so summing to 100%
     // isn't meaningful there and those are left as independent per-team estimates.
-    const winProbs = !winProbModel ? null
+    // Two teams: the real-site Matchup Predictor when it has enough real games (a bigger, steadier
+    // sample than this browser's own logged games); otherwise the local model below.
+    const realPred = r.teams.length === 2 ? predictRealMatchup(r.teams[0], r.teams[1]) : null;
+    const winProbs = realPred ? [realPred.pA, 1 - realPred.pA]
+      : !winProbModel ? null
       : r.avgs.length === 2
         ? (() => { const p = predictWinProbability(winProbModel, r.avgs[0] - r.avgs[1]); return [p, 1 - p]; })()
         : r.avgs.map((avg, ti) => {
@@ -2170,12 +2367,17 @@ function renderBalanceResults() {
       // visible signal of that same fact, so a "67% win" doesn't read as more settled than it
       // actually is: a muted style plus a "~" prefix, same idea as a weather app hedging a
       // forecast that's still mostly a guess.
-      const lowConfidence = winProbModel.n < WIN_PROBABILITY_CONFIDENCE_GAMES;
+      const lowConfidence = !realPred && !!winProbModel && winProbModel.n < WIN_PROBABILITY_CONFIDENCE_GAMES;
       const confidenceNote = lowConfidence
         ? `, still well short of the ${WIN_PROBABILITY_CONFIDENCE_GAMES} it takes to fully trust; already hedged toward 50/50 to account for that`
         : "";
+      const winProbTitle = realPred
+        ? `Matchup Predictor, trained on ${realPred.model.n} real games: power rankings, the extra player, and how these players have done together and against each other. ${realMatchupAccuracyText(realPred.model)}`
+        : winProbModel
+          ? `A small model fit to this browser's own logged games (${winProbModel.n} decisive game${winProbModel.n === 1 ? "" : "s"} so far${confidenceNote}): predicted chance this team wins tonight, ${r.avgs.length > 2 ? "against a league-average opponent" : "against the team across from it"}.`
+          : "";
       const winProbLabel = winProbs
-        ? `<span class="balance-team-winprob${lowConfidence ? " balance-team-winprob-low-confidence" : ""}" title="A small model fit to this browser's own logged games (${winProbModel.n} decisive game${winProbModel.n === 1 ? "" : "s"} so far${confidenceNote}): predicted chance this team wins tonight, ${r.avgs.length > 2 ? "against a league-average opponent" : "against the team across from it"}.">${lowConfidence ? "~" : ""}${Math.round(winProbs[ti] * 100)}% win</span>`
+        ? `<span class="balance-team-winprob${lowConfidence ? " balance-team-winprob-low-confidence" : ""}" title="${escapeHtml(winProbTitle)}">${lowConfidence ? "~" : ""}${Math.round(winProbs[ti] * 100)}% win</span>`
         : "";
       return `
         <div class="balance-team-card">
@@ -2248,6 +2450,142 @@ function applyBalancedTeamsToNewGame(teamA, teamB) {
   renderGames();
   openGame(game.id);
 }
+
+// ---------- Party Night Planner ----------
+// A whole night's schedule at once. Each game: whoever has played the fewest games so far plays
+// (random among ties), then the best of 300 random splits of them, scored on three things:
+//   repeat teammates (2 points per earlier game each pair already shared a side),
+//   repeat opponents (1 point per earlier game each cross pair already faced each other),
+//   closeness (40 points per 100% the Matchup Predictor's odds sit away from 50/50).
+// Not saved anywhere: a plan for tonight, rerolled with Reshuffle.
+let plannerAttendeeIds = new Set();
+let plannerSchedule = null;
+const PLANNER_CANDIDATES = 300;
+
+function shuffled(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+function planPartyNight(ids, perSide, gameCount) {
+  const played = Object.fromEntries(ids.map(id => [id, 0]));
+  const mates = {}, opps = {};
+  const key = (p, q) => [p, q].sort().join("|");
+  const schedule = [];
+  for (let g = 0; g < gameCount; g++) {
+    const spots = perSide ? Math.min(ids.length, perSide * 2) : ids.length;
+    const order = shuffled(ids).sort((x, y) => played[x] - played[y]);
+    const playing = order.slice(0, spots), sitting = order.slice(spots);
+    const sizeA = Math.ceil(spots / 2);
+    let best = null;
+    for (let c = 0; c < PLANNER_CANDIDATES; c++) {
+      const mix = shuffled(playing);
+      const a = mix.slice(0, sizeA), b = mix.slice(sizeA);
+      let repeat = 0;
+      [a, b].forEach(team => team.forEach((p, i) => team.slice(i + 1).forEach(q => { repeat += 2 * (mates[key(p, q)] || 0); })));
+      a.forEach(p => b.forEach(q => { repeat += opps[key(p, q)] || 0; }));
+      const pred = predictRealMatchup(a, b);
+      const score = repeat + (pred ? Math.abs(pred.pA - 0.5) * 40 : 0);
+      if (!best || score < best.score) best = { a, b, sitting, score, pA: pred ? pred.pA : null };
+    }
+    [best.a, best.b].forEach(team => team.forEach((p, i) => team.slice(i + 1).forEach(q => { mates[key(p, q)] = (mates[key(p, q)] || 0) + 1; })));
+    best.a.forEach(p => best.b.forEach(q => { opps[key(p, q)] = (opps[key(p, q)] || 0) + 1; }));
+    [...best.a, ...best.b].forEach(id => played[id]++);
+    schedule.push(best);
+  }
+  const summary = ids.map(id => {
+    const teammates = new Set();
+    schedule.forEach(g => [g.a, g.b].forEach(team => { if (team.includes(id)) team.forEach(t => { if (t !== id) teammates.add(t); }); }));
+    return { id, games: played[id], teammates: teammates.size };
+  }).sort((x, y) => poolNameOf(x.id).localeCompare(poolNameOf(y.id)));
+  return { games: schedule, summary, others: ids.length - 1 };
+}
+
+function renderPlannerAttendeePicker() {
+  const wrap = document.getElementById("plannerAttendeePicker");
+  if (!wrap) return;
+  if (state.players.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">No players yet. Add players in the Players tab.</p>';
+  } else {
+    wrap.innerHTML = [...state.players].sort((a, b) => a.name.localeCompare(b.name)).map(p =>
+      `<button type="button" class="attendee-chip${plannerAttendeeIds.has(p.id) ? " selected" : ""}" data-planner-id="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>`).join("");
+    wrap.querySelectorAll("[data-planner-id]").forEach(btn => btn.addEventListener("click", () => {
+      const id = btn.dataset.plannerId;
+      if (plannerAttendeeIds.has(id)) plannerAttendeeIds.delete(id); else plannerAttendeeIds.add(id);
+      renderPlannerAttendeePicker();
+    }));
+  }
+  const n = plannerAttendeeIds.size;
+  const sizeSel = document.getElementById("plannerTeamSize");
+  if (sizeSel) {
+    const current = sizeSel.value;
+    const opts = ['<option value="0">Everyone plays</option>'];
+    for (let k = 2; k * 2 < n; k++) opts.push(`<option value="${k}">${k} per side (${n - 2 * k} sit)</option>`);
+    sizeSel.innerHTML = opts.join("");
+    if ([...sizeSel.options].some(o => o.value === current)) sizeSel.value = current;
+  }
+  const btn = document.getElementById("plannerGenerateBtn");
+  if (btn) btn.disabled = n < 2;
+  const count = document.getElementById("plannerCount");
+  if (count) count.textContent = n ? `${n} here` : "";
+}
+
+function plannerScheduleText(plan) {
+  const names = ids => ids.map(poolNameOf).join(", ");
+  return plan.games.map((g, i) => {
+    const odds = g.pA !== null ? ` (${Math.round(g.pA * 100)}% / ${100 - Math.round(g.pA * 100)}%)` : "";
+    const sit = g.sitting.length ? `\n   Sitting: ${names(g.sitting)}` : "";
+    return `Game ${i + 1}: ${names(g.a)} vs. ${names(g.b)}${odds}${sit}`;
+  }).join("\n");
+}
+
+function renderPlannerResult() {
+  const wrap = document.getElementById("plannerResult");
+  if (!wrap) return;
+  if (!plannerSchedule) { wrap.innerHTML = ""; return; }
+  const plan = plannerSchedule;
+  const gamesHtml = plan.games.map((g, i) => {
+    const pA = g.pA !== null ? Math.round(g.pA * 100) : null;
+    return `<li class="planner-game">
+      <span class="planner-game-num">Game ${i + 1}</span>
+      <span class="planner-game-teams"><span>${g.a.map(poolPlayerLink).join(", ")}</span><span class="planner-vs">vs.</span><span>${g.b.map(poolPlayerLink).join(", ")}</span></span>
+      ${pA !== null ? `<span class="planner-game-odds" title="Matchup Predictor odds, left team / right team">${pA}% / ${100 - pA}%</span>` : ""}
+      ${g.sitting.length ? `<span class="planner-game-sit">Sitting: ${g.sitting.map(id => escapeHtml(poolNameOf(id))).join(", ")}</span>` : ""}
+    </li>`;
+  }).join("");
+  const summaryHtml = plan.summary.map(r => `<li>${poolPlayerLink(r.id)} <span class="hint" style="margin:0">${r.games} game${r.games === 1 ? "" : "s"}, ${r.teammates} of ${plan.others} as teammates</span></li>`).join("");
+  wrap.innerHTML = `
+    <ol class="planner-games">${gamesHtml}</ol>
+    <div class="balance-controls" style="margin-top:10px">
+      <button type="button" class="secondary-btn" id="plannerReshuffleBtn">Reshuffle</button>
+      <button type="button" class="secondary-btn" id="plannerCopyBtn">Copy Schedule</button>
+      <span class="hint" id="plannerCopyStatus" style="margin:0" aria-live="polite"></span>
+    </div>
+    <h4 style="margin:14px 0 8px">Who plays with whom</h4>
+    <ul class="player-tips-list" style="display:block">${summaryHtml}</ul>`;
+  document.getElementById("plannerReshuffleBtn").addEventListener("click", generatePlannerSchedule);
+  document.getElementById("plannerCopyBtn").addEventListener("click", async () => {
+    const status = document.getElementById("plannerCopyStatus");
+    try { await navigator.clipboard.writeText(plannerScheduleText(plan)); status.textContent = "Copied"; }
+    catch (e) { status.textContent = "Couldn't copy. Select the schedule and copy it by hand."; }
+  });
+}
+
+function generatePlannerSchedule() {
+  const ids = [...plannerAttendeeIds];
+  if (ids.length < 2) return;
+  const perSide = parseInt(document.getElementById("plannerTeamSize").value, 10) || 0;
+  const count = Math.min(30, Math.max(1, parseInt(document.getElementById("plannerGameCount").value, 10) || 8));
+  plannerSchedule = planPartyNight(ids, perSide, count);
+  renderPlannerResult();
+}
+
+document.getElementById("plannerGenerateBtn")?.addEventListener("click", generatePlannerSchedule);
+document.getElementById("plannerUseBalanceBtn")?.addEventListener("click", () => {
+  plannerAttendeeIds = new Set([...balanceAttendeeIds]);
+  renderPlannerAttendeePicker();
+});
 
 document.getElementById("generateBalancedTeamsBtn").addEventListener("click", () => {
   const teamSizeInput = document.getElementById("balanceTeamSizeInput");
@@ -5703,8 +6041,9 @@ function renderIndividualGamePerformances() {
   });
 }
 
-// Summer 2026's voted awards, straight from that season's closed ballot (award_results in the
-// original season spreadsheet) — fixed, historical facts, not something this tool derives or
+// Every season's voted awards, straight from each season's closed ballot (award_results in the
+// season spreadsheet); `season` is the year. Add a new season's entries by hand once its voting
+// closes (the site export deliberately leaves awards out). Fixed, historical facts, not something this tool derives or
 // could recompute. `winners` are player slugs, which match this tool's own player.id for anyone
 // imported from poolean-seed.json (see INTEGRATION.md). `statKey` says which tracked stat is
 // the closest comparison for that award; null means there's no tracked equivalent to compare
@@ -5718,19 +6057,19 @@ function renderIndividualGamePerformances() {
 // next to the stat standings, sourced from the same spreadsheet as everything else here. `name`
 // is the display name straight from that sheet (pre-joined as "X + Y" for a duo), so this list
 // never depends on whether that person happens to be in the current browser's roster.
-const AWARD_RESULTS = [
-  { key: "mvp", label: "MVP", winners: ["ben"], statKey: "twoWayTotal", votedStandings: [
+const ALL_AWARD_RESULTS = [
+  { season: 2026, key: "mvp", label: "MVP", winners: ["ben"], statKey: "twoWayTotal", votedStandings: [
     { slug: "ben", name: "Ben", points: 18 }, { slug: "adam", name: "Adam", points: 11 },
     { slug: "phillip", name: "Phillip", points: 7 }, { slug: "reilly", name: "Reilly", points: 6 },
     { slug: "zach", name: "Zach", points: 5 }, { slug: "evan", name: "Evan", points: 1 }
   ] },
-  { key: "best-player", label: "Best Player", winners: ["phillip"], statKey: "twoWay", votedStandings: [
+  { season: 2026, key: "best-player", label: "Best Player", winners: ["phillip"], statKey: "twoWay", votedStandings: [
     { slug: "phillip", name: "Phillip", points: 21 }, { slug: "ben", name: "Ben", points: 7 },
     { slug: "logan-hoskins", name: "Logan H", points: 6 }, { slug: "adam", name: "Adam", points: 4 },
     { slug: "evan", name: "Evan", points: 4 }, { slug: "reilly", name: "Reilly", points: 3 },
     { slug: "sean", name: "Sean", points: 2 }, { slug: "kayla", name: "Kayla", points: 1 }
   ] },
-  { key: "dpoy", label: "Defensive Player of the Year", winners: ["adam"], statKey: "defRating", votedStandings: [
+  { season: 2026, key: "dpoy", label: "Defensive Player of the Year", winners: ["adam"], statKey: "defRating", votedStandings: [
     { slug: "adam", name: "Adam", points: 9 }, { slug: "jason", name: "Jason", points: 9 },
     { slug: "phillip", name: "Phillip", points: 6 }, { slug: "ben", name: "Ben", points: 4 },
     { slug: "logan-hoskins", name: "Logan H", points: 3 }, { slug: "sean", name: "Sean", points: 3 },
@@ -5738,26 +6077,26 @@ const AWARD_RESULTS = [
     { slug: "will", name: "Will", points: 2 }, { slug: "evan", name: "Evan", points: 1 },
     { slug: "zach", name: "Zach", points: 1 }
   ] },
-  { key: "clutch", label: "Clutch", winners: ["phillip"], statKey: "closeGameTs", votedStandings: [
+  { season: 2026, key: "clutch", label: "Clutch", winners: ["phillip"], statKey: "closeGameTs", votedStandings: [
     { slug: "phillip", name: "Phillip", points: 7 }, { slug: "zach", name: "Zach", points: 7 },
     { slug: "adam", name: "Adam", points: 5 }, { slug: "evan", name: "Evan", points: 5 },
     { slug: "alex", name: "Alex", points: 4 }, { slug: "reilly", name: "Reilly", points: 4 },
     { slug: "ben", name: "Ben", points: 3 }, { slug: "viraj", name: "Viraj", points: 1 }
   ] },
-  { key: "mip-season", label: "Most Improved (Season)", winners: ["zach"], statKey: "trend", votedStandings: [
+  { season: 2026, key: "mip-season", label: "Most Improved (Season)", winners: ["zach"], statKey: "trend", votedStandings: [
     { slug: "zach", name: "Zach", points: 19 }, { slug: "ben", name: "Ben", points: 7 },
     { slug: "alex", name: "Alex", points: 4 }, { slug: "evan", name: "Evan", points: 4 },
     { slug: "g-lukas", name: "Lukas", points: 4 }, { slug: "adam", name: "Adam", points: 2 },
     { slug: "jason", name: "Jason", points: 2 }
   ] },
-  { key: "mip-yoy", label: "Most Improved (Year-over-Year)", winners: ["zach"], statKey: "trend", votedStandings: [
+  { season: 2026, key: "mip-yoy", label: "Most Improved (Year-over-Year)", winners: ["zach"], statKey: "trend", votedStandings: [
     { slug: "zach", name: "Zach", points: 9 }, { slug: "ben", name: "Ben", points: 6 },
     { slug: "adam", name: "Adam", points: 5 }, { slug: "alex", name: "Alex", points: 3 },
     { slug: "jason", name: "Jason", points: 3 }, { slug: "viraj", name: "Viraj", points: 3 },
     { slug: "logan-watson", name: "Logan W", points: 2 }, { slug: "ryder", name: "Ryder", points: 2 },
     { slug: "sean", name: "Sean", points: 2 }, { slug: "evan", name: "Evan", points: 1 }
   ] },
-  { key: "teammate", label: "Best Teammate", winners: ["ben"], statKey: "teammateLift", votedStandings: [
+  { season: 2026, key: "teammate", label: "Best Teammate", winners: ["ben"], statKey: "teammateLift", votedStandings: [
     { slug: "ben", name: "Ben", points: 10 }, { slug: "reilly", name: "Reilly", points: 6 },
     { slug: "sean", name: "Sean", points: 6 }, { slug: "evan", name: "Evan", points: 4 },
     { slug: "jason", name: "Jason", points: 4 }, { slug: "adam", name: "Adam", points: 3 },
@@ -5765,27 +6104,31 @@ const AWARD_RESULTS = [
     { slug: "alex", name: "Alex", points: 1 }, { slug: "g-ian", name: "Ian", points: 1 },
     { slug: "will", name: "Will", points: 1 }, { slug: "zach", name: "Zach", points: 1 }
   ] },
-  { key: "first-team", label: "First Team", winners: ["phillip", "ben", "sean"], statKey: "twoWay", votedStandings: [
+  { season: 2026, key: "first-team", label: "First Team", winners: ["phillip", "ben", "sean"], statKey: "twoWay", votedStandings: [
     { slug: "phillip", name: "Phillip", points: 29 }, { slug: "ben", name: "Ben", points: 22 },
     { slug: "sean", name: "Sean", points: 13 }, { slug: "adam", name: "Adam", points: 12 },
     { slug: "reilly", name: "Reilly", points: 10 }, { slug: "evan", name: "Evan", points: 9 },
     { slug: "logan-hoskins", name: "Logan H", points: 7 }, { slug: "zach", name: "Zach", points: 3 }
   ] },
-  { key: "second-team", label: "Second Team", winners: ["adam", "reilly", "evan"], statKey: "twoWay", votedStandings: [
+  { season: 2026, key: "second-team", label: "Second Team", winners: ["adam", "reilly", "evan"], statKey: "twoWay", votedStandings: [
     { slug: "phillip", name: "Phillip", points: 29 }, { slug: "ben", name: "Ben", points: 22 },
     { slug: "sean", name: "Sean", points: 13 }, { slug: "adam", name: "Adam", points: 12 },
     { slug: "reilly", name: "Reilly", points: 10 }, { slug: "evan", name: "Evan", points: 9 },
     { slug: "logan-hoskins", name: "Logan H", points: 7 }, { slug: "zach", name: "Zach", points: 3 }
   ] },
-  { key: "best-duo", label: "Best Duo", winners: ["phillip", "ben"], statKey: "twoWay", isDuo: true, votedStandings: [
+  { season: 2026, key: "best-duo", label: "Best Duo", winners: ["phillip", "ben"], statKey: "twoWay", isDuo: true, votedStandings: [
     { slug: "ben|phillip", name: "Ben + Phillip", points: 3 }, { slug: "alex|kayla", name: "Alex + Kayla", points: 1 },
     { slug: "alex|viraj", name: "Alex + Viraj", points: 1 }
   ] },
-  { key: "worst-duo", label: "Worst Duo", winners: ["phillip", "viraj"], statKey: "twoWay", isDuo: true, votedStandings: [
+  { season: 2026, key: "worst-duo", label: "Worst Duo", winners: ["phillip", "viraj"], statKey: "twoWay", isDuo: true, votedStandings: [
     { slug: "phillip|viraj", name: "Phillip + Viraj", points: 4 }, { slug: "adam|zach", name: "Adam + Zach", points: 1 },
     { slug: "alex|viraj", name: "Alex + Viraj", points: 1 }
   ] }
 ];
+
+// The awards for whichever real season is picked in the header (setPooleanSeason() below
+// reassigns this). ALL_AWARD_RESULTS stays the full history, for the avatar ring and badges.
+let AWARD_RESULTS = ALL_AWARD_RESULTS;
 
 // For each award, resolves its voted winner(s) against whatever's actually logged in this
 // browser right now — a rank/value on the closest tracked stat, or an honest "no games logged
@@ -5851,50 +6194,134 @@ const AWARD_TIER = {
   "worst-duo": null
 };
 const AWARD_TIER_COLOR = { 1: "gold", 2: "silver", 3: "bronze" };
-const AWARD_PLACEMENT_LABEL = { 0: "2026", 1: "Runner-up", 2: "Honorable mention" };
+const AWARD_PLACEMENT_LABEL = { 1: "Runner-up", 2: "Honorable mention" };
 
-// This player's real award history: a win (they're in award.winners) or a runner-up (2nd place
-// in award.votedStandings, the real ballot tally -- not this tool's own approximate stat
-// standings, which is a different, already-shown thing). A duo award's votedStandings slugs are
-// "a|b" pairs, so those are checked by membership instead of an exact match.
-// This player's real award history: 1st (they're in award.winners), 2nd or 3rd place (that
-// position in award.votedStandings, the real ballot tally — not this tool's own approximate stat
-// standings, which is a different, already-shown thing). A duo award's votedStandings slugs are
-// "a|b" pairs, checked by membership, and its badge names the other half of the pair.
+// This player's real award history across every season: 1st (they're in award.winners), 2nd or
+// 3rd place (that position in award.votedStandings, the real ballot tally, not this tool's own
+// approximate stat standings). A duo award's votedStandings slugs are "a|b" pairs, checked by
+// membership, and its badge names the other half of the pair. Newest season first.
 function computePlayerAwardBadges(playerId) {
-  return AWARD_RESULTS.map(award => {
+  return [...ALL_AWARD_RESULTS].sort((a, b) => b.season - a.season).map(award => {
     const isWinner = award.winners.includes(playerId);
     let placementIndex = isWinner ? 0 : -1;
     if (!isWinner) {
       placementIndex = award.votedStandings.findIndex(entry => entry.slug.split("|").includes(playerId));
       if (placementIndex < 1 || placementIndex > 2) return null; // only 2nd/3rd count as a placement badge
     }
-    // The duo this placement actually belongs to — the winning pair when it's a win, otherwise
-    // whichever votedStandings pair this player's own placement came from (not necessarily the
-    // winning pair at all, for a runner-up).
+    // The duo this placement belongs to: the winning pair for a win, otherwise whichever
+    // votedStandings pair this player's own placement came from.
     const pairSlugs = award.isDuo
       ? (isWinner ? award.winners : award.votedStandings[placementIndex].slug.split("|"))
       : null;
     const partnerId = pairSlugs ? pairSlugs.find(id => id !== playerId) || null : null;
     return {
-      key: award.key, label: award.label, icon: AWARD_ICONS[award.key] || "🏅",
+      key: award.key, label: award.label, icon: AWARD_ICONS[award.key] || "🏅", season: award.season,
       isWinner, tier: AWARD_TIER[award.key] || null, color: AWARD_TIER_COLOR[AWARD_TIER[award.key]] || null,
-      placementLabel: AWARD_PLACEMENT_LABEL[placementIndex],
+      placementLabel: isWinner ? String(award.season) : `${AWARD_PLACEMENT_LABEL[placementIndex]} ${award.season}`,
       partnerName: partnerId ? poolNameOf(partnerId) : null, partnerId
     };
   }).filter(Boolean);
 }
 
 // The ring's color/thickness: highest tier among this player's actual WINS only (a runner-up
-// finish shows in the badge grid but never sets the ring — the ring answers "what have they won,"
-// not "how close did they come"). Only one season of award data exists right now, so every award
-// here counts as "current" — the past-season/thin-ring case is real per the spec, just unreachable
-// until this app has more than one closed season of awards to compare against.
+// finish shows in the badge grid but never sets the ring). Thick with a glow for a win in the
+// latest season that has awards; thin for someone whose wins are all from earlier seasons.
+// Always judged against the latest season, whichever season is picked in the header.
 function computePlayerAwardTier(playerId) {
-  const wins = AWARD_RESULTS.filter(a => a.winners.includes(playerId) && AWARD_TIER[a.key]);
+  const wins = ALL_AWARD_RESULTS.filter(a => a.winners.includes(playerId) && AWARD_TIER[a.key]);
   if (wins.length === 0) return null;
-  const tier = Math.min(...wins.map(a => AWARD_TIER[a.key]));
-  return { tier, color: AWARD_TIER_COLOR[tier], isCurrent: true };
+  const latest = Math.max(...ALL_AWARD_RESULTS.map(a => a.season));
+  const currentWins = wins.filter(a => a.season === latest);
+  const pool = currentWins.length > 0 ? currentWins : wins;
+  const tier = Math.min(...pool.map(a => AWARD_TIER[a.key]));
+  return { tier, color: AWARD_TIER_COLOR[tier], isCurrent: currentWins.length > 0 };
+}
+
+// ---------- Real site seasons ----------
+// Every season this app knows about, from either the imported site data (POOLEAN_SEASON_LIST)
+// or the hand-entered awards, oldest first. The header's season picker swaps every real-data
+// panel over to one season by reassigning the POOLEAN_* globals and AWARD_RESULTS.
+const POOLEAN_SEASON_KEY = "poolean-selected-season";
+let selectedPooleanSeason = null;
+
+function pooleanSeasonList() {
+  const years = new Set(ALL_AWARD_RESULTS.map(a => String(a.season)));
+  if (typeof POOLEAN_SEASON_LIST !== "undefined") POOLEAN_SEASON_LIST.forEach(y => years.add(String(y)));
+  return [...years].sort((a, b) => Number(a) - Number(b));
+}
+
+function setPooleanSeason(year) {
+  const list = pooleanSeasonList();
+  selectedPooleanSeason = list.includes(String(year)) ? String(year) : list[list.length - 1] || null;
+  AWARD_RESULTS = ALL_AWARD_RESULTS.filter(a => String(a.season) === selectedPooleanSeason);
+  if (typeof POOLEAN_SEASONS === "undefined") return;
+  const d = POOLEAN_SEASONS[selectedPooleanSeason];
+  // A season with awards but no imported site data leaves these undefined, so every real-data
+  // panel shows its normal "no real-site data" empty state instead of another season's numbers.
+  window.POOLEAN_RANKINGS = d ? d.rankings : undefined;
+  window.POOLEAN_RECORD = d ? d.record : undefined;
+  window.POOLEAN_TOGETHER = d ? d.together : undefined;
+  window.POOLEAN_AGAINST = d ? d.against : undefined;
+  window.POOLEAN_SEASON_CARDS = d ? d.cards : undefined;
+  window.POOLEAN_GAMES = d ? d.games : undefined;
+  if (d) window.POOLEAN_NAMES = d.names;
+  realMatchupModelCache = null;
+}
+
+function initPooleanSeasonPicker() {
+  let saved = null;
+  try { saved = localStorage.getItem(POOLEAN_SEASON_KEY); } catch (e) { /* storage blocked */ }
+  setPooleanSeason(saved);
+  const select = document.getElementById("pooleanSeasonSelect");
+  const wrap = document.getElementById("pooleanSeasonPicker");
+  if (!select || !wrap) return;
+  const list = pooleanSeasonList();
+  wrap.hidden = list.length < 2;
+  select.innerHTML = [...list].reverse().map(y => `<option value="${y}">${y} season</option>`).join("");
+  select.value = selectedPooleanSeason;
+  select.addEventListener("change", () => {
+    setPooleanSeason(select.value);
+    try { localStorage.setItem(POOLEAN_SEASON_KEY, selectedPooleanSeason); } catch (e) { /* storage blocked */ }
+    renderLeaderboard();
+    if (currentPlayerId) renderPlayerDetail();
+  });
+}
+
+// One row per season this player has a real season card in, with the change from their
+// previous season. Always every season, whichever one the header picker is on.
+function computePlayerRealSeasons(playerId) {
+  if (typeof POOLEAN_SEASONS === "undefined") return [];
+  let prev = null;
+  return pooleanSeasonList().map(year => {
+    const card = POOLEAN_SEASONS[year]?.cards?.[playerId];
+    if (!card) return null;
+    const wins = ALL_AWARD_RESULTS.filter(a => String(a.season) === year && a.winners.includes(playerId));
+    const row = { year, card, wins, powerDelta: prev ? card.powerPct - prev.powerPct : null, winDelta: prev ? card.winPct - prev.winPct : null };
+    prev = card;
+    return row;
+  }).filter(Boolean);
+}
+
+function renderPlayerRealSeasons(playerId) {
+  const wrap = document.getElementById("playerRealSeasons");
+  if (!wrap) return;
+  const rows = computePlayerRealSeasons(playerId);
+  if (rows.length === 0) { wrap.innerHTML = '<p class="empty-state">No real-site season cards for this player yet.</p>'; return; }
+  const delta = d => d === null ? "" : ` <span class="season-delta ${d > 0 ? "season-delta-up" : d < 0 ? "season-delta-down" : ""}">${Math.round(d) > 0 ? "+" : Math.round(d) === 0 ? "±" : ""}${Math.round(d)}</span>`;
+  const body = [...rows].reverse().map(r => `
+    <tr>
+      <td><strong>${r.year}</strong></td>
+      <td>${r.card.w}-${r.card.l}</td>
+      <td>${Math.round(r.card.winPct)}%${delta(r.winDelta)}</td>
+      <td>${Math.round(r.card.powerPct)}%${delta(r.powerDelta)}</td>
+      <td>${r.card.crowns}</td>
+      <td>${r.card.bestRank ? ordinal(r.card.bestRank) : "-"}</td>
+      <td>${r.wins.map(a => `<span title="${escapeHtml(a.label)}">${AWARD_ICONS[a.key] || "🏅"}</span>`).join(" ") || "-"}</td>
+    </tr>`).join("");
+  wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
+    <thead><tr><th>Season</th><th>Record</th><th>Win %</th><th>Power %</th><th>#1 nights</th><th>Best rank</th><th>Awards won</th></tr></thead>
+    <tbody>${body}</tbody></table></div>
+    ${rows.length === 1 ? '<p class="hint" style="margin:10px 0 0">Year-over-year changes show up here once a second season is imported.</p>' : ""}`;
 }
 
 // A shareable one-screen recap of the real (closed) season: the MVP as champion, every award and
@@ -6181,9 +6608,15 @@ function renderPartyRecap() {
   if (!select || !wrap) return;
   if (typeof POOLEAN_GAMES === "undefined") { wrap.innerHTML = '<p class="empty-state">No real-site game data loaded yet.</p>'; return; }
   const dates = [...new Set(POOLEAN_GAMES.map(g => g.date))].sort().reverse();
-  if (select.options.length === 0) {
+  // Refilled whenever the header season picker changes, since each season has its own nights.
+  if (select.dataset.season !== String(selectedPooleanSeason)) {
     select.innerHTML = dates.map(d => `<option value="${d}">${escapeHtml(formatDateDisplay(d))}</option>`).join("");
+    select.dataset.season = String(selectedPooleanSeason);
+  }
+  if (!select.dataset.wired) {
+    select.dataset.wired = "1";
     select.addEventListener("change", renderPartyRecap);
+    document.getElementById("downloadPartyRecapBtn")?.addEventListener("click", downloadPartyRecapImage);
   }
   const recap = computePartyRecap(select.value || dates[0]);
   if (!recap) { wrap.innerHTML = '<p class="empty-state">No games that night.</p>'; return; }
@@ -6191,6 +6624,181 @@ function renderPartyRecap() {
   const upsetsHtml = recap.upsets.length === 0 ? "" : `<p class="hint" style="margin:10px 0 0">🎲 ${recap.upsets.length} upset${recap.upsets.length === 1 ? "" : "s"} that night.</p>`;
   wrap.innerHTML = `<p class="hint" style="margin:0 0 10px">${recap.games} game${recap.games === 1 ? "" : "s"} that night.</p>
     <ul class="player-tips-list" style="display:block">${standingsHtml}</ul>${upsetsHtml}`;
+}
+
+// Shareable PNG of one party night for the group chat: that night's standings and its biggest
+// upset, drawn on a canvas the same way as the player trading card.
+function wrapCanvasText(ctx, text, maxWidth) {
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+  words.forEach(word => {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
+    else line = test;
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+function generatePartyRecapCanvas(date) {
+  const recap = computePartyRecap(date);
+  if (!recap) return null;
+  const W = 1080, rowH = 64, top = 330;
+  const upset = recap.upsets[0] || null;
+  const names = ids => ids.map(poolNameOf).join(" & ");
+  const measure = document.createElement("canvas").getContext("2d");
+  measure.font = "30px sans-serif";
+  const upsetLines = upset ? wrapCanvasText(measure, `${names(upset.winners)} beat ${names(upset.losers)} (${Math.round(upset.winPct)}% vs. ${Math.round(upset.losePct)}% power ranking that night)`, W - 160) : [];
+  const H = top + recap.standings.length * rowH + (upset ? 90 + upsetLines.length * 40 : 0) + 120;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, "#12212b"); grad.addColorStop(1, "#1c2e3a");
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#3FE0D4"; ctx.font = "bold 30px sans-serif";
+  ctx.fillText("POOLEAN PARTY RECAP", 80, 120);
+  ctx.fillStyle = "white"; ctx.font = "bold 72px sans-serif";
+  ctx.fillText(formatDateDisplay(date), 80, 205);
+  ctx.fillStyle = "rgba(255,255,255,0.65)"; ctx.font = "30px sans-serif";
+  ctx.fillText(`${recap.games} game${recap.games === 1 ? "" : "s"} · ${recap.standings.length} players`, 80, 260);
+
+  recap.standings.forEach((r, i) => {
+    const y = top + i * rowH;
+    if (i === 0) {
+      ctx.fillStyle = "rgba(227,169,58,0.16)";
+      ctx.fillRect(60, y - 8, W - 120, rowH - 8);
+    }
+    ctx.fillStyle = i === 0 ? "#E3A93A" : "rgba(255,255,255,0.45)";
+    ctx.font = "bold 30px sans-serif"; ctx.textAlign = "left";
+    ctx.fillText(String(i + 1), 84, y + 36);
+    ctx.fillStyle = "white"; ctx.font = `${i === 0 ? "bold " : ""}34px sans-serif`;
+    ctx.fillText(`${poolNameOf(r.slug)}${i === 0 ? "  👑" : ""}`, 150, y + 36);
+    ctx.textAlign = "right";
+    ctx.fillStyle = r.w > r.l ? "#3FE0D4" : r.w < r.l ? "#F0873A" : "rgba(255,255,255,0.8)";
+    ctx.font = "bold 34px sans-serif";
+    ctx.fillText(`${r.w}-${r.l}`, W - 84, y + 36);
+  });
+
+  let y = top + recap.standings.length * rowH + 40;
+  if (upset) {
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#F0873A"; ctx.font = "bold 28px sans-serif";
+    ctx.fillText(`BIGGEST UPSET${recap.upsets.length > 1 ? ` (of ${recap.upsets.length})` : ""}`, 80, y);
+    y += 46;
+    ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.font = "30px sans-serif";
+    upsetLines.forEach(line => { ctx.fillText(line, 80, y); y += 40; });
+  }
+  ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.font = "22px sans-serif";
+  ctx.fillText("Poolean", W / 2, H - 40);
+  return canvas;
+}
+
+function downloadPartyRecapImage() {
+  const select = document.getElementById("partyRecapSelect");
+  if (!select || !select.value) return;
+  const canvas = generatePartyRecapCanvas(select.value);
+  if (!canvas) return;
+  canvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `Poolean_recap_${select.value}.png`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, "image/png");
+}
+
+// ---------- Award Race ----------
+// A stats-only guess at every award for the season picked in the header: who the numbers point
+// to, top 3 each. The vote is what actually counts; once a season's results are entered, each
+// award shows who really won next to the projection. Most rows use the real site's data; DPOY,
+// Clutch and Best Teammate have no real-site equivalent, so they use this app's own logged games.
+const AWARD_RACE_DUO_MIN_GP = 5;
+
+function computeAwardRace() {
+  const cards = typeof POOLEAN_SEASON_CARDS !== "undefined" ? POOLEAN_SEASON_CARDS : null;
+  const rows = [];
+  const pct = n => `${Math.round(n)}%`;
+  let qualified = [];
+  if (cards) {
+    const maxParties = Math.max(...Object.values(cards).map(c => c.parties || 0), 0);
+    // At least 3 parties (or a fifth of the season, if that's more): keeps one-night cameos out
+    // without dropping someone who played less but was clearly one of the best.
+    const minParties = Math.max(3, Math.ceil(maxParties * 0.2));
+    qualified = Object.entries(cards).filter(([, c]) => (c.parties || 0) >= minParties).map(([slug, c]) => ({ slug, c }));
+    const byPower = [...qualified].sort((a, b) => b.c.powerPct - a.c.powerPct);
+    rows.push({ key: "mvp", basis: "Most real wins", leaders: [...qualified].sort((a, b) => b.c.w - a.c.w || b.c.powerPct - a.c.powerPct).slice(0, 3).map(r => ({ ids: [r.slug], value: `${r.c.w}-${r.c.l}` })) });
+    rows.push({ key: "best-player", basis: "Highest power ranking %", leaders: byPower.slice(0, 3).map(r => ({ ids: [r.slug], value: pct(r.c.powerPct) })) });
+    rows.push({ key: "first-team", basis: "Power ranking %, 1st to 3rd", leaders: byPower.slice(0, 3).map(r => ({ ids: [r.slug], value: pct(r.c.powerPct) })) });
+    rows.push({ key: "second-team", basis: "Power ranking %, 4th to 6th", leaders: byPower.slice(3, 6).map(r => ({ ids: [r.slug], value: pct(r.c.powerPct) })) });
+    // Season MIP: first ranked night's percentile to the season-long power ranking %.
+    if (typeof POOLEAN_RANKINGS !== "undefined") {
+      const firstPct = {};
+      [...POOLEAN_RANKINGS].sort((a, b) => a.date.localeCompare(b.date)).forEach(n => n.players.forEach(p => { if (!(p.slug in firstPct)) firstPct[p.slug] = p.pct; }));
+      const risers = qualified.filter(r => r.slug in firstPct).map(r => ({ slug: r.slug, delta: r.c.powerPct - firstPct[r.slug], from: firstPct[r.slug], to: r.c.powerPct }))
+        .sort((a, b) => b.delta - a.delta).slice(0, 3);
+      rows.push({ key: "mip-season", basis: "First night's rank % to season %", leaders: risers.map(r => ({ ids: [r.slug], value: `${pct(r.from)} to ${pct(r.to)}` })) });
+    }
+    const list = pooleanSeasonList();
+    const prevYear = list[list.indexOf(selectedPooleanSeason) - 1];
+    const prevCards = prevYear && typeof POOLEAN_SEASONS !== "undefined" ? POOLEAN_SEASONS[prevYear]?.cards : null;
+    rows.push(prevCards
+      ? { key: "mip-yoy", basis: `Power ranking % vs. ${prevYear}`, leaders: qualified.filter(r => prevCards[r.slug]).map(r => ({ slug: r.slug, delta: r.c.powerPct - prevCards[r.slug].powerPct }))
+          .sort((a, b) => b.delta - a.delta).slice(0, 3).map(r => ({ ids: [r.slug], value: `${r.delta >= 0 ? "+" : ""}${Math.round(r.delta)}` })) }
+      : { key: "mip-yoy", basis: "Power ranking % vs. last season", leaders: [], empty: "Needs last season's data imported." });
+  }
+  const standings = computeAwardStandings();
+  const local = (key, statKey, basis) => rows.push({ key, basis, local: true, empty: "No logged games for this yet.", leaders: (standings[statKey] || []).slice(0, 3).map(r => ({ ids: [r.player.id], value: r.display })) });
+  local("dpoy", "defRating", "Defensive rating per 20");
+  local("clutch", "closeGameTs", "Shooting in close games");
+  local("teammate", "teammateLift", "How much teammates improve with them");
+  if (typeof POOLEAN_TOGETHER !== "undefined") {
+    const duos = Object.entries(POOLEAN_TOGETHER).filter(([, v]) => v.gp >= AWARD_RACE_DUO_MIN_GP)
+      .map(([k, v]) => ({ ids: k.split("|"), v, rate: v.w / v.gp }));
+    const fmt = d => ({ ids: d.ids, value: `${d.v.w}-${d.v.l} together` });
+    rows.push({ key: "best-duo", basis: `Best record together (${AWARD_RACE_DUO_MIN_GP}+ games)`, leaders: [...duos].sort((a, b) => b.rate - a.rate || b.v.gp - a.v.gp).slice(0, 3).map(fmt) });
+    rows.push({ key: "worst-duo", basis: `Worst record together (${AWARD_RACE_DUO_MIN_GP}+ games)`, leaders: [...duos].sort((a, b) => a.rate - b.rate || b.v.gp - a.v.gp).slice(0, 3).map(fmt) });
+  }
+  const order = Object.keys(AWARD_TIER);
+  rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+  return rows.map(r => {
+    const voted = AWARD_RESULTS.find(a => a.key === r.key) || null;
+    const label = voted ? voted.label : (ALL_AWARD_RESULTS.find(a => a.key === r.key) || {}).label || r.key;
+    // A hit: the projected leader(s) match who actually won. Team awards compare the whole top 3.
+    let hit = null;
+    if (voted && r.leaders.length) {
+      const projected = r.key.endsWith("-team") ? r.leaders.flatMap(l => l.ids) : r.leaders[0].ids;
+      const winners = voted.winners;
+      hit = projected.length === winners.length ? winners.every(w => projected.includes(w)) : projected.every(id => winners.includes(id));
+    }
+    return { ...r, label, voted, hit };
+  });
+}
+
+function renderAwardRace() {
+  const wrap = document.getElementById("awardRace");
+  if (!wrap) return;
+  const rows = computeAwardRace();
+  const withLeaders = rows.filter(r => r.leaders.length || r.empty);
+  if (withLeaders.length === 0) { wrap.innerHTML = '<p class="empty-state">No real-site season data or logged games yet.</p>'; return; }
+  const names = ids => ids.map(poolPlayerLink).join(" + ");
+  const hits = rows.filter(r => r.hit !== null);
+  wrap.innerHTML = `<div class="award-race-grid">${withLeaders.map(r => {
+    const color = AWARD_TIER_COLOR[AWARD_TIER[r.key]];
+    const leaders = r.leaders.length
+      ? `<ol class="award-race-leaders">${r.leaders.map(l => `<li>${names(l.ids)} <span class="hint" style="margin:0">${escapeHtml(l.value)}</span></li>`).join("")}</ol>`
+      : `<p class="hint" style="margin:6px 0 0">${escapeHtml(r.empty || "Not enough data yet.")}</p>`;
+    const voted = r.voted ? `<p class="award-race-voted">${r.hit === true ? "✓ " : r.hit === false ? "✗ " : ""}Voted: ${r.voted.winners.map(poolPlayerLink).join(" + ")}</p>` : "";
+    return `<div class="award-race-card${color ? ` award-race-${color}` : ""}">
+      <div class="award-race-head"><span>${AWARD_ICONS[r.key] || "🏅"}</span><strong>${escapeHtml(r.label)}</strong></div>
+      <span class="award-race-basis">${escapeHtml(r.basis)}${r.local ? " · logged games" : ""}</span>
+      ${leaders}${voted}
+    </div>`;
+  }).join("")}</div>
+  ${hits.length ? `<p class="hint" style="margin:10px 0 0">The stats picked the actual winner for ${hits.filter(r => r.hit).length} of ${hits.length} awards this season.</p>` : `<p class="hint" style="margin:10px 0 0">No votes in yet for this season, so this is the stats' best guess.</p>`}`;
 }
 
 // Every player with a real award win, sorted gold-first, for a hall-of-fame style grid.
@@ -6373,26 +6981,12 @@ function renderComebackTracker() {
 const TRADING_CARD_TIER_COLORS = {
   gold: ["#3a2f14", "#E3A93A"], silver: ["#0d2b29", "#3FE0D4"], bronze: ["#3a2210", "#F0873A"]
 };
-// This player's own power-ranking movement across the real season: their percentile at the very
-// first real party versus the most recent one. Same two datapoints Season Recap's league-wide
-// "biggest riser/faller" picks its winner from, just read for one specific player instead of
-// picking the single best/worst across the whole roster. null if they weren't ranked at both ends
-// (joined partway through, or the season is only one party old so far).
-function computePlayerPowerMovement(playerId) {
-  if (typeof POOLEAN_RANKINGS === "undefined" || POOLEAN_RANKINGS.length < 2) return null;
-  const first = POOLEAN_RANKINGS[0], last = POOLEAN_RANKINGS[POOLEAN_RANKINGS.length - 1];
-  const f = first.players.find(x => x.slug === playerId), l = last.players.find(x => x.slug === playerId);
-  if (!f || !l) return null;
-  return { from: f.pct, to: l.pct, delta: l.pct - f.pct };
-}
-
 async function generateTradingCardCanvas(playerId) {
   const player = state.players.find(p => p.id === playerId);
   if (!player) return null;
   const tier = computePlayerAwardTier(playerId);
   const real = poolRealRecord(playerId);
   const power = computePowerRankingSummary(playerId);
-  const movement = computePlayerPowerMovement(playerId);
   const row = computeLeaderboard().find(r => r.player.id === playerId);
   const badges = computePlayerAwardBadges(playerId).filter(b => b.isWinner).slice(0, 3);
   const W = 600, H = 880;
@@ -6501,22 +7095,24 @@ function renderPlayerAwardBadges(playerId) {
     wrap.innerHTML = '<p class="empty-state">No award wins or runner-up finishes for this player yet.</p>';
     return;
   }
-  // Marquee: only when they hold a real current tier-1 (gold) win — skipped entirely otherwise,
-  // never an empty placeholder version.
-  const goldWin = badges.find(b => b.isWinner && b.tier === 1);
+  // Marquee: only when they hold a tier-1 (gold) win from the latest season with awards, skipped
+  // entirely otherwise, never an empty placeholder version.
+  const latestAwardSeason = Math.max(...ALL_AWARD_RESULTS.map(a => a.season));
+  const goldWin = badges.find(b => b.isWinner && b.tier === 1 && b.season === latestAwardSeason);
   const marquee = goldWin ? `
     <div class="award-marquee">
       <span class="award-marquee-icon">${goldWin.icon}</span>
-      <span class="award-marquee-text"><strong>${escapeHtml(goldWin.label)}</strong><span>2026 · reigning</span></span>
+      <span class="award-marquee-text"><strong>${escapeHtml(goldWin.label)}</strong><span>${goldWin.season} · reigning</span></span>
     </div>` : "";
   const grid = badges.map(b => {
     const untiered = !b.color; // Worst Duo: deliberately never gold/silver/bronze, never a ring
     const cls = untiered ? "award-badge award-badge-untiered" : `award-badge award-badge-${b.color}`;
     let sub = escapeHtml(b.placementLabel);
     if (b.partnerName) {
-      const together = typeof POOLEAN_TOGETHER !== "undefined" ? POOLEAN_TOGETHER[[playerId, b.partnerId].sort().join("|")] : null;
+      const seasonTogether = typeof POOLEAN_SEASONS !== "undefined" ? POOLEAN_SEASONS[String(b.season)]?.together : null;
+      const together = seasonTogether ? seasonTogether[[playerId, b.partnerId].sort().join("|")] : null;
       const withPart = `with ${escapeHtml(b.partnerName)}${together ? ` · ${together.w}-${together.l} together` : ""}`;
-      sub = b.isWinner ? withPart : `${escapeHtml(b.placementLabel)} · ${withPart}`;
+      sub = `${escapeHtml(b.placementLabel)} · ${withPart}`;
     }
     return `<span class="${cls}">
       <span class="award-badge-icon">${b.icon}</span>
@@ -10457,8 +11053,10 @@ function renderLeaderboard() {
   renderCloseGameDefensePanel();
   renderComebackTracker();
   renderSeasonRecap();
+  renderAwardRace();
   renderSeasonTimeline();
   renderRivalries();
+  renderMatchupPredictor();
   renderRealRivalryMatrix();
   renderUpsetTracker();
   renderPartyRecap();
@@ -10656,6 +11254,7 @@ function renderPlayerDetail() {
   renderPlayerLeagueRank(player.id);
   renderPlayerAwardBadges(player.id);
   renderPlayerPowerRanking(player.id);
+  renderPlayerRealSeasons(player.id);
   renderPlayerRealRecord(player.id);
   renderPlayerRealPartners(player.id);
   renderPlayerStreaks(player.id);
@@ -13233,13 +13832,20 @@ function collapseSectionHints() {
 // dismiss when there's nothing to say.
 const POOL_DATA_SNAPSHOT_KEY = "poolDataSnapshot";
 function computePoolDataDigest() {
-  if (typeof POOLEAN_SEASON_CARDS === "undefined") return null;
-  let previous = null;
-  try { previous = JSON.parse(localStorage.getItem(POOL_DATA_SNAPSHOT_KEY) || "null"); } catch (e) { previous = null; }
-  try { localStorage.setItem(POOL_DATA_SNAPSHOT_KEY, JSON.stringify(POOLEAN_SEASON_CARDS)); } catch (e) { /* storage full/blocked: digest just won't have a next-time comparison */ }
-  if (!previous) return null; // first time this browser's seen real data at all -- nothing to compare against
+  // Always the latest season's cards (the header picker may be showing an older season).
+  if (typeof POOLEAN_SEASONS === "undefined" || typeof POOLEAN_SEASON_LIST === "undefined") return null;
+  const latest = String(POOLEAN_SEASON_LIST[POOLEAN_SEASON_LIST.length - 1]);
+  const latestCards = POOLEAN_SEASONS[latest].cards;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(POOL_DATA_SNAPSHOT_KEY) || "null"); } catch (e) { saved = null; }
+  try { localStorage.setItem(POOL_DATA_SNAPSHOT_KEY, JSON.stringify({ season: latest, cards: latestCards })); } catch (e) { /* storage full/blocked: digest just won't have a next-time comparison */ }
+  if (!saved) return null; // first time this browser's seen real data at all -- nothing to compare against
+  // Snapshots saved before seasons existed are a bare cards object from the 2026 season.
+  const savedSeason = saved.season ? String(saved.season) : "2026";
+  const previous = saved.season ? saved.cards : saved;
+  if (savedSeason !== latest) return [{ newSeason: latest }];
   const changes = [];
-  Object.entries(POOLEAN_SEASON_CARDS).forEach(([slug, now]) => {
+  Object.entries(latestCards).forEach(([slug, now]) => {
     const before = previous[slug];
     if (!before) { changes.push({ slug, isNew: true }); return; }
     const gpDelta = now.parties - before.parties;
@@ -13256,14 +13862,14 @@ function renderPoolDataDigest() {
   const changes = computePoolDataDigest();
   if (!changes) { wrap.innerHTML = ""; return; }
   const rows = changes.map(c => {
-    const player = state.players.find(p => p.id === c.slug);
-    const name = player ? playerLink(player.id, player.name) : escapeHtml(c.slug);
-    if (c.isNew) return `<li>${name} — new in this import</li>`;
+    if (c.newSeason) return `<li>The ${c.newSeason} season was just imported. Use the season picker at the top to look back at earlier seasons.</li>`;
+    const name = poolPlayerLink(c.slug);
+    if (c.isNew) return `<li>${name}: new in this import</li>`;
     const bits = [];
     if (c.gamesDelta) bits.push(`${c.gamesDelta > 0 ? "+" : ""}${c.gamesDelta} game${Math.abs(c.gamesDelta) === 1 ? "" : "s"}`);
     if (c.powerDelta) bits.push(`power ${c.powerDelta > 0 ? "+" : ""}${c.powerDelta.toFixed(1)}%`);
     if (c.crownsDelta) bits.push(`${c.crownsDelta > 0 ? "+" : ""}${c.crownsDelta} crown${Math.abs(c.crownsDelta) === 1 ? "" : "s"}`);
-    return `<li>${name} — ${bits.join(", ") || "updated"}</li>`;
+    return `<li>${name}: ${bits.join(", ") || "updated"}</li>`;
   }).join("");
   wrap.innerHTML = `<div class="award-marquee" style="background:none;border-color:color-mix(in srgb, var(--accent) 45%, transparent)">
     <span class="award-marquee-icon">🔄</span>
@@ -13279,11 +13885,21 @@ function renderPoolDataDigest() {
 }
 
 // ---------- Init ----------
+// Sticky bars under the header (section nav, sidebar) sit at the header's real height, which
+// changes with screen width and wrapping, instead of a fixed guess.
+(function trackHeaderHeight() {
+  const header = document.querySelector(".app-header");
+  if (!header) return;
+  const set = () => document.documentElement.style.setProperty("--header-h", `${header.offsetHeight}px`);
+  set();
+  if (window.ResizeObserver) new ResizeObserver(set).observe(header);
+})();
 collapseSectionHints();
 wirePlayerSectionNav();
 wireLeaderboardSectionNav();
 wirePlayerNameLinks();
 renderPoolDataDigest();
+initPooleanSeasonPicker();
 renderPlayers();
 document.getElementById("rsvpDateInput").value = new Date().toISOString().slice(0, 10);
 loadRsvpForDate(document.getElementById("rsvpDateInput").value);

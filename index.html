@@ -159,6 +159,7 @@
     <div class="header-top-row">
       <h1>Pool League <em>Stat Tracker</em></h1>
       <div class="header-actions">
+        <label id="pooleanSeasonPicker" class="season-picker" hidden><select id="pooleanSeasonSelect" aria-label="Season shown in the real site panels" title="Which Poolean season the real site panels show"></select></label>
         <button id="switchProfileBtn" class="theme-toggle-btn" type="button" title="Not you? Switch profile">👤</button>
         <button id="shareSiteBtn" class="theme-toggle-btn" type="button" title="Share this site">🔗</button>
         <button id="themeToggleBtn" class="theme-toggle-btn" type="button" title="Toggle dark mode">🌙</button>
@@ -236,6 +237,21 @@
         <button type="button" class="secondary-btn" id="generateBalancedTeamsBtn" disabled>Generate Balanced Teams</button>
       </div>
       <div id="balanceTeamsResults"></div>
+    </div>
+    <div class="panel">
+      <h2>Party Night Planner</h2>
+      <p class="hint">Pick who's here and get a whole night of games at once. Each game is picked to be close (using the Matchup Predictor's odds), to mix up who plays with and against whom, and to rotate who sits out when there are more people than spots. Reshuffle for a different schedule, or copy it to paste in the group chat.</p>
+      <div class="balance-controls" style="margin-bottom:10px">
+        <button type="button" class="secondary-btn" id="plannerUseBalanceBtn">Same people as Balance Teams</button>
+        <span class="hint" id="plannerCount" style="margin:0"></span>
+      </div>
+      <div id="plannerAttendeePicker" class="attendee-picker"></div>
+      <div class="balance-controls">
+        <label>Players per side <select id="plannerTeamSize"><option value="0">Everyone plays</option></select></label>
+        <label>Games <input type="number" id="plannerGameCount" min="1" max="30" value="8"></label>
+        <button type="button" class="secondary-btn" id="plannerGenerateBtn" disabled>Plan the Night</button>
+      </div>
+      <div id="plannerResult"></div>
     </div>
 
     <p id="needsReviewSummary" class="hint" style="margin:0 0 10px"></p>
@@ -662,6 +678,12 @@
       <div id="rivalriesPanel"></div>
     </div>
     <div class="panel">
+      <h2>Matchup Predictor <span class="real-data-tag">Real site data</span></h2>
+      <p class="hint">Tap a player once to put them on Team A, again for Team B, and a third time to take them off. The odds come from a small model trained on every real game, using three things: each side's power rankings, whether one side has an extra player, and how these exact players have done together and against each other.</p>
+      <div id="matchupPredictorPicker" class="attendee-picker"></div>
+      <div id="matchupPredictorResult"></div>
+    </div>
+    <div class="panel">
       <h2>Real Rivalry Matrix <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">Every real together-win% at once, not just the four superlatives above: every player down one side, every player across the other, cell color follows red-low/green-high, opacity ramping up with real games shared. Click a name for their own page.</p>
       <div id="realRivalryMatrix"></div>
@@ -846,6 +868,11 @@
       <div id="seasonRecap"></div>
     </div>
     <div class="panel">
+      <h2>Award Race <span class="real-data-tag">Real site data</span></h2>
+      <p class="hint">Who the numbers point to for every award this season, top 3 each. The vote is what actually counts: once a season's results are in, each award also shows who really won, with a check if the stats called it. DPOY, Clutch and Best Teammate have no real site equivalent, so those use this app's own logged games.</p>
+      <div id="awardRace"></div>
+    </div>
+    <div class="panel">
       <h2>Trophy Case <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">Every player with a real award win, gold first. Ring color and thickness match the avatar ring on each player's own profile page.</p>
       <div id="trophyCase"></div>
@@ -863,7 +890,10 @@
     <div class="panel">
       <h2>Party Recap <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">One real party night at a time: every attendee's record for just that night, and any upsets. Pick a date.</p>
-      <select id="partyRecapSelect" style="margin-bottom:10px"></select>
+      <div class="balance-controls" style="margin-bottom:10px">
+        <select id="partyRecapSelect" aria-label="Party night"></select>
+        <button type="button" class="secondary-btn" id="downloadPartyRecapBtn">Download Image</button>
+      </div>
       <div id="partyRecap"></div>
     </div>
     <div class="panel">
@@ -941,6 +971,11 @@
       <h2>Power Rankings <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">The real Poolean site's own per-night power ranking (rank and field-size-normalized percentile), averaged across every party this player has been ranked at, not just the ones with logged film. Frozen historical record, not something this tool computes.</p>
       <div id="playerPowerRanking"></div>
+    </div>
+    <div class="panel">
+      <h2>Season by Season <span class="real-data-tag">Real site data</span></h2>
+      <p class="hint">This player's line from every season imported from the real site, with the change from the season before. Always shows every season, whichever one is picked at the top.</p>
+      <div id="playerRealSeasons"></div>
     </div>
     <div class="panel">
       <h2>Personalized Tips</h2>
