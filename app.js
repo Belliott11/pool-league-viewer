@@ -1980,8 +1980,16 @@ function renderMatchupPredictor() {
     result.innerHTML = `<p class="hint" style="margin:10px 0 0">Put at least one player on each team. ${realMatchupAccuracyText(model)}</p>`;
     return;
   }
-  result.innerHTML = renderMatchupOddsHtml(teamA, teamB, pred) +
+  const swap = bestEvenSwap(teamA, teamB);
+  const swapHtml = swap ? `<div class="matchup-swap">⚖️ Most even trade: ${escapeHtml(poolNameOf(swap.a))} for ${escapeHtml(poolNameOf(swap.b))} makes it ${Math.round(swap.pA * 100)}% / ${100 - Math.round(swap.pA * 100)}%.
+      <button type="button" class="secondary-btn" id="matchupApplySwapBtn">Make the Trade</button></div>` : "";
+  result.innerHTML = renderMatchupOddsHtml(teamA, teamB, pred) + swapHtml +
     `<p class="hint" style="margin:10px 0 0">${realMatchupAccuracyText(model)} Trained on ${model.n} real games.</p>`;
+  document.getElementById("matchupApplySwapBtn")?.addEventListener("click", () => {
+    matchupPredictorSides[swap.a] = "B";
+    matchupPredictorSides[swap.b] = "A";
+    renderMatchupPredictor();
+  });
 }
 
 // Track record: before each party night, refit on only the games played before it and call that
@@ -6365,7 +6373,7 @@ const ALL_AWARD_RESULTS = [
     { slug: "g-lukas", name: "Lukas", points: 4 }, { slug: "adam", name: "Adam", points: 2 },
     { slug: "jason", name: "Jason", points: 2 }
   ] },
-  { season: 2026, key: "mip-yoy", label: "Most Improved (Year-over-Year)", winners: ["zach"], statKey: "trend", votedStandings: [
+  { season: 2026, key: "mip-yoy", label: "Most Improved (Year-over-Year)", winners: ["zach"], statKey: null, votedStandings: [
     { slug: "zach", name: "Zach", points: 9 }, { slug: "ben", name: "Ben", points: 6 },
     { slug: "adam", name: "Adam", points: 5 }, { slug: "alex", name: "Alex", points: 3 },
     { slug: "jason", name: "Jason", points: 3 }, { slug: "viraj", name: "Viraj", points: 3 },
@@ -6392,11 +6400,11 @@ const ALL_AWARD_RESULTS = [
     { slug: "reilly", name: "Reilly", points: 10 }, { slug: "evan", name: "Evan", points: 9 },
     { slug: "logan-hoskins", name: "Logan H", points: 7 }, { slug: "zach", name: "Zach", points: 3 }
   ] },
-  { season: 2026, key: "best-duo", label: "Best Duo", winners: ["phillip", "ben"], statKey: "twoWay", isDuo: true, votedStandings: [
+  { season: 2026, key: "best-duo", label: "Best Duo", winners: ["phillip", "ben"], statKey: null, isDuo: true, votedStandings: [
     { slug: "ben|phillip", name: "Ben + Phillip", points: 3 }, { slug: "alex|kayla", name: "Alex + Kayla", points: 1 },
     { slug: "alex|viraj", name: "Alex + Viraj", points: 1 }
   ] },
-  { season: 2026, key: "worst-duo", label: "Worst Duo", winners: ["phillip", "viraj"], statKey: "twoWay", isDuo: true, votedStandings: [
+  { season: 2026, key: "worst-duo", label: "Worst Duo", winners: ["phillip", "viraj"], statKey: null, isDuo: true, votedStandings: [
     { slug: "phillip|viraj", name: "Phillip + Viraj", points: 4 }, { slug: "adam|zach", name: "Adam + Zach", points: 1 },
     { slug: "alex|viraj", name: "Alex + Viraj", points: 1 }
   ] }
@@ -6541,6 +6549,8 @@ function setPooleanSeason(year) {
   window.POOLEAN_SEASON_CARDS = d ? d.cards : undefined;
   window.POOLEAN_GAMES = d ? d.games : undefined;
   if (d) window.POOLEAN_NAMES = d.names;
+  // Power Rankings and Power Ranking vs. Performance read this copy; keep it on the same season.
+  PARTY_RANKINGS = d ? d.rankings : [];
 }
 
 function initPooleanSeasonPicker() {
@@ -6892,14 +6902,17 @@ function renderPartyRecap() {
     select.dataset.wired = "1";
     select.addEventListener("change", renderPartyRecap);
     document.getElementById("downloadPartyRecapBtn")?.addEventListener("click", downloadPartyRecapImage);
+    document.getElementById("copyPartyRecapBtn")?.addEventListener("click", copyPartyRecapText);
   }
   const recap = computePartyRecap(select.value || dates[0]);
   if (!recap) { wrap.innerHTML = '<p class="empty-state">No games that night.</p>'; return; }
   const standingsHtml = recap.standings.map(r => `<li>${poolPlayerLink(r.slug)} <span class="hint" style="margin:0">${r.w}-${r.l}</span></li>`).join("");
   const upsetsHtml = recap.upsets.length === 0 ? "" : `<p class="hint" style="margin:10px 0 0">🎲 ${recap.upsets.length} upset${recap.upsets.length === 1 ? "" : "s"} that night.</p>`;
+  const nightMilestones = computeMilestones().filter(m => m.date === recap.date);
+  const milestoneHtml = nightMilestones.length ? `<p class="hint" style="margin:6px 0 0">${nightMilestones.map(m => `${m.icon} ${poolPlayerLink(m.slug)} ${escapeHtml(m.text)}`).join("<br>")}</p>` : "";
   const climberHtml = recap.climber ? `<p class="hint" style="margin:6px 0 0">📈 Biggest climber: ${poolPlayerLink(recap.climber.slug)}, #${recap.climber.from} to #${recap.climber.to} in the season power rankings.</p>` : "";
   wrap.innerHTML = `<p class="hint" style="margin:0 0 10px">${recap.games} game${recap.games === 1 ? "" : "s"} that night.</p>
-    <ul class="player-tips-list" style="display:block">${standingsHtml}</ul>${upsetsHtml}${climberHtml}`;
+    <ul class="player-tips-list" style="display:block">${standingsHtml}</ul>${upsetsHtml}${climberHtml}${milestoneHtml}`;
 }
 
 // Shareable PNG of one party night for the group chat: that night's standings and its biggest
@@ -7002,7 +7015,31 @@ function downloadPartyRecapImage() {
 // to, top 3 each. The vote is what actually counts; once a season's results are entered, each
 // award shows who really won next to the projection. Most rows use the real site's data; DPOY,
 // Clutch and Best Teammate have no real-site equivalent, so they use this app's own logged games.
-const AWARD_RACE_DUO_MIN_GP = 5;
+const AWARD_RACE_DUO_MIN_GP = 3;
+
+function computeRealTeammateLift(slugs) {
+  if (typeof POOLEAN_GAMES === "undefined") return [];
+  const SHRINK = 30;
+  return slugs.map(x => {
+    let withWins = 0, withN = 0;
+    const mates = new Set();
+    POOLEAN_GAMES.forEach(g => {
+      const side = g.a.includes(x) ? "a" : g.b.includes(x) ? "b" : null;
+      if (!side) return;
+      const won = g.w === side.toUpperCase();
+      g[side].forEach(m => { if (m === x) return; mates.add(m); withN++; if (won) withWins++; });
+    });
+    let withoutWins = 0, withoutN = 0;
+    POOLEAN_GAMES.forEach(g => ["a", "b"].forEach(side => {
+      if (g[side].includes(x)) return;
+      const won = g.w === side.toUpperCase();
+      g[side].forEach(m => { if (mates.has(m)) { withoutN++; if (won) withoutWins++; } });
+    }));
+    if (withN < 10 || withoutN === 0) return null;
+    const raw = (withWins / withN - withoutWins / withoutN) * 100;
+    return { slug: x, lift: raw * withN / (withN + SHRINK), mateGames: withN };
+  }).filter(Boolean).sort((a, b) => b.lift - a.lift);
+}
 
 function computeAwardRace() {
   const cards = typeof POOLEAN_SEASON_CARDS !== "undefined" ? POOLEAN_SEASON_CARDS : null;
@@ -7020,13 +7057,18 @@ function computeAwardRace() {
     rows.push({ key: "best-player", basis: "Highest power ranking %", leaders: byPower.slice(0, 3).map(r => ({ ids: [r.slug], value: pct(r.c.powerPct) })) });
     rows.push({ key: "first-team", basis: "Power ranking %, 1st to 3rd", leaders: byPower.slice(0, 3).map(r => ({ ids: [r.slug], value: pct(r.c.powerPct) })) });
     rows.push({ key: "second-team", basis: "Power ranking %, 4th to 6th", leaders: byPower.slice(3, 6).map(r => ({ ids: [r.slug], value: pct(r.c.powerPct) })) });
-    // Season MIP: first ranked night's percentile to the season-long power ranking %.
+    // Season MIP: each player's own nights split into an earlier and a later half, compared by
+    // average percentile. (Comparing only the first night to the season average let one bad
+    // opening night decide it.) Needs 4+ ranked nights.
     if (typeof POOLEAN_RANKINGS !== "undefined") {
-      const firstPct = {};
-      [...POOLEAN_RANKINGS].sort((a, b) => a.date.localeCompare(b.date)).forEach(n => n.players.forEach(p => { if (!(p.slug in firstPct)) firstPct[p.slug] = p.pct; }));
-      const risers = qualified.filter(r => r.slug in firstPct).map(r => ({ slug: r.slug, delta: r.c.powerPct - firstPct[r.slug], from: firstPct[r.slug], to: r.c.powerPct }))
-        .sort((a, b) => b.delta - a.delta).slice(0, 3);
-      rows.push({ key: "mip-season", basis: "First night's rank % to season %", leaders: risers.map(r => ({ ids: [r.slug], value: `${pct(r.from)} to ${pct(r.to)}` })) });
+      const perPlayer = {};
+      [...POOLEAN_RANKINGS].sort((a, b) => a.date.localeCompare(b.date)).forEach(n => n.players.forEach(p => (perPlayer[p.slug] = perPlayer[p.slug] || []).push(p.pct)));
+      const avg = v => v.reduce((x, y) => x + y, 0) / v.length;
+      const risers = qualified.filter(r => (perPlayer[r.slug] || []).length >= 4).map(r => {
+        const v = perPlayer[r.slug], h = Math.floor(v.length / 2);
+        return { slug: r.slug, from: avg(v.slice(0, h)), to: avg(v.slice(h)) };
+      }).map(r => ({ ...r, delta: r.to - r.from })).sort((a, b) => b.delta - a.delta).slice(0, 3);
+      rows.push({ key: "mip-season", basis: "Earlier half of their nights vs. later half (rank %)", leaders: risers.map(r => ({ ids: [r.slug], value: `${pct(r.from)} to ${pct(r.to)}` })) });
     }
     const list = pooleanSeasonList();
     const prevYear = list[list.indexOf(selectedPooleanSeason) - 1];
@@ -7040,13 +7082,25 @@ function computeAwardRace() {
   const local = (key, statKey, basis) => rows.push({ key, basis, local: true, empty: "No logged games for this yet.", leaders: (standings[statKey] || []).slice(0, 3).map(r => ({ ids: [r.player.id], value: r.display })) });
   local("dpoy", "defRating", "Defensive rating per 20");
   local("clutch", "closeGameTs", "Shooting in close games");
-  local("teammate", "teammateLift", "How much teammates improve with them");
+  // Best Teammate from real games when there are any: how much more often a player's teammates
+  // win with them than those same teammates do without them, pulled toward 0 by 30 phantom
+  // teammate-games so a tiny sample can't top the list. Falls back to logged film otherwise.
+  const realLift = computeRealTeammateLift(qualified.map(r => r.slug));
+  if (realLift.length) {
+    rows.push({ key: "teammate", basis: "Teammates' win % with them vs. without them", note: "Voters may also weigh attitude, which no stat sees.",
+      leaders: realLift.slice(0, 3).map(r => ({ ids: [r.slug], value: `${r.lift >= 0 ? "+" : ""}${Math.round(r.lift)} pts (${r.mateGames} teammate games)` })) });
+  } else {
+    local("teammate", "teammateLift", "How much teammates improve with them");
+  }
   if (typeof POOLEAN_TOGETHER !== "undefined") {
+    // Record together, pulled toward .500 by 5 phantom games (same as the Matchup Predictor), so
+    // 9-1 over ten games outranks 3-0 over three.
     const duos = Object.entries(POOLEAN_TOGETHER).filter(([, v]) => v.gp >= AWARD_RACE_DUO_MIN_GP)
-      .map(([k, v]) => ({ ids: k.split("|"), v, rate: v.w / v.gp }));
+      .map(([k, v]) => ({ ids: k.split("|"), v, rate: (v.w + 2.5) / (v.gp + 5) }));
     const fmt = d => ({ ids: d.ids, value: `${d.v.w}-${d.v.l} together` });
-    rows.push({ key: "best-duo", basis: `Best record together (${AWARD_RACE_DUO_MIN_GP}+ games)`, leaders: [...duos].sort((a, b) => b.rate - a.rate || b.v.gp - a.v.gp).slice(0, 3).map(fmt) });
-    rows.push({ key: "worst-duo", basis: `Worst record together (${AWARD_RACE_DUO_MIN_GP}+ games)`, leaders: [...duos].sort((a, b) => a.rate - b.rate || b.v.gp - a.v.gp).slice(0, 3).map(fmt) });
+    const duoNote = "Duo votes can be about more than results: the 2026 Best Duo never shared a team in a real game.";
+    rows.push({ key: "best-duo", basis: `Best record together (${AWARD_RACE_DUO_MIN_GP}+ games)`, note: duoNote, leaders: [...duos].sort((a, b) => b.rate - a.rate || b.v.gp - a.v.gp).slice(0, 3).map(fmt) });
+    rows.push({ key: "worst-duo", basis: `Worst record together (${AWARD_RACE_DUO_MIN_GP}+ games)`, note: duoNote, leaders: [...duos].sort((a, b) => a.rate - b.rate || b.v.gp - a.v.gp).slice(0, 3).map(fmt) });
   }
   const order = Object.keys(AWARD_TIER);
   rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
@@ -7090,10 +7144,187 @@ function renderAwardRace() {
     return `<div class="award-race-card${color ? ` award-race-${color}` : ""}">
       <div class="award-race-head"><span>${AWARD_ICONS[r.key] || "🏅"}</span><strong>${escapeHtml(r.label)}</strong></div>
       <span class="award-race-basis">${escapeHtml(r.basis)}${r.local ? " · logged games" : ""}</span>
+      ${r.note ? `<span class="award-race-basis">${escapeHtml(r.note)}</span>` : ""}
       ${leaders}${voted}
     </div>`;
   }).join("")}</div>
   ${hits.length ? `<p class="hint" style="margin:10px 0 0">The stats picked the actual winner for ${hits.filter(r => r.hit).length} of ${hits.length} awards this season${hits.some(r => r.teamMatched && !r.hit) ? `, and got ${hits.filter(r => r.teamMatched !== null && !r.hit).map(r => `${r.teamMatched} of ${r.voted.winners.length} on ${r.label}`).join(" and ")}` : ""}.</p>` : `<p class="hint" style="margin:10px 0 0">No votes in yet for this season, so this is the stats' best guess.</p>`}`;
+}
+
+// ---------- Power ranking charts ----------
+// One player's nightly power ranking % for the season picked in the header, in date order.
+function playerNightlyPcts(slug) {
+  return [...PARTY_RANKINGS].sort((a, b) => a.date.localeCompare(b.date))
+    .map(n => ({ date: n.date, p: n.players.find(x => x.slug === slug) }))
+    .filter(e => e.p).map(e => ({ date: e.date, pct: e.p.pct }));
+}
+
+// A small line chart of nightly percentiles (0-100) across the season's party nights. Each series
+// is { label, cls, points: [{date, pct}] }; cls picks the line color from style.css. options.average
+// adds a dashed season-average line (single-series charts only).
+function renderPctChart(series, options = {}) {
+  const withPoints = series.filter(s => s.points.length > 0);
+  if (withPoints.length === 0) return "";
+  const dates = [...new Set(PARTY_RANKINGS.map(n => n.date))].sort();
+  if (dates.length < 2) return "";
+  const W = 600, H = 190, L = 36, R = 12, T = 12, B = 26;
+  const x = d => L + (dates.indexOf(d) / (dates.length - 1)) * (W - L - R);
+  const y = v => T + (1 - v / 100) * (H - T - B);
+  const grid = [0, 50, 100].map(v => `<line class="pct-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="pct-axis" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`).join("");
+  const avg = options.average !== undefined && withPoints.length === 1
+    ? `<line class="pct-avg" x1="${L}" x2="${W - R}" y1="${y(options.average)}" y2="${y(options.average)}"/>` : "";
+  const lines = withPoints.map(s => `<g class="${s.cls}">
+      <polyline fill="none" points="${s.points.map(p => `${x(p.date)},${y(p.pct)}`).join(" ")}"/>
+      ${s.points.map(p => `<circle cx="${x(p.date)}" cy="${y(p.pct)}" r="3.5"><title>${escapeHtml(s.label)}, ${escapeHtml(formatDateDisplay(p.date))}: ${Math.round(p.pct)}%</title></circle>`).join("")}
+    </g>`).join("");
+  const axis = `<text class="pct-axis" x="${L}" y="${H - 6}">${escapeHtml(formatDateDisplay(dates[0]))}</text><text class="pct-axis" x="${W - R}" y="${H - 6}" text-anchor="end">${escapeHtml(formatDateDisplay(dates[dates.length - 1]))}</text>`;
+  const legend = withPoints.length > 1 || avg
+    ? `<div class="pct-legend">${withPoints.map(s => `<span class="${s.cls}"><i></i>${escapeHtml(s.label)}</span>`).join("")}${avg ? '<span class="pct-legend-avg"><i></i>Season average</span>' : ""}</div>` : "";
+  const summary = withPoints.map(s => `${s.label}: ${s.points.length} nights`).join("; ");
+  return `<div class="pct-chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Nightly power ranking percentile. ${escapeHtml(summary)}">${grid}${avg}${lines}${axis}</svg>${legend}</div>`;
+}
+
+// ---------- Real head-to-head ----------
+let headToHeadPair = [null, null];
+function renderRealHeadToHead() {
+  const wrap = document.getElementById("realHeadToHead");
+  if (!wrap) return;
+  if (typeof POOLEAN_TOGETHER === "undefined") { wrap.innerHTML = '<p class="empty-state">No real-site data for this season.</p>'; return; }
+  const pool = realMatchupPlayerPool();
+  const [a, b] = headToHeadPair;
+  const options = sel => `<option value="">Pick a player</option>` + pool.map(p => `<option value="${escapeHtml(p.id)}"${p.id === sel ? " selected" : ""}>${escapeHtml(p.name)}</option>`).join("");
+  let body = "";
+  if (a && b && a !== b) {
+    const together = POOLEAN_TOGETHER[[a, b].sort().join("|")];
+    const against = POOLEAN_AGAINST[`${a}|${b}`];
+    const cardOf = id => (typeof POOLEAN_SEASON_CARDS !== "undefined" && POOLEAN_SEASON_CARDS[id]) || null;
+    const line = id => {
+      const c = cardOf(id);
+      return c ? `${Math.round(c.powerPct)}% power · ${c.w}-${c.l} · ${c.crowns} #1 night${c.crowns === 1 ? "" : "s"}` : "No season line yet";
+    };
+    body = `<div class="h2h-grid">
+        <div class="h2h-player h2h-a">${poolPlayerLink(a)}<span>${escapeHtml(line(a))}</span></div>
+        <div class="h2h-mid">
+          <div><span class="h2h-num">${together ? `${together.w}-${together.l}` : "0-0"}</span><span class="h2h-label">together</span></div>
+          <div><span class="h2h-num">${against ? `${against.w}-${against.l}` : "0-0"}</span><span class="h2h-label">${escapeHtml(poolNameOf(a))} vs. ${escapeHtml(poolNameOf(b))}</span></div>
+        </div>
+        <div class="h2h-player h2h-b">${poolPlayerLink(b)}<span>${escapeHtml(line(b))}</span></div>
+      </div>
+      ${renderPctChart([
+        { label: poolNameOf(a), cls: "pct-line-a", points: playerNightlyPcts(a) },
+        { label: poolNameOf(b), cls: "pct-line-b", points: playerNightlyPcts(b) }
+      ]) || '<p class="hint" style="margin:10px 0 0">Not enough party nights this season to chart.</p>'}`;
+  } else {
+    body = '<p class="hint" style="margin:10px 0 0">Pick two different players.</p>';
+  }
+  wrap.innerHTML = `<div class="balance-controls">
+      <select id="h2hPickA" aria-label="First player">${options(a)}</select>
+      <select id="h2hPickB" aria-label="Second player">${options(b)}</select>
+    </div>${body}`;
+  document.getElementById("h2hPickA").addEventListener("change", e => { headToHeadPair[0] = e.target.value || null; renderRealHeadToHead(); });
+  document.getElementById("h2hPickB").addEventListener("change", e => { headToHeadPair[1] = e.target.value || null; renderRealHeadToHead(); });
+}
+
+// ---------- Milestones ----------
+// Moments worth calling out, from every real game and party night in every imported season, in
+// play order: career win and game counts, win streaks, #1 nights, and parties attended in a row.
+const MILESTONE_WINS = [10, 25, 50, 75, 100, 150, 200, 300];
+const MILESTONE_GAMES = [25, 50, 100, 150, 200, 300];
+const MILESTONE_STREAKS = [5, 8, 10, 15];
+const MILESTONE_CROWNS = [1, 5, 10, 25];
+const MILESTONE_ATTENDANCE = [5, 10, 15, 25];
+let milestoneCache = null;
+function computeMilestones() {
+  if (milestoneCache) return milestoneCache;
+  const out = [];
+  const wins = {}, games = {}, streak = {};
+  realSeasonsInOrder().forEach(season => {
+    [...season.games].sort(byPlayOrder).forEach(g => {
+      ["a", "b"].forEach(side => g[side].forEach(slug => {
+        const won = g.w === side.toUpperCase();
+        games[slug] = (games[slug] || 0) + 1;
+        if (MILESTONE_GAMES.includes(games[slug])) out.push({ slug, date: g.date, icon: "🎯", text: `played real game #${games[slug]}` });
+        if (won) {
+          wins[slug] = (wins[slug] || 0) + 1;
+          streak[slug] = (streak[slug] || 0) + 1;
+          if (MILESTONE_WINS.includes(wins[slug])) out.push({ slug, date: g.date, icon: "🏅", text: `won real game #${wins[slug]}` });
+          if (MILESTONE_STREAKS.includes(streak[slug])) out.push({ slug, date: g.date, icon: "🔥", text: `won ${streak[slug]} in a row` });
+        } else {
+          streak[slug] = 0;
+        }
+      }));
+    });
+    const crowns = {}, run = {};
+    const nights = [...season.rankings].sort((x, y) => x.date.localeCompare(y.date));
+    nights.forEach(n => {
+      const here = new Set(n.players.map(p => p.slug));
+      Object.keys(run).forEach(slug => { if (!here.has(slug)) run[slug] = 0; });
+      n.players.forEach(p => {
+        run[p.slug] = (run[p.slug] || 0) + 1;
+        if (MILESTONE_ATTENDANCE.includes(run[p.slug])) out.push({ slug: p.slug, date: n.date, icon: "📅", text: `made ${run[p.slug]} parties in a row` });
+        if (p.rank === 1) {
+          crowns[p.slug] = (crowns[p.slug] || 0) + 1;
+          if (MILESTONE_CROWNS.includes(crowns[p.slug])) out.push({ slug: p.slug, date: n.date, icon: "👑", text: crowns[p.slug] === 1 ? "finished a night #1 for the first time" : `finished #1 for the ${ordinal(crowns[p.slug])} time` });
+        }
+      });
+    });
+  });
+  milestoneCache = out;
+  return out;
+}
+
+function renderPlayerMilestones(playerId) {
+  const wrap = document.getElementById("playerMilestones");
+  if (!wrap) return;
+  const list = computeMilestones().filter(m => m.slug === playerId).sort((a, b) => b.date.localeCompare(a.date));
+  wrap.innerHTML = list.length
+    ? `<ul class="player-tips-list" style="display:block">${list.map(m => `<li>${m.icon} ${escapeHtml(m.text.charAt(0).toUpperCase() + m.text.slice(1))} <span class="hint" style="margin:0">${escapeHtml(formatDateDisplay(m.date))}</span></li>`).join("")}</ul>`
+    : '<p class="empty-state">No milestones yet.</p>';
+}
+
+// ---------- Group chat recap ----------
+function partyRecapText(date) {
+  const recap = computePartyRecap(date);
+  if (!recap) return "";
+  const names = ids => ids.map(poolNameOf).join(" & ");
+  const lines = [`Poolean party recap, ${formatDateDisplay(date)}: ${recap.games} game${recap.games === 1 ? "" : "s"}, ${recap.standings.length} players`];
+  lines.push("");
+  recap.standings.forEach((r, i) => lines.push(`${i === 0 ? "👑" : `${i + 1}.`} ${poolNameOf(r.slug)} ${r.w}-${r.l}`));
+  const upset = recap.upsets[0];
+  if (upset) lines.push("", `🎲 Biggest upset: ${names(upset.winners)} beat ${names(upset.losers)}`);
+  if (recap.climber) lines.push(`📈 Biggest climber: ${poolNameOf(recap.climber.slug)}, #${recap.climber.from} to #${recap.climber.to} in the season rankings`);
+  const milestones = computeMilestones().filter(m => m.date === date);
+  if (milestones.length) {
+    lines.push("", "Milestones:");
+    milestones.forEach(m => lines.push(`${m.icon} ${poolNameOf(m.slug)} ${m.text}`));
+  }
+  return lines.join("\n");
+}
+
+async function copyPartyRecapText() {
+  const select = document.getElementById("partyRecapSelect");
+  const status = document.getElementById("partyRecapCopyStatus");
+  if (!select || !select.value) return;
+  try { await navigator.clipboard.writeText(partyRecapText(select.value)); if (status) status.textContent = "Copied"; }
+  catch (e) { if (status) status.textContent = "Couldn't copy on this browser."; }
+}
+
+// ---------- Matchup Predictor: most even swap ----------
+// For a lopsided matchup (odds more than 5 points from 50/50), the single trade of one player
+// from each side that brings the odds closest to even. null when no trade helps by 2+ points.
+function bestEvenSwap(teamA, teamB) {
+  const now = predictRealMatchup(teamA, teamB);
+  if (!now) return null;
+  const gapNow = Math.abs(now.pA - 0.5);
+  if (gapNow <= 0.05) return null;
+  let best = null;
+  teamA.forEach(a => teamB.forEach(b => {
+    const newA = teamA.map(id => id === a ? b : id), newB = teamB.map(id => id === b ? a : id);
+    const p = predictRealMatchup(newA, newB).pA;
+    const gap = Math.abs(p - 0.5);
+    if (!best || gap < best.gap) best = { a, b, pA: p, gap };
+  }));
+  return best && gapNow - best.gap >= 0.02 ? best : null;
 }
 
 // Every player with a real award win, sorted gold-first, for a hall-of-fame style grid.
@@ -7430,8 +7661,9 @@ function renderPlayerPowerRanking(playerId) {
     <div class="league-rank-grid">
       <div class="league-rank-badge"><span class="league-rank-place">${Math.round(summary.avgPct)}%</span><span class="league-rank-label">Season average</span></div>
       <div class="league-rank-badge${summary.firsts > 0 ? " league-rank-top" : ""}"><span class="league-rank-place">${summary.firsts}×</span><span class="league-rank-label">Times at #1</span></div>
-      <div class="league-rank-badge"><span class="league-rank-place">${summary.of}</span><span class="league-rank-label">of ${summary.of} parties</span></div>
-    </div>`;
+      <div class="league-rank-badge"><span class="league-rank-place">${summary.of}</span><span class="league-rank-label">parties attended (of ${PARTY_RANKINGS.length})</span></div>
+    </div>
+    ${renderPctChart([{ label: poolNameOf(playerId), cls: "pct-line-a", points: playerNightlyPcts(playerId) }], { average: summary.avgPct })}`;
 }
 
 function renderPlayerRealRecord(playerId) {
@@ -7590,7 +7822,7 @@ function renderAwardsVsStats() {
 // uses. Sourced from POOLEAN_RANKINGS (poolean-external-data.js, built by build_poolean_data.py
 // from the real site's own data export) when that file is loaded; falls back to just the nights
 // that also have logged game film if it isn't, so this still works before anyone's run the export.
-const PARTY_RANKINGS = typeof POOLEAN_RANKINGS !== "undefined" ? POOLEAN_RANKINGS : [
+let PARTY_RANKINGS = typeof POOLEAN_RANKINGS !== "undefined" ? POOLEAN_RANKINGS : [
   { date: "2026-07-29", players: [
     { slug: "ben", rank: 1, fieldSize: 5, pct: 100 }, { slug: "adam", rank: 2, fieldSize: 5, pct: 75 },
     { slug: "zach", rank: 3, fieldSize: 5, pct: 50 }, { slug: "g-ian", rank: 4, fieldSize: 5, pct: 25 },
@@ -11375,6 +11607,7 @@ function renderLeaderboard() {
   renderAwardRace();
   renderSeasonTimeline();
   renderRivalries();
+  renderRealHeadToHead();
   renderRealRivalryMatrix();
   renderUpsetTracker();
   renderPartyRecap();
@@ -11568,6 +11801,7 @@ function renderPlayerDetail() {
   renderPlayerAwardBadges(player.id);
   renderPlayerPowerRanking(player.id);
   renderPlayerRealSeasons(player.id);
+  renderPlayerMilestones(player.id);
   renderPlayerRealRecord(player.id);
   renderPlayerRealPartners(player.id);
   renderPlayerStreaks(player.id);

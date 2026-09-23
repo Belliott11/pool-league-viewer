@@ -685,6 +685,11 @@
       <div id="rivalriesPanel"></div>
     </div>
     <div class="panel">
+      <h2>Head to Head <span class="real-data-tag">Real site data</span></h2>
+      <p class="hint">Pick any two players to see their real record together and against each other, their season lines, and both players' nightly power rankings on one chart.</p>
+      <div id="realHeadToHead"></div>
+    </div>
+    <div class="panel">
       <h2>Real Rivalry Matrix <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">Every real together-win% at once, not just the four superlatives above: every player down one side, every player across the other, cell color follows red-low/green-high, opacity ramping up with real games shared. Click a name for their own page.</p>
       <div id="realRivalryMatrix"></div>
@@ -890,10 +895,12 @@
     </div>
     <div class="panel">
       <h2>Party Recap <span class="real-data-tag">Real site data</span></h2>
-      <p class="hint">One real party night at a time: every attendee's record for just that night, and any upsets. Pick a date.</p>
+      <p class="hint">One real party night at a time: everyone's record that night, any upsets, the biggest climber in the rankings, and milestones. Download it as an image, or copy it as text for the group chat.</p>
       <div class="balance-controls" style="margin-bottom:10px">
         <select id="partyRecapSelect" aria-label="Party night"></select>
         <button type="button" class="secondary-btn" id="downloadPartyRecapBtn">Download Image</button>
+        <button type="button" class="secondary-btn" id="copyPartyRecapBtn">Copy Recap Text</button>
+        <span class="hint" id="partyRecapCopyStatus" style="margin:0" aria-live="polite"></span>
       </div>
       <div id="partyRecap"></div>
     </div>
@@ -977,6 +984,11 @@
       <h2>Real Site Seasons <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">This player's line from every season imported from the real site, with the change from the season before. Always shows every season, whichever one is picked at the top.</p>
       <div id="playerRealSeasons"></div>
+    </div>
+    <div class="panel">
+      <h2>Milestones <span class="real-data-tag">Real site data</span></h2>
+      <p class="hint">Career moments from real games: win and game counts, win streaks, #1 nights, and parties in a row. Newest first.</p>
+      <div id="playerMilestones"></div>
     </div>
     <div class="panel">
       <h2>Personalized Tips</h2>
