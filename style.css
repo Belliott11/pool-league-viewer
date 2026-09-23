@@ -2442,8 +2442,17 @@ body.live-open { overflow: hidden; }
 .live-player-name { font-weight: 700; }
 .live-player-line { font-weight: 500; font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 4px; }
 .live-player-btns { display: flex; gap: 5px; }
-.live-player-btns button { min-width: 44px; min-height: 44px; padding: 0 8px; font-weight: 800; font-size: 1rem; border-radius: 10px; }
-.live-player-btns .live-miss { background: var(--surface-muted); color: var(--muted); border: 1px solid var(--border); }
+.live-player-btns button { min-width: 52px; min-height: 48px; padding: 0 8px; font-weight: 800; font-size: 1rem; border-radius: 10px; }
 .live-bottom { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .live-last { flex: 1; font-size: 0.85rem; color: var(--muted); min-width: 140px; }
 .live-discard { align-self: center; font-size: 0.8rem; }
+
+/* Stat Entry: the live score as a reference while logging a live-scored game from film */
+.scoreboard-live {
+  flex-basis: 100%;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.scoreboard:has(.scoreboard-live) { flex-wrap: wrap; row-gap: 6px; }

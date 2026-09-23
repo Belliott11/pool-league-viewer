@@ -1193,8 +1193,9 @@ function renderGames() {
     return;
   }
   filtered.forEach(game => {
-    const scoreA = teamScore(game, game.teamA);
-    const scoreB = teamScore(game, game.teamB);
+    const liveOnly = isLiveScoreOnly(game);
+    const scoreA = liveOnly ? liveScoreOf(game, game.teamA) : teamScore(game, game.teamA);
+    const scoreB = liveOnly ? liveScoreOf(game, game.teamB) : teamScore(game, game.teamB);
     const card = document.createElement("div");
     card.className = "game-card";
     card.dataset.gameId = game.id;
@@ -1213,7 +1214,10 @@ function renderGames() {
       : ` <span class="badge badge-imbalanced" title="Team A has ${game.teamA.length}, Team B has ${game.teamB.length}. Excluded from Leaderboard rates and every other computed comparison unless the Include Imbalanced Games toggle on the Leaderboard is on.">⚖️ ${game.teamA.length}v${game.teamB.length}</span>`;
     const pastSeasonBadge = isCurrentSeasonGame(game)
       ? ""
-      : ` <span class="badge badge-past-season" title="From a season closed out before this one. Excluded from Leaderboard rates and every other computed comparison unless the Include Past Seasons toggle on the Leaderboard is on. See Player Detail's Past Seasons panel for that season's own final numbers.">📅 Past Season</span>`;
+      : ` <span class="badge badge-past-season" title="From a season closed out before this one. Excluded from Leaderboard rates and every other computed comparison unless the Include Past Seasons toggle on the Leaderboard is on. See Closed Seasons in This App on each player's page for that season's final numbers.">📅 Past Season</span>`;
+    const liveBadge = game.liveInProgress
+      ? ' <span class="badge badge-review" title="Being scored live right now.">📣 Live now</span>'
+      : liveOnly ? ' <span class="badge badge-review" title="Only who scored was tracked live. Log it from film in Stat Entry for it to count toward stats.">📣 Live score only</span>' : "";
     const stoppedEarlyBadge = game.stoppedEarly
       ? ` <span class="badge badge-lowlight" title="This game ended early. Not comparable to a complete game -- excluded from Best/Worst Games, Power Ranking vs. Performance, Shot Attempt Differential, Pace/PPP, and Win Shares. Season-total rates still include it.">🛑 Stopped Early</span>`
       : "";
@@ -1248,7 +1252,7 @@ function renderGames() {
     card.innerHTML = `
       <div>
         <div class="matchup-line">${escapeHtml(teamANames)} ${scoreA} - ${scoreB} ${escapeHtml(teamBNames)}</div>
-        <div class="date-line">${formatDateDisplay(game.date)} · ${game.teamA.length + game.teamB.length} players${game.notes ? " · " + escapeHtml(game.notes) : ""}${videoBadge}${reviewBadge}${imbalancedBadge}${pastSeasonBadge}${stoppedEarlyBadge}${starBadge}${coldBadge}</div>
+        <div class="date-line">${formatDateDisplay(game.date)} · ${game.teamA.length + game.teamB.length} players${game.notes ? " · " + escapeHtml(game.notes) : ""}${videoBadge}${reviewBadge}${liveBadge}${imbalancedBadge}${pastSeasonBadge}${stoppedEarlyBadge}${starBadge}${coldBadge}</div>
       </div>
     `;
     const shareBtn = document.createElement("button");
@@ -2461,11 +2465,11 @@ function applyBalancedTeamsToNewGame(teamA, teamB) {
 }
 
 // ---------- Live Game ----------
-// A phone scoreboard for party night: pick two teams, tap +1/+2/+3 or a miss for whoever shot,
-// and the game is saved as a normal game (same scoring events Stat Entry writes) after every tap,
-// so a locked phone or a closed tab loses nothing. Misses are logged too, so shooting
-// percentages stay honest. Defenders, assists, rebounds and shot spots are left for a film
-// review later, the same as any partly tagged game. Only on the dashboard (needs #liveGamePanel).
+// A who-scored tracker for party night: pick two teams, tap +1/+2/+3 on whoever scored. Scores
+// go in game.liveScores, not the shot log, so a live game never feeds any stat (no misses,
+// defenders or assists were tracked); it counts once it's logged from film in Stat Entry, like
+// any other unreviewed game. Saved after every tap, so a locked phone or closed tab loses
+// nothing. Only on the dashboard (needs #liveGamePanel).
 const LIVE_TARGETS = [16, 21];
 let liveSetupSides = {};
 let liveWakeLock = null;
@@ -2476,6 +2480,13 @@ function liveGameEnabled() {
 function liveGameInProgress() {
   return state.games.find(g => g.liveInProgress) || null;
 }
+function liveScoreOf(game, team) {
+  return (game.liveScores || []).filter(s => team.includes(s.pid)).reduce((sum, s) => sum + s.points, 0);
+}
+// A game with only a live score (nothing logged from film yet).
+function isLiveScoreOnly(game) {
+  return game.scoringEvents.length === 0 && (game.liveScores || []).length > 0;
+}
 
 function startLiveGame(teamA, teamB) {
   if (!liveGameEnabled() || teamA.length === 0 || teamB.length === 0) return;
@@ -2484,8 +2495,8 @@ function startLiveGame(teamA, teamB) {
   if (existing) finishLiveGame(existing, false);
   const targetSel = document.getElementById("liveTargetSelect");
   const date = document.getElementById("gameDateInput").value || new Date().toISOString().slice(0, 10);
-  const game = { id: uid("game"), date, videoUrl: "", notes: "Logged live", winner: null, teamA: [...teamA], teamB: [...teamB], stats: [], matchups: [], scoringEvents: [], plays: [],
-    liveInProgress: true, liveTarget: Number(targetSel?.value) || 21 };
+  const game = { id: uid("game"), date, videoUrl: "", notes: "", winner: null, teamA: [...teamA], teamB: [...teamB], stats: [], matchups: [], scoringEvents: [], plays: [],
+    liveScores: [], liveInProgress: true, liveTarget: Number(targetSel?.value) || 21 };
   normalizeGame(game);
   state.games.push(game);
   saveState();
@@ -2493,20 +2504,14 @@ function startLiveGame(teamA, teamB) {
   openLiveGameOverlay();
 }
 
-function liveAddShot(game, pid, points, made) {
-  game.scoringEvents.push({
-    id: uid("score"), scorerId: pid, points, made,
-    defenderIds: [], assistId: null, blockerId: null, turnoverEventId: null, rebounderId: null,
-    reboundContesterIds: [], reboundNoContest: false, shotLocation: null, shotType: null, videoTime: null,
-    ...(points === 1 ? { dunk: false } : {})
-  });
-  recomputeDerivedStats(game);
+function liveAddScore(game, pid, points) {
+  game.liveScores.push({ pid, points });
   saveState();
   renderLiveGameOverlay();
 }
 
 function finishLiveGame(game, rerender = true) {
-  const a = teamScore(game, game.teamA), b = teamScore(game, game.teamB);
+  const a = liveScoreOf(game, game.teamA), b = liveScoreOf(game, game.teamB);
   game.winner = a > b ? "A" : b > a ? "B" : null;
   delete game.liveInProgress;
   delete game.liveTarget;
@@ -2543,27 +2548,22 @@ function renderLiveGameOverlay() {
   const el = document.getElementById("liveGameOverlay");
   const game = liveGameInProgress();
   if (!el || !game) { closeLiveGameOverlay(); return; }
-  const score = { A: teamScore(game, game.teamA), B: teamScore(game, game.teamB) };
+  const score = { A: liveScoreOf(game, game.teamA), B: liveScoreOf(game, game.teamB) };
   const pred = predictRealMatchup(game.teamA, game.teamB);
   const reached = score.A >= game.liveTarget || score.B >= game.liveTarget;
   const line = pid => {
-    const made = game.scoringEvents.filter(ev => ev.scorerId === pid && ev.made !== false);
-    const fga = game.scoringEvents.filter(ev => ev.scorerId === pid && ev.points > 1).length;
-    const fgm = made.filter(ev => ev.points > 1).length;
-    const pts = made.reduce((sum, ev) => sum + ev.points, 0);
+    const pts = liveScoreOf(game, [pid]);
     return `<div class="live-player">
-      <span class="live-player-name">${escapeHtml(poolNameOf(pid))} <span class="live-player-line">${pts} pts · ${fgm}/${fga}</span></span>
+      <span class="live-player-name">${escapeHtml(poolNameOf(pid))} <span class="live-player-line">${pts} pts</span></span>
       <span class="live-player-btns">
-        <button type="button" data-live-shot="${escapeHtml(pid)}" data-pts="1" data-made="1">+1</button>
-        <button type="button" data-live-shot="${escapeHtml(pid)}" data-pts="2" data-made="1">+2</button>
-        <button type="button" data-live-shot="${escapeHtml(pid)}" data-pts="3" data-made="1">+3</button>
-        <button type="button" class="live-miss" data-live-shot="${escapeHtml(pid)}" data-pts="2" data-made="0" aria-label="Missed 2">✗2</button>
-        <button type="button" class="live-miss" data-live-shot="${escapeHtml(pid)}" data-pts="3" data-made="0" aria-label="Missed 3">✗3</button>
+        <button type="button" data-live-score="${escapeHtml(pid)}" data-pts="1">+1</button>
+        <button type="button" data-live-score="${escapeHtml(pid)}" data-pts="2">+2</button>
+        <button type="button" data-live-score="${escapeHtml(pid)}" data-pts="3">+3</button>
       </span>
     </div>`;
   };
-  const last = game.scoringEvents[game.scoringEvents.length - 1];
-  const lastText = last ? `Last: ${escapeHtml(poolNameOf(last.scorerId))} ${last.made === false ? `missed a ${last.points}` : `+${last.points}`}` : "No shots yet";
+  const last = game.liveScores[game.liveScores.length - 1];
+  const lastText = last ? `Last: ${escapeHtml(poolNameOf(last.pid))} +${last.points}` : "No scores yet";
   el.innerHTML = `
     <div class="live-inner">
       <div class="live-top">
@@ -2585,18 +2585,17 @@ function renderLiveGameOverlay() {
       </div>
       <button type="button" class="icon-btn live-discard" data-live-discard>Discard this game</button>
     </div>`;
-  el.querySelectorAll("[data-live-shot]").forEach(btn => btn.addEventListener("click", () =>
-    liveAddShot(game, btn.dataset.liveShot, Number(btn.dataset.pts), btn.dataset.made === "1")));
+  el.querySelectorAll("[data-live-score]").forEach(btn => btn.addEventListener("click", () =>
+    liveAddScore(game, btn.dataset.liveScore, Number(btn.dataset.pts))));
   el.querySelector("[data-live-undo]").addEventListener("click", () => {
-    game.scoringEvents.pop();
-    recomputeDerivedStats(game);
+    game.liveScores.pop();
     saveState();
     renderLiveGameOverlay();
   });
   el.querySelector("[data-live-finish]").addEventListener("click", () => finishLiveGame(game));
   el.querySelector("[data-live-close]").addEventListener("click", () => { closeLiveGameOverlay(); renderLiveGamePanel(); });
   el.querySelector("[data-live-discard]").addEventListener("click", () => {
-    if (!confirm("Delete this live game and every shot logged in it?")) return;
+    if (!confirm("Delete this live game and its score?")) return;
     state.games = state.games.filter(g => g.id !== game.id);
     saveState();
     closeLiveGameOverlay();
@@ -2611,7 +2610,7 @@ function renderLiveGamePanel() {
   if (!wrap) return;
   const live = liveGameInProgress();
   if (live) {
-    wrap.innerHTML = `<p class="hint" style="margin:0 0 10px">A live game is going: ${live.teamA.map(id => escapeHtml(poolNameOf(id))).join(", ")} vs. ${live.teamB.map(id => escapeHtml(poolNameOf(id))).join(", ")}, ${teamScore(live, live.teamA)}-${teamScore(live, live.teamB)}.</p>
+    wrap.innerHTML = `<p class="hint" style="margin:0 0 10px">A live game is going: ${live.teamA.map(id => escapeHtml(poolNameOf(id))).join(", ")} vs. ${live.teamB.map(id => escapeHtml(poolNameOf(id))).join(", ")}, ${liveScoreOf(live, live.teamA)}-${liveScoreOf(live, live.teamB)}.</p>
       <button type="button" id="liveResumeBtn">Resume Live Game</button>`;
     document.getElementById("liveResumeBtn").addEventListener("click", openLiveGameOverlay);
     return;
@@ -3725,6 +3724,7 @@ function renderStatEntry() {
       <span class="scoreboard-value">${scoreB}</span>
       <span class="scoreboard-label">Team B</span>
     </span>
+    ${(game.liveScores || []).length ? `<span class="scoreboard-live" title="Tracked live on party night: who scored, not a full shot log. A reference while logging from film.">Live score ${liveScoreOf(game, game.teamA)}-${liveScoreOf(game, game.teamB)}</span>` : ""}
   `;
 
   renderTeamDirectionToggle(game);
@@ -6758,7 +6758,7 @@ function renderUpsetTracker() {
   if (!wrap) return;
   const upsets = computeUpsets();
   if (!upsets) { wrap.innerHTML = '<p class="empty-state">No real-site game/ranking data loaded yet.</p>'; return; }
-  if (upsets.length === 0) { wrap.innerHTML = '<p class="empty-state">No upsets found — the favorite always won, by this measure.</p>'; return; }
+  if (upsets.length === 0) { wrap.innerHTML = '<p class="empty-state">No upsets: the favorite won every game.</p>'; return; }
   const nameOf = poolPlayerLink;
   const rows = upsets.slice(0, 10).map(u => `
     <tr>
@@ -6791,7 +6791,7 @@ function computePartyRecap(date) {
     .map(([slug, wl]) => ({ slug, ...wl }))
     .sort((a, b) => (b.w - b.l) - (a.w - a.l) || b.w - a.w);
   const nightUpsets = (computeUpsets() || []).filter(u => u.date === date);
-  return { date, games: games.length, standings, upsets: nightUpsets };
+  return { date, games: games.length, standings, upsets: nightUpsets, climber: computeNightClimber(date) };
 }
 
 function renderPartyRecap() {
@@ -6814,8 +6814,9 @@ function renderPartyRecap() {
   if (!recap) { wrap.innerHTML = '<p class="empty-state">No games that night.</p>'; return; }
   const standingsHtml = recap.standings.map(r => `<li>${poolPlayerLink(r.slug)} <span class="hint" style="margin:0">${r.w}-${r.l}</span></li>`).join("");
   const upsetsHtml = recap.upsets.length === 0 ? "" : `<p class="hint" style="margin:10px 0 0">🎲 ${recap.upsets.length} upset${recap.upsets.length === 1 ? "" : "s"} that night.</p>`;
+  const climberHtml = recap.climber ? `<p class="hint" style="margin:6px 0 0">📈 Biggest climber: ${poolPlayerLink(recap.climber.slug)}, #${recap.climber.from} to #${recap.climber.to} in the season power rankings.</p>` : "";
   wrap.innerHTML = `<p class="hint" style="margin:0 0 10px">${recap.games} game${recap.games === 1 ? "" : "s"} that night.</p>
-    <ul class="player-tips-list" style="display:block">${standingsHtml}</ul>${upsetsHtml}`;
+    <ul class="player-tips-list" style="display:block">${standingsHtml}</ul>${upsetsHtml}${climberHtml}`;
 }
 
 // Shareable PNG of one party night for the group chat: that night's standings and its biggest
@@ -6842,7 +6843,8 @@ function generatePartyRecapCanvas(date) {
   const measure = document.createElement("canvas").getContext("2d");
   measure.font = "30px sans-serif";
   const upsetLines = upset ? wrapCanvasText(measure, `${names(upset.winners)} beat ${names(upset.losers)} (${Math.round(upset.winPct)}% vs. ${Math.round(upset.losePct)}% power ranking that night)`, W - 160) : [];
-  const H = top + recap.standings.length * rowH + (upset ? 90 + upsetLines.length * 40 : 0) + 120;
+  const climber = recap.climber;
+  const H = top + recap.standings.length * rowH + (upset ? 90 + upsetLines.length * 40 : 0) + (climber ? 90 : 0) + 120;
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
@@ -6883,6 +6885,15 @@ function generatePartyRecapCanvas(date) {
     y += 46;
     ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.font = "30px sans-serif";
     upsetLines.forEach(line => { ctx.fillText(line, 80, y); y += 40; });
+    y += 20;
+  }
+  if (climber) {
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#3FE0D4"; ctx.font = "bold 28px sans-serif";
+    ctx.fillText("BIGGEST CLIMBER", 80, y);
+    y += 46;
+    ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.font = "30px sans-serif";
+    ctx.fillText(`${poolNameOf(climber.slug)}: #${climber.from} to #${climber.to} in the season rankings`, 80, y);
   }
   ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.font = "22px sans-serif";
   ctx.fillText("Poolean", W / 2, H - 40);
@@ -7952,24 +7963,44 @@ function computeTwoWayRankOverSeason() {
 function pooleanMinParties(maxParties) {
   return Math.max(3, Math.ceil(maxParties * 0.2));
 }
+// Season power ranking after the first `count` party nights: slug -> rank, among players with
+// enough parties by then.
+function pooleanRankAfter(count) {
+  const nights = [...POOLEAN_RANKINGS].sort((x, y) => x.date.localeCompare(y.date));
+  const pcts = {};
+  nights.slice(0, count).forEach(n => n.players.forEach(p => (pcts[p.slug] = pcts[p.slug] || []).push(p.pct)));
+  const maxParties = Math.max(0, ...Object.values(pcts).map(v => v.length));
+  const min = pooleanMinParties(maxParties);
+  const order = Object.entries(pcts).filter(([, v]) => v.length >= min)
+    .map(([slug, v]) => ({ slug, avg: v.reduce((x, y) => x + y, 0) / v.length }))
+    .sort((x, y) => y.avg - x.avg);
+  return { ranks: Object.fromEntries(order.map((e, i) => [e.slug, i + 1])), fieldSize: order.length, min };
+}
+
 function computePlayerOverallRank(playerId) {
   if (typeof POOLEAN_RANKINGS === "undefined" || POOLEAN_RANKINGS.length === 0) return null;
-  const nights = [...POOLEAN_RANKINGS].sort((x, y) => x.date.localeCompare(y.date));
-  const rankAfter = count => {
-    const pcts = {};
-    nights.slice(0, count).forEach(n => n.players.forEach(p => (pcts[p.slug] = pcts[p.slug] || []).push(p.pct)));
-    const maxParties = Math.max(0, ...Object.values(pcts).map(v => v.length));
-    const min = pooleanMinParties(maxParties);
-    const order = Object.entries(pcts).filter(([, v]) => v.length >= min)
-      .map(([slug, v]) => ({ slug, avg: v.reduce((x, y) => x + y, 0) / v.length }))
-      .sort((x, y) => y.avg - x.avg);
-    const idx = order.findIndex(e => e.slug === playerId);
-    return idx === -1 ? null : { rank: idx + 1, fieldSize: order.length, min };
-  };
-  const now = rankAfter(nights.length);
-  if (!now) return null;
-  const before = nights.length > 1 ? rankAfter(nights.length - 1) : null;
-  return { ...now, delta: before ? before.rank - now.rank : null }; // positive: moved up
+  const now = pooleanRankAfter(POOLEAN_RANKINGS.length);
+  const rank = now.ranks[playerId];
+  if (!rank) return null;
+  const before = POOLEAN_RANKINGS.length > 1 ? pooleanRankAfter(POOLEAN_RANKINGS.length - 1).ranks[playerId] : null;
+  return { rank, fieldSize: now.fieldSize, min: now.min, delta: before ? before - rank : null }; // positive: moved up
+}
+
+// Who moved up the season power rankings most with this party night, among that night's players.
+function computeNightClimber(date) {
+  if (typeof POOLEAN_RANKINGS === "undefined") return null;
+  const dates = POOLEAN_RANKINGS.map(n => n.date).sort();
+  const count = dates.indexOf(date) + 1;
+  if (count < 2) return null;
+  const night = POOLEAN_RANKINGS.find(n => n.date === date);
+  const before = pooleanRankAfter(count - 1).ranks, after = pooleanRankAfter(count).ranks;
+  let best = null;
+  night.players.forEach(p => {
+    if (!before[p.slug] || !after[p.slug]) return;
+    const delta = before[p.slug] - after[p.slug];
+    if (delta > 0 && (!best || delta > best.delta)) best = { slug: p.slug, from: before[p.slug], to: after[p.slug], delta };
+  });
+  return best;
 }
 
 function renderPlayerRankPill(playerId) {
