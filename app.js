@@ -5885,15 +5885,24 @@ function computeSeasonRecap() {
     .filter(r => r.player)
     .sort((a, b) => b.card.powerPct - a.card.powerPct)
     .slice(0, 3);
+  // Biggest movers: each player's rank at the very first real party versus their FINAL overall
+  // season rank (by season-long power ranking %, POOLEAN_SEASON_CARDS) -- not their last single
+  // party's percentile, which is noisy (one good or bad night against a small field can swing it
+  // to 0% or 100% on its own). Rank 1 is best either way, so a positive delta means moved up.
   let riser = null, faller = null;
-  if (typeof POOLEAN_RANKINGS !== "undefined" && POOLEAN_RANKINGS.length >= 2) {
-    const first = POOLEAN_RANKINGS[0], last = POOLEAN_RANKINGS[POOLEAN_RANKINGS.length - 1];
+  if (typeof POOLEAN_RANKINGS !== "undefined" && POOLEAN_RANKINGS.length >= 1 && typeof POOLEAN_SEASON_CARDS !== "undefined") {
+    const first = POOLEAN_RANKINGS[0];
+    const overallRank = Object.fromEntries(
+      Object.entries(POOLEAN_SEASON_CARDS).sort((a, b) => b[1].powerPct - a[1].powerPct).map(([slug], i) => [slug, i + 1])
+    );
+    const fieldSize = Object.keys(POOLEAN_SEASON_CARDS).length;
     state.players.forEach(p => {
-      const f = first.players.find(x => x.slug === p.id), l = last.players.find(x => x.slug === p.id);
-      if (!f || !l) return;
-      const delta = l.pct - f.pct;
-      if (!riser || delta > riser.delta) riser = { player: p, delta, from: f.pct, to: l.pct };
-      if (!faller || delta < faller.delta) faller = { player: p, delta, from: f.pct, to: l.pct };
+      const f = first.players.find(x => x.slug === p.id);
+      const finalRank = overallRank[p.id];
+      if (!f || !finalRank) return;
+      const delta = f.rank - finalRank;
+      if (!riser || delta > riser.delta) riser = { player: p, delta, from: f.rank, fromOf: first.players.length, to: finalRank, toOf: fieldSize };
+      if (!faller || delta < faller.delta) faller = { player: p, delta, from: f.rank, fromOf: first.players.length, to: finalRank, toOf: fieldSize };
     });
   }
   return { champion, mvpAward: mvp, awardRows, topPower, riser, faller };
@@ -5923,7 +5932,7 @@ function renderSeasonRecap() {
   const mover = (label, m) => !m ? "" : `<div class="real-partner-tile">
       <span class="real-partner-label">${label}</span>
       ${playerLink(m.player.id, m.player.name)}
-      <span class="real-partner-pct">${Math.round(m.from)}% → ${Math.round(m.to)}% (${m.delta >= 0 ? "+" : ""}${Math.round(m.delta)})</span>
+      <span class="real-partner-pct">${ordinal(m.from)} of ${m.fromOf} on Day 1 → ${ordinal(m.to)} overall (${m.delta >= 0 ? "+" : ""}${m.delta})</span>
     </div>`;
   wrap.innerHTML = `
     ${championHtml}
@@ -6360,10 +6369,7 @@ async function generateTradingCardCanvas(playerId) {
   let y = 450;
   ctx.font = "28px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.85)";
   if (real) { ctx.fillText(`Real Record: ${real.w}-${real.l}`, W / 2, y); y += 42; }
-  if (power) {
-    const moveText = movement ? ` (Day 1: ${Math.round(movement.from)}% → ${movement.delta >= 0 ? "+" : ""}${Math.round(movement.delta)})` : "";
-    ctx.fillText(`Power Ranking: ${Math.round(power.avgPct)}%${moveText}`, W / 2, y); y += 42;
-  }
+  if (power) { ctx.fillText(`Power Ranking: ${Math.round(power.avgPct)}%`, W / 2, y); y += 42; }
   y += 10;
   // Statline: the same per-20 core numbers shown on the profile header itself, so the card
   // carries this app's own local read alongside the real site's data above it.
