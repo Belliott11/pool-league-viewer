@@ -1152,15 +1152,6 @@ button:disabled {
   color: var(--accent);
   font-weight: 600;
 }
-/* Below WIN_PROBABILITY_CONFIDENCE_GAMES (see app.js), the prediction is already hedged toward
-   50/50 internally — this is the visible half of that, so it doesn't read as more settled than
-   it is: faded and italic rather than the same solid accent color a fully-trusted prediction
-   gets. */
-.balance-team-winprob-low-confidence {
-  opacity: 0.65;
-  font-style: italic;
-  font-weight: 500;
-}
 .balance-team-card ul {
   margin: 0;
   padding-left: 18px;
@@ -2417,3 +2408,42 @@ button:disabled {
 .award-race-leaders { margin: 6px 0 0; padding-left: 20px; font-size: 0.88rem; }
 .award-race-leaders li { margin: 2px 0; }
 .award-race-voted { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 0.82rem; }
+
+/* Matchup Predictor track record */
+.matchup-track { margin-top: 12px; }
+.matchup-track summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; }
+
+/* Live Game: full-screen phone scoreboard */
+body.live-open { overflow: hidden; }
+.live-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: var(--bg);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.live-overlay[hidden] { display: none; }
+.live-inner { max-width: 640px; margin: 0 auto; padding: 14px 16px 32px; display: flex; flex-direction: column; gap: 12px; }
+.live-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.live-meta { font-size: 0.8rem; color: var(--muted); text-align: right; }
+.live-score { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
+.live-side { display: flex; flex-direction: column; align-items: center; padding: 10px; border-radius: var(--radius-sm); }
+.live-side-a { background: var(--primary-light); }
+.live-side-b { background: var(--warning-light); }
+.live-side-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.live-side-score { font-size: 3.4rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.live-side-a .live-side-score { color: var(--primary-dark); }
+.live-side-b .live-side-score { color: var(--warning); }
+.live-dash { font-size: 2rem; color: var(--muted); }
+.live-reached { margin: 0; text-align: center; font-weight: 700; color: var(--success); }
+.live-team { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.live-team-a { border-color: color-mix(in srgb, var(--primary) 45%, transparent); }
+.live-team-b { border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
+.live-player { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.live-player-name { font-weight: 700; }
+.live-player-line { font-weight: 500; font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 4px; }
+.live-player-btns { display: flex; gap: 5px; }
+.live-player-btns button { min-width: 44px; min-height: 44px; padding: 0 8px; font-weight: 800; font-size: 1rem; border-radius: 10px; }
+.live-player-btns .live-miss { background: var(--surface-muted); color: var(--muted); border: 1px solid var(--border); }
+.live-bottom { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.live-last { flex: 1; font-size: 0.85rem; color: var(--muted); min-width: 140px; }
+.live-discard { align-self: center; font-size: 0.8rem; }

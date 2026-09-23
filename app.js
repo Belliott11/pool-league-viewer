@@ -594,6 +594,8 @@ function showTab(tab) {
     renderBalanceAttendeePicker();
     renderBalanceRsvpDateSelect();
     renderPlannerAttendeePicker();
+    renderMatchupPredictor();
+    renderLiveGamePanel();
     renderGamesFilterPlayerPicker();
     renderGamesFilterStatPlayerSelect();
     renderRsvpAttendeePicker();
@@ -1810,6 +1812,9 @@ function realSeasonsInOrder() {
 }
 
 const sigmoid = z => 1 / (1 + Math.exp(-z));
+// Real play order: by date, then game number. Game numbers alone aren't chronological, since the
+// site numbers games as they're entered and some nights were entered after later ones.
+const byPlayOrder = (x, y) => x.date.localeCompare(y.date) || x.n - y.n;
 const shrunkEdge = rec => rec ? (rec.w + 2.5) / (rec.gp + 5) - 0.5 : 0;
 
 function realMatchupFeatures(a, b, pctOf, togetherOf, againstOf) {
@@ -1833,7 +1838,7 @@ function buildRealMatchupRows() {
     const nightPcts = {};
     const rankings = [...season.rankings].sort((x, y) => x.date.localeCompare(y.date));
     let ri = 0;
-    [...season.games].sort((x, y) => x.n - y.n).forEach(g => {
+    [...season.games].sort(byPlayOrder).forEach(g => {
       while (ri < rankings.length && rankings[ri].date < g.date) {
         rankings[ri].players.forEach(p => (nightPcts[p.slug] = nightPcts[p.slug] || []).push(p.pct));
         ri++;
@@ -1953,6 +1958,7 @@ function renderMatchupPredictor() {
     if (next) matchupPredictorSides[id] = next; else delete matchupPredictorSides[id];
     renderMatchupPredictor();
   }));
+  renderMatchupTrackRecord();
   const teamA = Object.keys(matchupPredictorSides).filter(id => matchupPredictorSides[id] === "A");
   const teamB = Object.keys(matchupPredictorSides).filter(id => matchupPredictorSides[id] === "B");
   const pred = predictRealMatchup(teamA, teamB);
@@ -1962,6 +1968,55 @@ function renderMatchupPredictor() {
   }
   result.innerHTML = renderMatchupOddsHtml(teamA, teamB, pred) +
     `<p class="hint" style="margin:10px 0 0">${realMatchupAccuracyText(model)} Trained on ${model.n} real games.</p>`;
+}
+
+// Track record: before each party night, refit on only the games played before it and call that
+// night's games. An honest out-of-time test, and it shows whether the odds improve as the model
+// sees more games. Nights before it has REAL_MATCHUP_MIN_GAMES to learn from are skipped.
+let realMatchupTrackCache = null;
+function computeRealMatchupTrackRecord() {
+  if (realMatchupTrackCache) return realMatchupTrackCache;
+  const rows = buildRealMatchupRows();
+  const games = realSeasonsInOrder().flatMap(season => [...season.games].sort(byPlayOrder));
+  const nights = [];
+  let i = 0;
+  while (i < games.length) {
+    let j = i;
+    while (j < games.length && games[j].date === games[i].date) j++;
+    if (i >= REAL_MATCHUP_MIN_GAMES) {
+      const w = fitRealMatchupWeights(rows.slice(0, i));
+      let correct = 0, called = 0;
+      for (let k = i; k < j; k++) {
+        const p = sigmoid(w[0] * rows[k].x[0] + w[1] * rows[k].x[1] + w[2] * rows[k].x[2]);
+        if (p === 0.5) continue;
+        called++;
+        if ((p > 0.5) === (rows[k].y === 1)) correct++;
+      }
+      nights.push({ date: games[i].date, correct, called });
+    }
+    i = j;
+  }
+  const sum = list => list.reduce((acc, n) => ({ correct: acc.correct + n.correct, called: acc.called + n.called }), { correct: 0, called: 0 });
+  const half = Math.floor(nights.length / 2);
+  realMatchupTrackCache = { nights, total: sum(nights), early: sum(nights.slice(0, half)), late: sum(nights.slice(half)) };
+  return realMatchupTrackCache;
+}
+
+function renderMatchupTrackRecord() {
+  const wrap = document.getElementById("matchupTrackRecord");
+  if (!wrap) return;
+  const t = computeRealMatchupTrackRecord();
+  if (t.nights.length === 0 || t.total.called === 0) { wrap.innerHTML = ""; return; }
+  const pctOf = x => x.called ? Math.round(x.correct / x.called * 100) : 0;
+  const trend = t.nights.length >= 4 && t.early.called && t.late.called
+    ? ` First half of those nights: ${pctOf(t.early)}%. Second half: ${pctOf(t.late)}%.` : "";
+  const rows = [...t.nights].reverse().map((n, idx) =>
+    `<li>${escapeHtml(formatDateDisplay(n.date))}${idx === 0 ? ' <span class="real-data-tag">Latest</span>' : ""} <span class="hint" style="margin:0">called ${n.correct} of ${n.called}</span></li>`).join("");
+  wrap.innerHTML = `<details class="matchup-track">
+    <summary>Track record: ${t.total.correct} of ${t.total.called} (${pctOf(t.total)}%) called right before they were played</summary>
+    <p class="hint" style="margin:8px 0">Before each party night, the model is retrained on only the games before it, then asked to call that night's games.${trend}</p>
+    <ul class="player-tips-list" style="display:block">${rows}</ul>
+  </details>`;
 }
 
 function renderMatchupOddsHtml(teamA, teamB, pred) {
@@ -1979,80 +2034,32 @@ function renderMatchupOddsHtml(teamA, teamB, pred) {
     ${unranked}`;
 }
 
-// ---------- Balance Teams: win probability model ----------
-// A small, honestly-scoped machine learning model: retrained on every render straight from this
-// browser's own logged games, never anything hardcoded or pre-fit. Single feature — the gap
-// between the two rosters' average quality (computeBalanceQualityMap()'s twoWayPer20-based
-// numbers, the same "quality" Balance Teams already ranks candidate splits by) — run through a
-// logistic curve fit by gradient descent to every decisive (non-tied) qualifying game's actual
-// winner. Deliberately one parameter, not one per stat: with a season's worth of games for a
-// handful of players, a richer model would just memorize this season's specific games instead of
-// learning something that generalizes to a brand new split nobody's actually played yet. Requires
-// a real minimum sample size before it shows up anywhere — below that, a predicted percentage is
-// just noise wearing a number.
-const WIN_PROBABILITY_MIN_GAMES = 6;
-
-function computeWinProbabilityTrainingRows() {
-  const qualityMap = computeBalanceQualityMap();
-  const rows = [];
-  state.games.filter(isQualifyingGame).forEach(game => {
-    if (game.teamA.length === 0 || game.teamB.length === 0) return;
-    const scoreA = teamScore(game, game.teamA);
-    const scoreB = teamScore(game, game.teamB);
-    if (scoreA === scoreB) return; // a tie has no winner to learn from
-    const avgA = game.teamA.reduce((sum, id) => sum + (qualityMap[id]?.quality || 0), 0) / game.teamA.length;
-    const avgB = game.teamB.reduce((sum, id) => sum + (qualityMap[id]?.quality || 0), 0) / game.teamB.length;
-    rows.push({ diff: avgA - avgB, label: scoreA > scoreB ? 1 : 0 });
-  });
-  return rows;
-}
-
-// Fits P(higher-quality side wins) = sigmoid(w*diff + b) by plain gradient descent, with a small
-// L2 penalty on w (not b) so the fitted slope can't run away on a handful of rows — checked
-// directly against this app's own real data: unregularized, 7 training games alone produced
-// w=0.67, confident enough to call a realistic ~9-point quality gap a 99.7% sure thing. Two
-// parameters, a fixed learning rate, and a fixed iteration count are all this needs — with at
-// most a few dozen training rows, the loss surface is simple enough to converge well inside this
-// budget every time, and there's no meaningful train/validation split at this sample size anyway.
-const WIN_PROBABILITY_L2 = 0.1;
-function trainWinProbabilityModel(rows) {
-  let w = 0.15, b = 0;
-  const lr = 0.1;
-  const n = rows.length;
-  for (let it = 0; it < 3000; it++) {
-    let gw = 0, gb = 0;
-    rows.forEach(r => {
-      const p = 1 / (1 + Math.exp(-(w * r.diff + b)));
-      const err = p - r.label;
-      gw += err * r.diff;
-      gb += err;
-    });
-    w -= lr * (gw / n + WIN_PROBABILITY_L2 * w);
-    b -= lr * gb / n;
+// ---------- Balance Teams: win chances ----------
+// Each team's chance to win, from the Matchup Predictor. Two teams play one game, so the two
+// chances sum to 100%. With three or more teams, each team's number is its average chance
+// against every other team in the split. null until the predictor has enough real games.
+function predictTeamWinChances(teams) {
+  if (teams.length < 2 || !getRealMatchupModel()) return null;
+  const vs = teams.map(() => []);
+  for (let i = 0; i < teams.length; i++) {
+    for (let j = i + 1; j < teams.length; j++) {
+      const p = predictRealMatchup(teams[i], teams[j]).pA;
+      vs[i].push(p);
+      vs[j].push(1 - p);
+    }
   }
-  return { w, b, n };
+  return vs.map(v => v.reduce((a, b) => a + b, 0) / v.length);
 }
 
-function getWinProbabilityModel() {
-  const rows = computeWinProbabilityTrainingRows();
-  if (rows.length < WIN_PROBABILITY_MIN_GAMES) return null;
-  return trainWinProbabilityModel(rows);
-}
-
-// Regularizing the fit alone doesn't bound how confident a prediction can look — even heavy L2
-// still left a realistic quality gap near 95%+ off just 7 games, because a plain sigmoid keeps
-// saturating toward 0/1 at large inputs regardless of how small w is shrunk. So the raw model
-// output is additionally blended toward 50/50 by how many decisive games it was actually trained
-// on, same "confidence scales with sample size" pattern as teamChemistryAdjustment()'s and
-// teamWinRateAdjustment()'s own min(1, gp/3) damping elsewhere in this file — full confidence
-// at WIN_PROBABILITY_CONFIDENCE_GAMES decisive games, linearly less before that, floor at
-// WIN_PROBABILITY_MIN_GAMES (below which getWinProbabilityModel() returns null and nothing
-// renders at all).
-const WIN_PROBABILITY_CONFIDENCE_GAMES = 20;
-function predictWinProbability(model, diff) {
-  const raw = 1 / (1 + Math.exp(-(model.w * diff + model.b)));
-  const confidence = Math.min(1, model.n / WIN_PROBABILITY_CONFIDENCE_GAMES);
-  return 0.5 + (raw - 0.5) * confidence;
+// How far the least even pairing in a split sits from 50/50, in percentage points.
+function worstPairingGap(teams) {
+  let worst = 0;
+  for (let i = 0; i < teams.length; i++) {
+    for (let j = i + 1; j < teams.length; j++) {
+      worst = Math.max(worst, Math.abs(predictRealMatchup(teams[i], teams[j]).pA - 0.5) * 100);
+    }
+  }
+  return worst;
 }
 
 // Tiebreaker only, by design (Two-Way spread is the real, measured/estimated signal and always
@@ -2221,25 +2228,27 @@ function generateBalancedTeamSets(attendeeIds, teamSize) {
     return aTall === bTall ? 0 : aTall ? -1 : 1;
   };
 
-  // Two teams, with enough real games for the Matchup Predictor: rank by its odds (closest to
-  // 50/50 first) instead of the quality spread. The predictor was tested against real results;
+  // With enough real games for the Matchup Predictor: rank by its odds instead of the quality
+  // spread, closest to 50/50 first (for 3+ teams, by the least even pairing in the split). The predictor was tested against real results;
   // the spread wasn't, and the two can disagree (a "most balanced" 30/70). Quality, chemistry and
   // past record still build every candidate above. Adding quality to the predictor as a fourth
   // input was tried and didn't hold up: its gain matched what the predictor gets from seeing the
   // whole season's results in advance, and the film-only part didn't help. Options within
   // ODDS_TIE_POINTS of each other count as tied and fall to height, physical, then spread.
-  if (targetSizes.length === 2 && getRealMatchupModel()) {
+  if (getRealMatchupModel()) {
     const ODDS_TIE_POINTS = 2;
-    const gapOf = teams => Math.abs(predictRealMatchup(teams[0], teams[1]).pA - 0.5) * 100;
+    const gapOf = worstPairingGap;
     const all = new Map();
     [...scored, ...refined].forEach(e => all.set(teamSetSignature(e.teams), { ...e, oddsGap: gapOf(e.teams) }));
     // Swap-based refinement on the predictor's own number, same idea as localSearchRefine().
     [...all.values()].sort((a, b) => a.oddsGap - b.oddsGap).slice(0, 10).forEach(entry => {
       let teams = entry.teams.map(t => [...t]), gap = entry.oddsGap;
       for (let it = 0; it < 40; it++) {
-        const i = Math.floor(Math.random() * teams[0].length), j = Math.floor(Math.random() * teams[1].length);
-        const cand = [[...teams[0]], [...teams[1]]];
-        [cand[0][i], cand[1][j]] = [cand[1][j], cand[0][i]];
+        const ta = Math.floor(Math.random() * teams.length);
+        const tb = (ta + 1 + Math.floor(Math.random() * (teams.length - 1))) % teams.length;
+        const i = Math.floor(Math.random() * teams[ta].length), j = Math.floor(Math.random() * teams[tb].length);
+        const cand = teams.map(t => [...t]);
+        [cand[ta][i], cand[tb][j]] = [cand[tb][j], cand[ta][i]];
         const g = gapOf(cand);
         if (g < gap) { teams = cand; gap = g; }
       }
@@ -2321,34 +2330,9 @@ function renderBalanceResults() {
   const anyEstimated = Object.values(qualityMap).some(v => v.source === "reputation");
   const liftMap = computeChemistryLiftMap([...balanceAttendeeIds]);
   const winRateMap = computeTeamWinRateMap([...balanceAttendeeIds]);
-  const winProbModel = getWinProbabilityModel();
   wrap.innerHTML = balanceResults.map((r, i) => {
-    // Each team's predicted win probability against the average of every *other* team in this
-    // split — for the common two-team case that's just the direct matchup; for a 3+ team split
-    // (more attendees than 2× the requested team size) it's "vs. a league-average opponent
-    // tonight," since there's no single opposing roster to point the model at. Only computed at
-    // all once the model has a real sample size behind it (see WIN_PROBABILITY_MIN_GAMES).
-    // For the common 2-team case this is one game with one winner, so the two probabilities are
-    // forced to add to exactly 100% (computed once from Team A's own diff, Team B just takes the
-    // complement) rather than each computed independently from its own diff against "the other
-    // team's average" — sigmoid(x) + sigmoid(-x) always sums to 1, but the model's own fitted
-    // bias term breaks that symmetry the moment each side re-adds it separately: sigmoid(w*diff+b)
-    // + sigmoid(-w*diff+b) only equals 1 when b happens to be exactly 0, which a real fitted bias
-    // essentially never is. A 3+ team split has no single winner to begin with (each team's
-    // number is "vs. a league-average opponent tonight," not a shared event), so summing to 100%
-    // isn't meaningful there and those are left as independent per-team estimates.
-    // Two teams: the real-site Matchup Predictor when it has enough real games (a bigger, steadier
-    // sample than this browser's own logged games); otherwise the local model below.
-    const realPred = r.teams.length === 2 ? predictRealMatchup(r.teams[0], r.teams[1]) : null;
-    const winProbs = realPred ? [realPred.pA, 1 - realPred.pA]
-      : !winProbModel ? null
-      : r.avgs.length === 2
-        ? (() => { const p = predictWinProbability(winProbModel, r.avgs[0] - r.avgs[1]); return [p, 1 - p]; })()
-        : r.avgs.map((avg, ti) => {
-            const rest = r.avgs.filter((_, j) => j !== ti);
-            const restAvg = rest.reduce((a, b) => a + b, 0) / rest.length;
-            return predictWinProbability(winProbModel, avg - restAvg);
-          });
+    const winProbs = predictTeamWinChances(r.teams);
+    const realPred = r.teams.length === 2 && winProbs ? predictRealMatchup(r.teams[0], r.teams[1]) : null;
     // Surfaces the height/build/role tiebreak's own reasoning per team, not just its effect on
     // ranking — a player's name is titled with their height/build/role/original note straight
     // from PLAYER_PHYSICAL_DATA (hover to see exactly what drove a categorization), and each
@@ -2393,22 +2377,11 @@ function renderBalanceResults() {
       const winLine = Math.abs(winAdj.value) >= 0.1
         ? `<div class="balance-team-physical" title="Two-Way/20-scale adjustment from this pairing's actual win rate in past games together, already included in the avg above. Uses the real Poolean site's full game history when it has these two as teammates, not just this browser's own logged subset.">Past record: ${winAdj.value >= 0 ? "+" : ""}${winAdj.value.toFixed(1)}${winGamesNote}</div>`
         : "";
-      // Below WIN_PROBABILITY_CONFIDENCE_GAMES, predictWinProbability() is already blending its
-      // raw output toward 50/50 internally (see that function's own comment) — this is just the
-      // visible signal of that same fact, so a "67% win" doesn't read as more settled than it
-      // actually is: a muted style plus a "~" prefix, same idea as a weather app hedging a
-      // forecast that's still mostly a guess.
-      const lowConfidence = !realPred && !!winProbModel && winProbModel.n < WIN_PROBABILITY_CONFIDENCE_GAMES;
-      const confidenceNote = lowConfidence
-        ? `, still well short of the ${WIN_PROBABILITY_CONFIDENCE_GAMES} it takes to fully trust; already hedged toward 50/50 to account for that`
+      const winProbTitle = winProbs
+        ? `Matchup Predictor, trained on ${getRealMatchupModel().n} real games: ${r.teams.length > 2 ? "this team's average chance against each of the other teams" : "this team's chance against the team across from it"}. ${realMatchupAccuracyText(getRealMatchupModel())}`
         : "";
-      const winProbTitle = realPred
-        ? `Matchup Predictor, trained on ${realPred.model.n} real games: power rankings, the extra player, and how these players have done together and against each other. ${realMatchupAccuracyText(realPred.model)}`
-        : winProbModel
-          ? `A small model fit to this browser's own logged games (${winProbModel.n} decisive game${winProbModel.n === 1 ? "" : "s"} so far${confidenceNote}): predicted chance this team wins tonight, ${r.avgs.length > 2 ? "against a league-average opponent" : "against the team across from it"}.`
-          : "";
       const winProbLabel = winProbs
-        ? `<span class="balance-team-winprob${lowConfidence ? " balance-team-winprob-low-confidence" : ""}" title="${escapeHtml(winProbTitle)}">${lowConfidence ? "~" : ""}${Math.round(winProbs[ti] * 100)}% win</span>`
+        ? `<span class="balance-team-winprob" title="${escapeHtml(winProbTitle)}">${Math.round(winProbs[ti] * 100)}% win</span>`
         : "";
       return `
         <div class="balance-team-card">
@@ -2431,7 +2404,8 @@ function renderBalanceResults() {
     }).join("");
     const buttonsHtml = r.teams.length === 2
       ? `<button type="button" class="secondary-btn balance-preview-btn" data-index="${i}">Preview Matchups</button>
-         <button type="button" class="secondary-btn balance-use-btn" data-index="${i}">Use These Teams &rarr; Create Game</button>`
+         <button type="button" class="secondary-btn balance-use-btn" data-index="${i}">Use These Teams &rarr; Create Game</button>${liveGameEnabled() ? `
+         <button type="button" class="secondary-btn balance-live-btn" data-index="${i}">Play Live</button>` : ""}`
       : "";
     const previewHtml = r.teams.length === 2
       ? `<div class="balance-preview-wrap" id="balancePreview${i}" hidden>${renderMatchupPreviewTable(r.teams[0], r.teams[1])}</div>`
@@ -2454,6 +2428,10 @@ function renderBalanceResults() {
   }).join("") + (anyEstimated
     ? '<p class="hint" style="margin:0">* No dashboard stats yet: quality estimated from real power-ranking reputation (see the attendee picker above for each one\'s percentile), not logged film.</p>'
     : "");
+  wrap.querySelectorAll(".balance-live-btn").forEach(btn => btn.addEventListener("click", () => {
+    const r = balanceResults[Number(btn.dataset.index)];
+    startLiveGame(r.teams[0], r.teams[1]);
+  }));
   wrap.querySelectorAll(".balance-use-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const r = balanceResults[Number(btn.dataset.index)];
@@ -2480,6 +2458,185 @@ function applyBalancedTeamsToNewGame(teamA, teamB) {
   saveState();
   renderGames();
   openGame(game.id);
+}
+
+// ---------- Live Game ----------
+// A phone scoreboard for party night: pick two teams, tap +1/+2/+3 or a miss for whoever shot,
+// and the game is saved as a normal game (same scoring events Stat Entry writes) after every tap,
+// so a locked phone or a closed tab loses nothing. Misses are logged too, so shooting
+// percentages stay honest. Defenders, assists, rebounds and shot spots are left for a film
+// review later, the same as any partly tagged game. Only on the dashboard (needs #liveGamePanel).
+const LIVE_TARGETS = [16, 21];
+let liveSetupSides = {};
+let liveWakeLock = null;
+
+function liveGameEnabled() {
+  return !!document.getElementById("liveGamePanel");
+}
+function liveGameInProgress() {
+  return state.games.find(g => g.liveInProgress) || null;
+}
+
+function startLiveGame(teamA, teamB) {
+  if (!liveGameEnabled() || teamA.length === 0 || teamB.length === 0) return;
+  const existing = liveGameInProgress();
+  if (existing && !confirm("A live game is already going. Finish it and start this one?")) { openLiveGameOverlay(); return; }
+  if (existing) finishLiveGame(existing, false);
+  const targetSel = document.getElementById("liveTargetSelect");
+  const date = document.getElementById("gameDateInput").value || new Date().toISOString().slice(0, 10);
+  const game = { id: uid("game"), date, videoUrl: "", notes: "Logged live", winner: null, teamA: [...teamA], teamB: [...teamB], stats: [], matchups: [], scoringEvents: [], plays: [],
+    liveInProgress: true, liveTarget: Number(targetSel?.value) || 21 };
+  normalizeGame(game);
+  state.games.push(game);
+  saveState();
+  renderGames();
+  openLiveGameOverlay();
+}
+
+function liveAddShot(game, pid, points, made) {
+  game.scoringEvents.push({
+    id: uid("score"), scorerId: pid, points, made,
+    defenderIds: [], assistId: null, blockerId: null, turnoverEventId: null, rebounderId: null,
+    reboundContesterIds: [], reboundNoContest: false, shotLocation: null, shotType: null, videoTime: null,
+    ...(points === 1 ? { dunk: false } : {})
+  });
+  recomputeDerivedStats(game);
+  saveState();
+  renderLiveGameOverlay();
+}
+
+function finishLiveGame(game, rerender = true) {
+  const a = teamScore(game, game.teamA), b = teamScore(game, game.teamB);
+  game.winner = a > b ? "A" : b > a ? "B" : null;
+  delete game.liveInProgress;
+  delete game.liveTarget;
+  saveState();
+  closeLiveGameOverlay();
+  if (rerender) { renderGames(); renderLiveGamePanel(); }
+}
+
+function openLiveGameOverlay() {
+  let el = document.getElementById("liveGameOverlay");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "liveGameOverlay";
+    el.className = "live-overlay";
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-label", "Live game");
+    document.body.appendChild(el);
+  }
+  el.hidden = false;
+  document.body.classList.add("live-open");
+  try { navigator.wakeLock?.request("screen").then(l => { liveWakeLock = l; }).catch(() => {}); } catch (e) { /* not supported */ }
+  renderLiveGameOverlay();
+}
+
+function closeLiveGameOverlay() {
+  const el = document.getElementById("liveGameOverlay");
+  if (el) el.hidden = true;
+  document.body.classList.remove("live-open");
+  try { liveWakeLock?.release(); } catch (e) { /* already released */ }
+  liveWakeLock = null;
+}
+
+function renderLiveGameOverlay() {
+  const el = document.getElementById("liveGameOverlay");
+  const game = liveGameInProgress();
+  if (!el || !game) { closeLiveGameOverlay(); return; }
+  const score = { A: teamScore(game, game.teamA), B: teamScore(game, game.teamB) };
+  const pred = predictRealMatchup(game.teamA, game.teamB);
+  const reached = score.A >= game.liveTarget || score.B >= game.liveTarget;
+  const line = pid => {
+    const made = game.scoringEvents.filter(ev => ev.scorerId === pid && ev.made !== false);
+    const fga = game.scoringEvents.filter(ev => ev.scorerId === pid && ev.points > 1).length;
+    const fgm = made.filter(ev => ev.points > 1).length;
+    const pts = made.reduce((sum, ev) => sum + ev.points, 0);
+    return `<div class="live-player">
+      <span class="live-player-name">${escapeHtml(poolNameOf(pid))} <span class="live-player-line">${pts} pts · ${fgm}/${fga}</span></span>
+      <span class="live-player-btns">
+        <button type="button" data-live-shot="${escapeHtml(pid)}" data-pts="1" data-made="1">+1</button>
+        <button type="button" data-live-shot="${escapeHtml(pid)}" data-pts="2" data-made="1">+2</button>
+        <button type="button" data-live-shot="${escapeHtml(pid)}" data-pts="3" data-made="1">+3</button>
+        <button type="button" class="live-miss" data-live-shot="${escapeHtml(pid)}" data-pts="2" data-made="0" aria-label="Missed 2">✗2</button>
+        <button type="button" class="live-miss" data-live-shot="${escapeHtml(pid)}" data-pts="3" data-made="0" aria-label="Missed 3">✗3</button>
+      </span>
+    </div>`;
+  };
+  const last = game.scoringEvents[game.scoringEvents.length - 1];
+  const lastText = last ? `Last: ${escapeHtml(poolNameOf(last.scorerId))} ${last.made === false ? `missed a ${last.points}` : `+${last.points}`}` : "No shots yet";
+  el.innerHTML = `
+    <div class="live-inner">
+      <div class="live-top">
+        <button type="button" class="secondary-btn" data-live-close>Hide</button>
+        <span class="live-meta">Game to ${game.liveTarget}${pred ? ` · tip-off odds ${Math.round(pred.pA * 100)}% / ${100 - Math.round(pred.pA * 100)}%` : ""}</span>
+      </div>
+      <div class="live-score">
+        <div class="live-side live-side-a"><span class="live-side-label">Team A</span><span class="live-side-score">${score.A}</span></div>
+        <span class="live-dash">–</span>
+        <div class="live-side live-side-b"><span class="live-side-label">Team B</span><span class="live-side-score">${score.B}</span></div>
+      </div>
+      ${reached ? `<p class="live-reached">Someone hit ${game.liveTarget}. Tap Finish when the game's over.</p>` : ""}
+      <div class="live-team live-team-a">${game.teamA.map(line).join("")}</div>
+      <div class="live-team live-team-b">${game.teamB.map(line).join("")}</div>
+      <div class="live-bottom">
+        <span class="live-last" aria-live="polite">${lastText}</span>
+        <button type="button" class="secondary-btn" data-live-undo ${last ? "" : "disabled"}>Undo</button>
+        <button type="button" data-live-finish>Finish Game</button>
+      </div>
+      <button type="button" class="icon-btn live-discard" data-live-discard>Discard this game</button>
+    </div>`;
+  el.querySelectorAll("[data-live-shot]").forEach(btn => btn.addEventListener("click", () =>
+    liveAddShot(game, btn.dataset.liveShot, Number(btn.dataset.pts), btn.dataset.made === "1")));
+  el.querySelector("[data-live-undo]").addEventListener("click", () => {
+    game.scoringEvents.pop();
+    recomputeDerivedStats(game);
+    saveState();
+    renderLiveGameOverlay();
+  });
+  el.querySelector("[data-live-finish]").addEventListener("click", () => finishLiveGame(game));
+  el.querySelector("[data-live-close]").addEventListener("click", () => { closeLiveGameOverlay(); renderLiveGamePanel(); });
+  el.querySelector("[data-live-discard]").addEventListener("click", () => {
+    if (!confirm("Delete this live game and every shot logged in it?")) return;
+    state.games = state.games.filter(g => g.id !== game.id);
+    saveState();
+    closeLiveGameOverlay();
+    renderGames();
+    renderLiveGamePanel();
+  });
+}
+
+// Games tab panel: resume a game in progress, or pick teams (tap once for A, again for B).
+function renderLiveGamePanel() {
+  const wrap = document.getElementById("liveGamePanel");
+  if (!wrap) return;
+  const live = liveGameInProgress();
+  if (live) {
+    wrap.innerHTML = `<p class="hint" style="margin:0 0 10px">A live game is going: ${live.teamA.map(id => escapeHtml(poolNameOf(id))).join(", ")} vs. ${live.teamB.map(id => escapeHtml(poolNameOf(id))).join(", ")}, ${teamScore(live, live.teamA)}-${teamScore(live, live.teamB)}.</p>
+      <button type="button" id="liveResumeBtn">Resume Live Game</button>`;
+    document.getElementById("liveResumeBtn").addEventListener("click", openLiveGameOverlay);
+    return;
+  }
+  const chips = [...state.players].sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+    const side = liveSetupSides[p.id];
+    return `<button type="button" class="attendee-chip${side ? ` selected matchup-chip-${side.toLowerCase()}` : ""}" data-live-pick="${escapeHtml(p.id)}">${side ? `${side} · ` : ""}${escapeHtml(p.name)}</button>`;
+  }).join("");
+  const teamA = Object.keys(liveSetupSides).filter(id => liveSetupSides[id] === "A");
+  const teamB = Object.keys(liveSetupSides).filter(id => liveSetupSides[id] === "B");
+  wrap.innerHTML = `<div class="attendee-picker">${chips || '<p class="empty-state">No players yet. Add players in the Players tab.</p>'}</div>
+    <div class="balance-controls">
+      <label>Game to <select id="liveTargetSelect">${LIVE_TARGETS.map(t => `<option value="${t}"${t === 21 ? " selected" : ""}>${t}</option>`).join("")}</select></label>
+      <button type="button" id="liveStartBtn" ${teamA.length && teamB.length ? "" : "disabled"}>Start Live Game</button>
+    </div>`;
+  wrap.querySelectorAll("[data-live-pick]").forEach(btn => btn.addEventListener("click", () => {
+    const id = btn.dataset.livePick;
+    const next = { undefined: "A", A: "B", B: undefined }[liveSetupSides[id]];
+    if (next) liveSetupSides[id] = next; else delete liveSetupSides[id];
+    renderLiveGamePanel();
+  }));
+  document.getElementById("liveStartBtn").addEventListener("click", () => {
+    liveSetupSides = {};
+    startLiveGame(teamA, teamB);
+  });
 }
 
 // ---------- Party Night Planner ----------
@@ -2583,6 +2740,7 @@ function renderPlannerResult() {
       <span class="planner-game-teams"><span>${g.a.map(poolPlayerLink).join(", ")}</span><span class="planner-vs">vs.</span><span>${g.b.map(poolPlayerLink).join(", ")}</span></span>
       ${pA !== null ? `<span class="planner-game-odds" title="Matchup Predictor odds, left team / right team">${pA}% / ${100 - pA}%</span>` : ""}
       ${g.sitting.length ? `<span class="planner-game-sit">Sitting: ${g.sitting.map(id => escapeHtml(poolNameOf(id))).join(", ")}</span>` : ""}
+      ${liveGameEnabled() ? `<button type="button" class="secondary-btn planner-live-btn" data-game-index="${i}">Play Live</button>` : ""}
     </li>`;
   }).join("");
   const summaryHtml = plan.summary.map(r => `<li>${poolPlayerLink(r.id)} <span class="hint" style="margin:0">${r.games} game${r.games === 1 ? "" : "s"}, ${r.teammates} of ${plan.others} as teammates</span></li>`).join("");
@@ -2595,6 +2753,10 @@ function renderPlannerResult() {
     </div>
     <h4 style="margin:14px 0 8px">Who plays with whom</h4>
     <ul class="player-tips-list" style="display:block">${summaryHtml}</ul>`;
+  wrap.querySelectorAll(".planner-live-btn").forEach(btn => btn.addEventListener("click", () => {
+    const g = plan.games[Number(btn.dataset.gameIndex)];
+    startLiveGame(g.a, g.b);
+  }));
   document.getElementById("plannerReshuffleBtn").addEventListener("click", generatePlannerSchedule);
   document.getElementById("plannerCopyBtn").addEventListener("click", async () => {
     const status = document.getElementById("plannerCopyStatus");
@@ -6296,7 +6458,6 @@ function setPooleanSeason(year) {
   window.POOLEAN_SEASON_CARDS = d ? d.cards : undefined;
   window.POOLEAN_GAMES = d ? d.games : undefined;
   if (d) window.POOLEAN_NAMES = d.names;
-  realMatchupModelCache = null;
 }
 
 function initPooleanSeasonPicker() {
@@ -6441,10 +6602,10 @@ function renderSeasonRecap() {
 // reasoning as everywhere else the real data shows up.
 
 // This player's real win/loss streaks: current (however many games long, win or loss), and the
-// longest of each across the whole season. Chronological by GAME_NO, the site's own play order.
+// longest of each across the whole season, in real play order (byPlayOrder).
 function computePlayerStreaks(playerId) {
   if (typeof POOLEAN_GAMES === "undefined") return null;
-  const games = POOLEAN_GAMES.filter(g => g.a.includes(playerId) || g.b.includes(playerId)).sort((a, b) => a.n - b.n);
+  const games = POOLEAN_GAMES.filter(g => g.a.includes(playerId) || g.b.includes(playerId)).sort(byPlayOrder);
   if (games.length === 0) return null;
   let curWin = 0, curLoss = 0, longestWin = 0, longestLoss = 0;
   games.forEach(g => {
@@ -6758,7 +6919,7 @@ function computeAwardRace() {
     const maxParties = Math.max(...Object.values(cards).map(c => c.parties || 0), 0);
     // At least 3 parties (or a fifth of the season, if that's more): keeps one-night cameos out
     // without dropping someone who played less but was clearly one of the best.
-    const minParties = Math.max(3, Math.ceil(maxParties * 0.2));
+    const minParties = pooleanMinParties(maxParties);
     qualified = Object.entries(cards).filter(([, c]) => (c.parties || 0) >= minParties).map(([slug, c]) => ({ slug, c }));
     const byPower = [...qualified].sort((a, b) => b.c.powerPct - a.c.powerPct);
     rows.push({ key: "mvp", basis: "Most real wins", leaders: [...qualified].sort((a, b) => b.c.w - a.c.w || b.c.powerPct - a.c.powerPct).slice(0, 3).map(r => ({ ids: [r.slug], value: `${r.c.w}-${r.c.l}` })) });
@@ -7784,22 +7945,31 @@ function computeTwoWayRankOverSeason() {
   return { dates, series };
 }
 
-// This player's standing as of the latest checkpoint (same Two-Way/20-cumulative ranking the
-// chart above plots), plus how many places they've moved since the checkpoint just before it —
-// the "#3 overall ▲2" pill on the profile header. "Overall" really means "this season" right now
-// (only one season of data exists); the same number becomes genuinely all-time once past seasons
-// are tracked the same way, without this needing to change.
+// This player's real-site power ranking for the season picked in the header (the site's own
+// season %: the average of each night's percentile), plus how many places they moved with the
+// latest party night. Only players with enough parties to count are ranked (see
+// pooleanMinParties()), so a one-night guest at 100% doesn't sit at #1.
+function pooleanMinParties(maxParties) {
+  return Math.max(3, Math.ceil(maxParties * 0.2));
+}
 function computePlayerOverallRank(playerId) {
-  const { dates, series } = computeTwoWayRankOverSeason();
-  const s = series[playerId];
-  if (!s || s.length === 0 || dates.length === 0) return null;
-  const lastDate = dates[dates.length - 1];
-  const idx = s.findIndex(e => e.date === lastDate);
-  const current = idx === -1 ? s[s.length - 1] : s[idx];
-  const fieldSize = Object.values(series).filter(arr => arr.some(e => e.date === current.date)).length;
-  const prev = idx > 0 ? s[idx - 1] : null;
-  const delta = prev ? prev.rank - current.rank : null; // positive: moved up (a smaller rank number)
-  return { rank: current.rank, fieldSize, delta };
+  if (typeof POOLEAN_RANKINGS === "undefined" || POOLEAN_RANKINGS.length === 0) return null;
+  const nights = [...POOLEAN_RANKINGS].sort((x, y) => x.date.localeCompare(y.date));
+  const rankAfter = count => {
+    const pcts = {};
+    nights.slice(0, count).forEach(n => n.players.forEach(p => (pcts[p.slug] = pcts[p.slug] || []).push(p.pct)));
+    const maxParties = Math.max(0, ...Object.values(pcts).map(v => v.length));
+    const min = pooleanMinParties(maxParties);
+    const order = Object.entries(pcts).filter(([, v]) => v.length >= min)
+      .map(([slug, v]) => ({ slug, avg: v.reduce((x, y) => x + y, 0) / v.length }))
+      .sort((x, y) => y.avg - x.avg);
+    const idx = order.findIndex(e => e.slug === playerId);
+    return idx === -1 ? null : { rank: idx + 1, fieldSize: order.length, min };
+  };
+  const now = rankAfter(nights.length);
+  if (!now) return null;
+  const before = nights.length > 1 ? rankAfter(nights.length - 1) : null;
+  return { ...now, delta: before ? before.rank - now.rank : null }; // positive: moved up
 }
 
 function renderPlayerRankPill(playerId) {
@@ -7811,7 +7981,7 @@ function renderPlayerRankPill(playerId) {
   if (rank) {
     const arrow = rank.delta === null || rank.delta === 0 ? "" : rank.delta > 0
       ? `<span class="player-rank-pill-up">▲${rank.delta}</span>` : `<span class="player-rank-pill-down">▼${Math.abs(rank.delta)}</span>`;
-    parts.push(`<span class="player-rank-pill-main">#${rank.rank} overall</span>${arrow}`);
+    parts.push(`<span class="player-rank-pill-main" title="Real site power ranking for the ${escapeHtml(String(selectedPooleanSeason))} season, among the ${rank.fieldSize} players with ${rank.min}+ parties. The arrow is the move from the latest party night.">#${rank.rank} of ${rank.fieldSize}</span>${arrow}`);
   }
   if (summary) parts.push(`<span class="player-rank-pill-attendance">📅 ${summary.of} part${summary.of === 1 ? "y" : "ies"} this season</span>`);
   wrap.innerHTML = parts.join("");
@@ -11087,7 +11257,6 @@ function renderLeaderboard() {
   renderAwardRace();
   renderSeasonTimeline();
   renderRivalries();
-  renderMatchupPredictor();
   renderRealRivalryMatrix();
   renderUpsetTracker();
   renderPartyRecap();
@@ -13935,6 +14104,7 @@ renderPlayers();
 document.getElementById("rsvpDateInput").value = new Date().toISOString().slice(0, 10);
 loadRsvpForDate(document.getElementById("rsvpDateInput").value);
 renderGames();
+if (liveGameEnabled() && liveGameInProgress()) openLiveGameOverlay();
 
 // Land back on whatever was in view last time, instead of always resetting to Games — a
 // browser refresh (or just reopening the file) shouldn't feel like navigating to a new page.
