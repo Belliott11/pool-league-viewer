@@ -2253,3 +2253,7 @@ button:disabled {
 .player-rank-pill-up { color: var(--success, #3fbf6f); font-weight: 700; }
 .player-rank-pill-down { color: var(--danger, #e0555a); font-weight: 700; }
 .player-rank-pill-attendance { color: var(--muted); font-size: 0.85rem; }
+
+/* Trophy Case grid */
+.trophy-case-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 14px; }
+.trophy-case-tile { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; font-size: 0.78rem; }

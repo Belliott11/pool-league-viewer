@@ -5935,6 +5935,193 @@ function renderSeasonRecap() {
     <div class="real-partner-grid">${mover("Biggest riser", recap.riser)}${mover("Biggest faller", recap.faller)}</div>`;
 }
 
+// ---------- Streaks, Rivalries, Upsets, Party Recap, Trophy Case ----------
+// All five read POOLEAN_GAMES (build_poolean_data.py's raw, chronological real game log) rather
+// than this app's own locally logged subset, same "real site is the bigger, steadier sample"
+// reasoning as everywhere else the real data shows up.
+
+// This player's real win/loss streaks: current (however many games long, win or loss), and the
+// longest of each across the whole season. Chronological by GAME_NO, the site's own play order.
+function computePlayerStreaks(playerId) {
+  if (typeof POOLEAN_GAMES === "undefined") return null;
+  const games = POOLEAN_GAMES.filter(g => g.a.includes(playerId) || g.b.includes(playerId)).sort((a, b) => a.n - b.n);
+  if (games.length === 0) return null;
+  let curWin = 0, curLoss = 0, longestWin = 0, longestLoss = 0;
+  games.forEach(g => {
+    const onA = g.a.includes(playerId);
+    const won = (onA && g.w === "A") || (!onA && g.w === "B");
+    if (won) { curWin++; curLoss = 0; longestWin = Math.max(longestWin, curWin); }
+    else { curLoss++; curWin = 0; longestLoss = Math.max(longestLoss, curLoss); }
+  });
+  const current = curWin > 0 ? { type: "W", n: curWin } : { type: "L", n: curLoss };
+  return { current, longestWin, longestLoss, gp: games.length };
+}
+
+function renderPlayerStreaks(playerId) {
+  const wrap = document.getElementById("playerStreaks");
+  if (!wrap) return;
+  const s = computePlayerStreaks(playerId);
+  if (!s) { wrap.innerHTML = '<p class="empty-state">No real-site games for this player yet.</p>'; return; }
+  wrap.innerHTML = `
+    <div class="league-rank-grid">
+      <div class="league-rank-badge${s.current.type === "W" ? " league-rank-top" : ""}"><span class="league-rank-place">${s.current.type === "W" ? "🔥" : "❄️"} ${s.current.n}</span><span class="league-rank-label">Current ${s.current.type === "W" ? "win" : "losing"} streak</span></div>
+      <div class="league-rank-badge"><span class="league-rank-place">${s.longestWin}</span><span class="league-rank-label">Longest win streak</span></div>
+      <div class="league-rank-badge"><span class="league-rank-place">${s.longestLoss}</span><span class="league-rank-label">Longest losing streak</span></div>
+    </div>`;
+}
+
+const RIVALRY_MIN_GP = 5;
+
+// League-wide rivalry superlatives from the full pairwise real data (POOLEAN_TOGETHER/AGAINST),
+// not one player's own view of it — the most-played pairing, the tightest and most lopsided real
+// head-to-head, and the closest real record for two players who've actually shared a team.
+function computeRivalries() {
+  if (typeof POOLEAN_TOGETHER === "undefined") return null;
+  const nameOf = slug => (state.players.find(p => p.id === slug) || {}).name;
+  const pairLabel = key => key.split("|").map(nameOf);
+  let mostPlayed = null, bestTeam = null, fiercestRivalry = null, mostLopsided = null;
+  Object.entries(POOLEAN_TOGETHER).forEach(([key, v]) => {
+    if (!nameOf(key.split("|")[0]) || !nameOf(key.split("|")[1])) return;
+    if (!mostPlayed || v.gp > mostPlayed.gp) mostPlayed = { key, ...v };
+    if (v.gp >= RIVALRY_MIN_GP) {
+      const winPct = v.w / v.gp;
+      if (!bestTeam || winPct > bestTeam.winPct) bestTeam = { key, ...v, winPct };
+    }
+  });
+  Object.entries(POOLEAN_AGAINST).forEach(([key, v]) => {
+    const [a, b] = key.split("|");
+    if (!nameOf(a) || !nameOf(b) || a > b) return; // one direction per pair is enough to compare
+    if (v.gp < RIVALRY_MIN_GP) return;
+    const dist = Math.abs(v.w / v.gp - 0.5);
+    if (!fiercestRivalry || dist < fiercestRivalry.dist) fiercestRivalry = { key, ...v, dist };
+    if (!mostLopsided || dist > mostLopsided.dist) mostLopsided = { key, ...v, dist };
+  });
+  if (!mostPlayed && !bestTeam && !fiercestRivalry && !mostLopsided) return null;
+  return { mostPlayed, bestTeam, fiercestRivalry, mostLopsided, nameOf, pairLabel };
+}
+
+function renderRivalries() {
+  const wrap = document.getElementById("rivalriesPanel");
+  if (!wrap) return;
+  const r = computeRivalries();
+  if (!r) { wrap.innerHTML = '<p class="empty-state">No real-site pairwise data loaded yet.</p>'; return; }
+  const tile = (label, entry, verb) => !entry ? "" : `<div class="real-partner-tile">
+      <span class="real-partner-label">${label}</span>
+      <span>${escapeHtml(r.pairLabel(entry.key).join(verb))}</span>
+      <span class="real-partner-record">${entry.w}-${entry.l}</span>
+      <span class="real-partner-pct">${entry.gp} games</span>
+    </div>`;
+  wrap.innerHTML = `<div class="real-partner-grid">
+    ${tile("Most-played pairing", r.mostPlayed, " & ")}
+    ${tile(`Best record together (${RIVALRY_MIN_GP}+ games)`, r.bestTeam, " & ")}
+    ${tile(`Fiercest rivalry (${RIVALRY_MIN_GP}+ games)`, r.fiercestRivalry, " vs. ")}
+    ${tile(`Most lopsided matchup (${RIVALRY_MIN_GP}+ games)`, r.mostLopsided, " vs. ")}
+  </div>`;
+}
+
+// Games where the lower-ranked side (by that same night's real power ranking percentile) won
+// anyway — an upset needs both sides to have a real ranking that night, so a game on a date with
+// no ranking (or missing players) is simply left out, not guessed at.
+function computeUpsets() {
+  if (typeof POOLEAN_GAMES === "undefined" || typeof POOLEAN_RANKINGS === "undefined") return null;
+  const rankByDate = Object.fromEntries(POOLEAN_RANKINGS.map(r => [r.date, r.players]));
+  const upsets = [];
+  POOLEAN_GAMES.forEach(g => {
+    const night = rankByDate[g.date];
+    if (!night) return;
+    const pctOf = slug => { const p = night.find(x => x.slug === slug); return p ? p.pct : null; };
+    const avg = ids => { const vals = ids.map(pctOf).filter(v => v !== null); return vals.length === ids.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null; };
+    const aPct = avg(g.a), bPct = avg(g.b);
+    if (aPct === null || bPct === null || aPct === bPct) return;
+    const favorite = aPct > bPct ? "A" : "B";
+    if (g.w === favorite) return; // favorite won, not an upset
+    const winners = g.w === "A" ? g.a : g.b, losers = g.w === "A" ? g.b : g.a;
+    const winPct = g.w === "A" ? aPct : bPct, losePct = g.w === "A" ? bPct : aPct;
+    upsets.push({ date: g.date, winners, losers, winPct, losePct, gap: losePct - winPct });
+  });
+  upsets.sort((a, b) => b.gap - a.gap);
+  return upsets;
+}
+
+function renderUpsetTracker() {
+  const wrap = document.getElementById("upsetTracker");
+  if (!wrap) return;
+  const upsets = computeUpsets();
+  if (!upsets) { wrap.innerHTML = '<p class="empty-state">No real-site game/ranking data loaded yet.</p>'; return; }
+  if (upsets.length === 0) { wrap.innerHTML = '<p class="empty-state">No upsets found — the favorite always won, by this measure.</p>'; return; }
+  const nameOf = slug => { const p = state.players.find(x => x.id === slug); return p ? playerLink(p.id, p.name) : escapeHtml(slug); };
+  const rows = upsets.slice(0, 10).map(u => `
+    <tr>
+      <td>${escapeHtml(formatDateDisplay(u.date))}</td>
+      <td>${u.winners.map(nameOf).join(" & ")}</td>
+      <td>${u.losers.map(nameOf).join(" & ")}</td>
+      <td>${Math.round(u.winPct)}% vs. ${Math.round(u.losePct)}%</td>
+    </tr>`).join("");
+  wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
+    <thead><tr><th>Date</th><th>Won</th><th>Beat (the favorite)</th><th>Power ranking that night</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <p class="hint" style="margin:10px 0 0">${upsets.length} upset${upsets.length === 1 ? "" : "s"} total, biggest gap first.</p>`;
+}
+
+// Every real party night with at least one logged game: who went off, that night's biggest
+// upset (if any, from computeUpsets() filtered to the date), and each attendee's record for
+// just that one night.
+function computePartyRecap(date) {
+  if (typeof POOLEAN_GAMES === "undefined") return null;
+  const games = POOLEAN_GAMES.filter(g => g.date === date);
+  if (games.length === 0) return null;
+  const record = {};
+  games.forEach(g => {
+    [...g.a, ...g.b].forEach(slug => { record[slug] = record[slug] || { w: 0, l: 0 }; });
+    g.a.forEach(slug => record[slug][g.w === "A" ? "w" : "l"]++);
+    g.b.forEach(slug => record[slug][g.w === "B" ? "w" : "l"]++);
+  });
+  const standings = Object.entries(record)
+    .map(([slug, wl]) => ({ player: state.players.find(p => p.id === slug), slug, ...wl }))
+    .filter(r => r.player)
+    .sort((a, b) => (b.w - b.l) - (a.w - a.l) || b.w - a.w);
+  const nightUpsets = (computeUpsets() || []).filter(u => u.date === date);
+  return { date, games: games.length, standings, upsets: nightUpsets };
+}
+
+function renderPartyRecap() {
+  const select = document.getElementById("partyRecapSelect");
+  const wrap = document.getElementById("partyRecap");
+  if (!select || !wrap) return;
+  if (typeof POOLEAN_GAMES === "undefined") { wrap.innerHTML = '<p class="empty-state">No real-site game data loaded yet.</p>'; return; }
+  const dates = [...new Set(POOLEAN_GAMES.map(g => g.date))].sort().reverse();
+  if (select.options.length === 0) {
+    select.innerHTML = dates.map(d => `<option value="${d}">${escapeHtml(formatDateDisplay(d))}</option>`).join("");
+    select.addEventListener("change", renderPartyRecap);
+  }
+  const recap = computePartyRecap(select.value || dates[0]);
+  if (!recap) { wrap.innerHTML = '<p class="empty-state">No games that night.</p>'; return; }
+  const standingsHtml = recap.standings.map(r => `<li>${playerLink(r.player.id, r.player.name)} <span class="hint" style="margin:0">${r.w}-${r.l}</span></li>`).join("");
+  const upsetsHtml = recap.upsets.length === 0 ? "" : `<p class="hint" style="margin:10px 0 0">🎲 ${recap.upsets.length} upset${recap.upsets.length === 1 ? "" : "s"} that night.</p>`;
+  wrap.innerHTML = `<p class="hint" style="margin:0 0 10px">${recap.games} game${recap.games === 1 ? "" : "s"} that night.</p>
+    <ul class="player-tips-list" style="display:block">${standingsHtml}</ul>${upsetsHtml}`;
+}
+
+// Every player with a real award win, sorted gold-first, for a hall-of-fame style grid.
+function computeTrophyCase() {
+  return state.players
+    .map(p => ({ player: p, tier: computePlayerAwardTier(p.id) }))
+    .filter(r => r.tier)
+    .sort((a, b) => a.tier.tier - b.tier.tier);
+}
+
+function renderTrophyCase() {
+  const wrap = document.getElementById("trophyCase");
+  if (!wrap) return;
+  const rows = computeTrophyCase();
+  if (rows.length === 0) { wrap.innerHTML = '<p class="empty-state">Nobody has a real award win yet.</p>'; return; }
+  wrap.innerHTML = `<div class="trophy-case-grid">${rows.map(r => `
+    <div class="trophy-case-tile">
+      ${renderPlayerAvatar(r.player, "large", playerAvatarRingClass(r.player.id))}
+      ${playerLink(r.player.id, r.player.name)}
+    </div>`).join("")}</div>`;
+}
+
 function renderPlayerAwardBadges(playerId) {
   const wrap = document.getElementById("playerAwardBadges");
   if (!wrap) return;
@@ -9898,6 +10085,10 @@ function renderLeaderboard() {
   renderCloseGameShootingPanel();
   renderCloseGameDefensePanel();
   renderSeasonRecap();
+  renderRivalries();
+  renderUpsetTracker();
+  renderPartyRecap();
+  renderTrophyCase();
   renderIndividualGamePerformances();
   renderLeagueHighlights();
   renderPlayerComparisonSelects();
@@ -10090,6 +10281,7 @@ function renderPlayerDetail() {
   renderPlayerPowerRanking(player.id);
   renderPlayerRealRecord(player.id);
   renderPlayerRealPartners(player.id);
+  renderPlayerStreaks(player.id);
   renderPlayerTips(player.id);
   renderNotableMatchups(player.id);
   renderSeasonHistoryPanel(player.id);
