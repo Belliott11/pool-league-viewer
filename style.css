@@ -2267,6 +2267,3 @@ button:disabled {
 }
 .season-timeline-date { flex: none; width: 90px; font-weight: 700; color: var(--muted); font-size: 0.82rem; }
 .season-timeline-body { flex: 1; }
-
-/* Fantasy Draft Simulator */
-.fantasy-draft-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }

@@ -6401,62 +6401,6 @@ async function downloadTradingCard(playerId) {
   }, "image/png");
 }
 
-// ---------- Fantasy Draft Simulator ----------
-// A what-if: the top N players by real power ranking (or, without a real export loaded, local
-// Two-Way/20) become captains, then everyone else is drafted in a snake order (1..N, N..1,
-// repeating) always taking the best player left. Purely illustrative -- it says nothing about who
-// would actually pick whom, only what a talent-maximizing draft would produce, as a point of
-// comparison against how teams actually got split up night to night.
-function playerQualityForDraft(playerId) {
-  const card = typeof POOLEAN_SEASON_CARDS !== "undefined" ? POOLEAN_SEASON_CARDS[playerId] : null;
-  if (card) return card.powerPct;
-  const row = computeLeaderboard().find(r => r.player.id === playerId);
-  return row ? row.twoWayPer20 : 0;
-}
-
-function simulateFantasyDraft(numTeams) {
-  const pool = state.players.map(p => ({ player: p, q: playerQualityForDraft(p.id) })).sort((a, b) => b.q - a.q);
-  if (pool.length < numTeams * 2) return null; // need at least 2 per team for this to mean anything
-  const captains = pool.slice(0, numTeams);
-  const teams = captains.map(c => ({ captain: c.player, roster: [c.player], q: c.q }));
-  const remaining = pool.slice(numTeams);
-  let dir = 1;
-  while (remaining.length) {
-    const order = dir === 1 ? [...Array(numTeams).keys()] : [...Array(numTeams).keys()].reverse();
-    for (const ti of order) {
-      if (remaining.length === 0) break;
-      const pick = remaining.shift();
-      teams[ti].roster.push(pick.player); teams[ti].q += pick.q;
-    }
-    dir *= -1;
-  }
-  return teams.map(t => ({ ...t, avgQ: t.q / t.roster.length }));
-}
-
-let fantasyDraftTeamCount = 2;
-function renderFantasyDraft() {
-  const wrap = document.getElementById("fantasyDraft");
-  const input = document.getElementById("fantasyDraftTeams");
-  if (!wrap || !input) return;
-  if (!input.dataset.wired) {
-    input.value = fantasyDraftTeamCount;
-    input.addEventListener("change", () => {
-      fantasyDraftTeamCount = Math.max(2, Math.min(6, parseInt(input.value, 10) || 2));
-      input.value = fantasyDraftTeamCount;
-      renderFantasyDraft();
-    });
-    input.dataset.wired = "1";
-  }
-  const teams = simulateFantasyDraft(fantasyDraftTeamCount);
-  if (!teams) { wrap.innerHTML = '<p class="empty-state">Not enough players on the roster for this many teams.</p>'; return; }
-  wrap.innerHTML = `<div class="fantasy-draft-grid">${teams.map((t, i) => `
-    <div class="real-partner-tile" style="align-items:flex-start">
-      <span class="real-partner-label">Team ${String.fromCharCode(65 + i)} · captain ${escapeHtml(t.captain.name)}</span>
-      <ul class="player-tips-list" style="display:block;width:100%">${t.roster.map(p => `<li>${playerLink(p.id, p.name)}</li>`).join("")}</ul>
-      <span class="real-partner-pct">avg quality ${t.avgQ.toFixed(1)}</span>
-    </div>`).join("")}</div>`;
-}
-
 // ---------- Season Timeline ----------
 // One chronological scroll of the real season's story: who held the crown each real party night,
 // and any upsets that same night (from computeUpsets(), grouped by date) -- a narrative reading
@@ -10450,7 +10394,6 @@ function renderLeaderboard() {
   renderCloseGameShootingPanel();
   renderCloseGameDefensePanel();
   renderComebackTracker();
-  renderFantasyDraft();
   renderSeasonRecap();
   renderSeasonTimeline();
   renderRivalries();
