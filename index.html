@@ -661,6 +661,16 @@
       <div id="rivalriesPanel"></div>
     </div>
     <div class="panel">
+      <h2>Real Rivalry Matrix</h2>
+      <p class="hint">Every real together-win% at once, not just the four superlatives above: every player down one side, every player across the other, cell color follows red-low/green-high, opacity ramping up with real games shared. Click a name for their own page.</p>
+      <div id="realRivalryMatrix"></div>
+    </div>
+    <div class="panel">
+      <h2>Real Rivalry Matrix</h2>
+      <p class="hint">Every real together-win% at once, not just the four superlatives above: every player down one side, every player across the other, cell color follows red-low/green-high, opacity ramping up with real games shared. Click a name for their own page.</p>
+      <div id="realRivalryMatrix"></div>
+    </div>
+    <div class="panel">
       <h2>Head-to-Head Matchup Grid</h2>
       <p class="hint">Every scorer down one axis, every defender across the other: the league-wide extension of the per-player Head-to-Head tables on Player Detail, which only ever show one player's matchups at a time. Each cell is that scorer's FG% against that specific defender (color follows the same red-low/green-high scale as the heatmap above, opacity ramping up with sample size). A blank cell means that pairing has never been tagged. Rows and columns are sorted by attempts, most data first. Not filtered to field goals only, same behavior as the Head-to-Head tables it extends.</p>
       <div id="matchupGrid"></div>
@@ -714,6 +724,11 @@
     <details class="player-section" id="lb-section-situational">
       <summary><h3>Situational</h3><span class="player-section-teaser" id="lb-teaser-situational"></span></summary>
       <div class="player-section-body">
+    <div class="panel">
+      <h2>Comeback Tracker</h2>
+      <p class="hint">Reviewed games ranked by the biggest deficit the eventual winner ever faced, from this app's own timestamped shot log (not the real site's data, which only records final results). Replays every made shot in order and tracks the score gap at each one.</p>
+      <div id="comebackTracker"></div>
+    </div>
     <div class="panel-row">
       <div class="panel">
         <h2>Out-of-Bounds Misses</h2>
@@ -804,6 +819,12 @@
       <summary><h3>Play Style & Models</h3><span class="player-section-teaser" id="lb-teaser-style"></span></summary>
       <div class="player-section-body">
     <div class="panel">
+      <h2>Fantasy Draft Simulator</h2>
+      <p class="hint">A what-if, not a prediction: the top players by real power ranking (or local Two-Way/20, if no real export is loaded) become captains, then everyone else is drafted in a snake order, each pick always taking the best player left. Says nothing about who'd actually pick whom, only what a talent-maximizing split would look like, as a point of comparison against how teams actually got split up night to night.</p>
+      <label>Teams <input type="number" id="fantasyDraftTeams" min="2" max="6" style="width:60px"></label>
+      <div id="fantasyDraft" style="margin-top:10px"></div>
+    </div>
+    <div class="panel">
       <h2>Play Style Clusters</h2>
       <p class="hint">Groups players by how their actual stat profile compares to everyone else's, not by anyone's manual Scorer/Defender/Playmaker tag. Every qualifying player's Off Rating, Def Rating, Assists, Rebounds, and Stocks (all per-20) are standardized and run through k-means clustering, and each group's label is generated from whichever of those stats sit furthest from the league average within that group. Two players landing in the same group means their box scores actually look alike, not that someone decided they play the same way. Needs at least 4 qualifying players to say anything meaningful.</p>
       <div id="playStyleClusters"></div>
@@ -825,6 +846,11 @@
       <summary><h3>History & Media</h3><span class="player-section-teaser" id="lb-teaser-media"></span></summary>
       <div class="player-section-body">
     <div class="panel">
+      <h2>Season Timeline</h2>
+      <p class="hint">The real season's story in order: who held the crown each real party night, and any upsets that same night. The same facts Season Recap and Upset Tracker show as static summaries, read here as one continuous timeline.</p>
+      <div id="seasonTimeline"></div>
+    </div>
+    <div class="panel">
       <h2>Season Recap</h2>
       <p class="hint">A shareable summary of the real Poolean site's closed season: the champion, every award and its winner, the final top of the power rankings, and the season's biggest riser and faller. Built entirely from the real site's own data (POOLEAN_SEASON_CARDS/POOLEAN_RANKINGS/AWARD_RESULTS), not this app's own locally logged subset.</p>
       <div id="seasonRecap"></div>
@@ -833,6 +859,11 @@
       <h2>Trophy Case</h2>
       <p class="hint">Every player with a real award win, gold first. Ring color and thickness match the avatar ring on each player's own profile page.</p>
       <div id="trophyCase"></div>
+    </div>
+    <div class="panel">
+      <h2>Iron Man</h2>
+      <p class="hint">Whoever holds the longest real attendance streak on the roster — consecutive parties attended without missing one.</p>
+      <div id="ironManPanel"></div>
     </div>
     <div class="panel">
       <h2>Upset Tracker</h2>
@@ -891,6 +922,7 @@
       <div id="playerRankPill" class="player-rank-pill"></div>
       <div id="playerDetailSummary" class="score-display"></div>
       <button id="sharePlayerBtn" type="button" class="icon-btn" title="Copy a link straight to this player">Share</button>
+      <button id="downloadCardBtn" type="button" class="icon-btn" title="Download a shareable trading-card image">Card</button>
     </div>
 
     <div class="player-section-nav">
@@ -1094,6 +1126,16 @@
       <h2>Streaks</h2>
       <p class="hint">Current and longest real win/losing streaks, from the real Poolean site's full game log in play order.</p>
       <div id="playerStreaks"></div>
+    </div>
+    <div class="panel">
+      <h2>Attendance Streak</h2>
+      <p class="hint">Consecutive real parties attended without missing one, from the real Poolean site's full attendance history.</p>
+      <div id="playerAttendanceStreak"></div>
+    </div>
+    <div class="panel">
+      <h2>Attendance Streak</h2>
+      <p class="hint">Consecutive real parties attended without missing one, from the real Poolean site's full attendance history.</p>
+      <div id="playerAttendanceStreak"></div>
     </div>
       </div>
     </details>

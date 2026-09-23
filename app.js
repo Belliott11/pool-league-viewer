@@ -6122,6 +6122,303 @@ function renderTrophyCase() {
     </div>`).join("")}</div>`;
 }
 
+// ---------- Real Rivalry Matrix ----------
+// The full grid behind Rivalries' four superlatives: every real together-win% at once, same
+// visual language as the Matchup Grid / Teammate Lift Matrix but fed by the real site's full
+// pairwise history instead of this app's own locally logged subset.
+function renderRealRivalryMatrix() {
+  const wrap = document.getElementById("realRivalryMatrix");
+  if (!wrap) return;
+  if (typeof POOLEAN_TOGETHER === "undefined") { wrap.innerHTML = '<p class="empty-state">No real-site pairwise data loaded yet.</p>'; return; }
+  const active = state.players.filter(p => Object.keys(POOLEAN_TOGETHER).some(k => k.split("|").includes(p.id)));
+  if (active.length < 2) { wrap.innerHTML = '<p class="empty-state">Not enough real-site pairwise data yet.</p>'; return; }
+  const players = [...active].sort((a, b) => a.name.localeCompare(b.name));
+  const maxGp = Math.max(1, ...Object.values(POOLEAN_TOGETHER).map(v => v.gp));
+  const headerHtml = players.map(p => `<th>${playerLink(p.id, p.name, false)}</th>`).join("");
+  const rows = players.map(rowP => {
+    const cells = players.map(colP => {
+      if (rowP.id === colP.id) return `<td class="matchup-grid-cell"></td>`;
+      const v = POOLEAN_TOGETHER[[rowP.id, colP.id].sort().join("|")];
+      if (!v) return `<td class="matchup-grid-cell matchup-grid-empty"></td>`;
+      const pct = Math.round((v.w / v.gp) * 100);
+      const hue = pct >= 50 ? 140 : 0;
+      const opacity = 0.2 + 0.6 * (v.gp / maxGp);
+      return `<td class="matchup-grid-cell" style="background: hsla(${hue}, 70%, 42%, ${opacity})" title="${escapeHtml(rowP.name)} &amp; ${escapeHtml(colP.name)}: ${v.w}-${v.l} together">${pct}%</td>`;
+    }).join("");
+    return `<tr><td class="sticky-col">${playerLink(rowP.id, rowP.name, false)}</td>${cells}</tr>`;
+  }).join("");
+  wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
+    <thead><tr><th></th>${headerHtml}</tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+// ---------- Attendance streaks ("Iron Man") ----------
+// Same idea as win/loss Streaks, but for showing up: consecutive real parties attended without
+// missing one, from POOLEAN_RANKINGS (already in play order). "Current" is the trailing run
+// ending at the most recent real party; a player who joined partway through the season isn't
+// penalized for parties before they existed, since the run only ever counts real attendance.
+function computePlayerAttendanceStreak(playerId) {
+  if (typeof POOLEAN_RANKINGS === "undefined") return null;
+  const attended = POOLEAN_RANKINGS.map(party => party.players.some(x => x.slug === playerId));
+  if (!attended.some(Boolean)) return null;
+  let cur = 0, longest = 0;
+  attended.forEach(a => { if (a) { cur++; longest = Math.max(longest, cur); } else cur = 0; });
+  let trailing = 0;
+  for (let i = attended.length - 1; i >= 0 && attended[i]; i--) trailing++;
+  return { current: trailing, longest, of: POOLEAN_RANKINGS.length };
+}
+
+function renderPlayerAttendanceStreak(playerId) {
+  const wrap = document.getElementById("playerAttendanceStreak");
+  if (!wrap) return;
+  const s = computePlayerAttendanceStreak(playerId);
+  if (!s) { wrap.innerHTML = '<p class="empty-state">No real-site attendance data for this player yet.</p>'; return; }
+  wrap.innerHTML = `<div class="league-rank-grid">
+    <div class="league-rank-badge${s.current === s.of && s.of > 0 ? " league-rank-top" : ""}"><span class="league-rank-place">${s.current}</span><span class="league-rank-label">Current streak</span></div>
+    <div class="league-rank-badge"><span class="league-rank-place">${s.longest}</span><span class="league-rank-label">Longest streak</span></div>
+    <div class="league-rank-badge"><span class="league-rank-place">${s.of}</span><span class="league-rank-label">Real parties total</span></div>
+  </div>`;
+}
+
+// League-wide: whoever holds the longest attendance streak of anyone on the roster.
+function computeIronMan() {
+  if (typeof POOLEAN_RANKINGS === "undefined") return null;
+  let best = null;
+  state.players.forEach(p => {
+    const s = computePlayerAttendanceStreak(p.id);
+    if (s && (!best || s.longest > best.streak.longest)) best = { player: p, streak: s };
+  });
+  return best;
+}
+
+function renderIronMan() {
+  const wrap = document.getElementById("ironManPanel");
+  if (!wrap) return;
+  const best = computeIronMan();
+  if (!best) { wrap.innerHTML = '<p class="empty-state">No real-site attendance data loaded yet.</p>'; return; }
+  wrap.innerHTML = `<div class="real-partner-tile">
+    <span class="real-partner-label">Iron Man</span>
+    ${playerLink(best.player.id, best.player.name)}
+    <span class="real-partner-pct">${best.streak.longest} real part${best.streak.longest === 1 ? "y" : "ies"} in a row, out of ${best.streak.of} total</span>
+  </div>`;
+}
+
+// ---------- Comeback Tracker ----------
+// Different data source than the six panels above: this app's own locally logged shot-by-shot
+// games (which carry real videoTime, so a running score can be reconstructed), not the real
+// site's game-result-only data. For each qualifying game with a clear winner, replays every made
+// shot in videoTime order and finds the largest deficit the eventual winner ever faced.
+function computeComebacks() {
+  const results = [];
+  state.games.filter(isQualifyingGame).forEach(game => {
+    if (!game.teamA || !game.teamB || game.teamA.length === 0 || game.teamB.length === 0) return;
+    const events = game.scoringEvents
+      .filter(ev => ev.made !== false && ev.videoTime !== null && ev.videoTime !== undefined && (ev.points === 1 || ev.points === 2 || ev.points === 3))
+      .sort((a, b) => a.videoTime - b.videoTime);
+    if (events.length === 0) return;
+    const finalA = teamScore(game, game.teamA), finalB = teamScore(game, game.teamB);
+    if (finalA === finalB) return; // no winner, nothing to have come back from
+    const winnerIsA = finalA > finalB;
+    let a = 0, b = 0, maxDeficit = 0;
+    events.forEach(ev => {
+      if (game.teamA.includes(ev.scorerId)) a += ev.points;
+      else if (game.teamB.includes(ev.scorerId)) b += ev.points;
+      const deficit = winnerIsA ? b - a : a - b;
+      if (deficit > maxDeficit) maxDeficit = deficit;
+    });
+    if (maxDeficit > 0) {
+      results.push({
+        game, deficit: maxDeficit,
+        winner: winnerIsA ? game.teamA : game.teamB, loser: winnerIsA ? game.teamB : game.teamA,
+        finalWinner: winnerIsA ? finalA : finalB, finalLoser: winnerIsA ? finalB : finalA
+      });
+    }
+  });
+  results.sort((a, b) => b.deficit - a.deficit);
+  return results;
+}
+
+function renderComebackTracker() {
+  const wrap = document.getElementById("comebackTracker");
+  if (!wrap) return;
+  const results = computeComebacks();
+  if (results.length === 0) { wrap.innerHTML = '<p class="empty-state">No reviewed games with a timestamped comeback yet.</p>'; return; }
+  const teamNames = ids => ids.map(id => { const p = state.players.find(x => x.id === id); return p ? playerLink(p.id, p.name) : "?"; }).join(" & ");
+  const rows = results.slice(0, 10).map(r => `
+    <tr>
+      <td>${escapeHtml(formatDateDisplay(r.game.date))}</td>
+      <td>${teamNames(r.winner)}</td>
+      <td>${teamNames(r.loser)}</td>
+      <td>down ${r.deficit}</td>
+      <td>${r.finalWinner}-${r.finalLoser}</td>
+    </tr>`).join("");
+  wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
+    <thead><tr><th>Date</th><th>Came back</th><th>Against</th><th>Biggest deficit</th><th>Final</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <p class="hint" style="margin:10px 0 0">${results.length} game${results.length === 1 ? "" : "s"} with a real comeback, biggest deficit first.</p>`;
+}
+
+// ---------- Player Trading Card (canvas image export) ----------
+// Draws a shareable card straight to a <canvas> (avatar + ring, name, real record, power ranking,
+// top real award wins) and downloads it as a PNG. No library — a photo (if this player has one)
+// is loaded as an <img> and clipped to a circle; an initial avatar is drawn the same way
+// renderPlayerAvatar() would color it, so the card matches the rest of the app.
+const TRADING_CARD_TIER_COLORS = {
+  gold: ["#3a2f14", "#E3A93A"], silver: ["#0d2b29", "#3FE0D4"], bronze: ["#3a2210", "#F0873A"]
+};
+async function generateTradingCardCanvas(playerId) {
+  const player = state.players.find(p => p.id === playerId);
+  if (!player) return null;
+  const tier = computePlayerAwardTier(playerId);
+  const real = poolRealRecord(playerId);
+  const power = computePowerRankingSummary(playerId);
+  const badges = computePlayerAwardBadges(playerId).filter(b => b.isWinner).slice(0, 3);
+  const W = 600, H = 800;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  const [bg1, bg2] = tier ? TRADING_CARD_TIER_COLORS[tier.color] : ["#12212b", "#1c2e3a"];
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, bg1); grad.addColorStop(1, bg2);
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+
+  const cx = W / 2, cy = 230, r = 110;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+  const photoFile = PLAYER_PHOTO_FILES[player.id];
+  if (photoFile) {
+    const img = await new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = `photos/${photoFile}`; });
+    if (img) ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2);
+    else { ctx.fillStyle = "#333"; ctx.fillRect(cx - r, cy - r, r * 2, r * 2); }
+  } else {
+    const hue = avatarHueForPlayer(player.id);
+    ctx.fillStyle = `hsl(${hue}, 55%, 42%)`;
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    ctx.fillStyle = "white";
+    ctx.font = "bold 120px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText((player.name.trim().charAt(0) || "?").toUpperCase(), cx, cy + 10);
+  }
+  ctx.restore();
+  if (tier) {
+    ctx.lineWidth = 10; ctx.strokeStyle = TRADING_CARD_TIER_COLORS[tier.color][1];
+    ctx.beginPath(); ctx.arc(cx, cy, r + 8, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  ctx.fillStyle = "white"; ctx.font = "bold 48px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  ctx.fillText(player.name, W / 2, 395);
+
+  let y = 450;
+  ctx.font = "28px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.85)";
+  if (real) { ctx.fillText(`Real Record: ${real.w}-${real.l}`, W / 2, y); y += 42; }
+  if (power) { ctx.fillText(`Power Ranking: ${Math.round(power.avgPct)}%`, W / 2, y); y += 42; }
+  y += 18;
+  ctx.font = "24px sans-serif";
+  badges.forEach(b => { ctx.fillText(`${b.icon} ${b.label}`, W / 2, y); y += 36; });
+
+  ctx.font = "16px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.fillText("Poolean", W / 2, H - 30);
+  return canvas;
+}
+
+async function downloadTradingCard(playerId) {
+  const canvas = await generateTradingCardCanvas(playerId);
+  if (!canvas) return;
+  const player = state.players.find(p => p.id === playerId);
+  canvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${(player.name || "player").replace(/\s+/g, "_")}_card.png`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, "image/png");
+}
+
+// ---------- Fantasy Draft Simulator ----------
+// A what-if: the top N players by real power ranking (or, without a real export loaded, local
+// Two-Way/20) become captains, then everyone else is drafted in a snake order (1..N, N..1,
+// repeating) always taking the best player left. Purely illustrative -- it says nothing about who
+// would actually pick whom, only what a talent-maximizing draft would produce, as a point of
+// comparison against how teams actually got split up night to night.
+function playerQualityForDraft(playerId) {
+  const card = typeof POOLEAN_SEASON_CARDS !== "undefined" ? POOLEAN_SEASON_CARDS[playerId] : null;
+  if (card) return card.powerPct;
+  const row = computeLeaderboard().find(r => r.player.id === playerId);
+  return row ? row.twoWayPer20 : 0;
+}
+
+function simulateFantasyDraft(numTeams) {
+  const pool = state.players.map(p => ({ player: p, q: playerQualityForDraft(p.id) })).sort((a, b) => b.q - a.q);
+  if (pool.length < numTeams * 2) return null; // need at least 2 per team for this to mean anything
+  const captains = pool.slice(0, numTeams);
+  const teams = captains.map(c => ({ captain: c.player, roster: [c.player], q: c.q }));
+  const remaining = pool.slice(numTeams);
+  let dir = 1;
+  while (remaining.length) {
+    const order = dir === 1 ? [...Array(numTeams).keys()] : [...Array(numTeams).keys()].reverse();
+    for (const ti of order) {
+      if (remaining.length === 0) break;
+      const pick = remaining.shift();
+      teams[ti].roster.push(pick.player); teams[ti].q += pick.q;
+    }
+    dir *= -1;
+  }
+  return teams.map(t => ({ ...t, avgQ: t.q / t.roster.length }));
+}
+
+let fantasyDraftTeamCount = 2;
+function renderFantasyDraft() {
+  const wrap = document.getElementById("fantasyDraft");
+  const input = document.getElementById("fantasyDraftTeams");
+  if (!wrap || !input) return;
+  if (!input.dataset.wired) {
+    input.value = fantasyDraftTeamCount;
+    input.addEventListener("change", () => {
+      fantasyDraftTeamCount = Math.max(2, Math.min(6, parseInt(input.value, 10) || 2));
+      input.value = fantasyDraftTeamCount;
+      renderFantasyDraft();
+    });
+    input.dataset.wired = "1";
+  }
+  const teams = simulateFantasyDraft(fantasyDraftTeamCount);
+  if (!teams) { wrap.innerHTML = '<p class="empty-state">Not enough players on the roster for this many teams.</p>'; return; }
+  wrap.innerHTML = `<div class="fantasy-draft-grid">${teams.map((t, i) => `
+    <div class="real-partner-tile" style="align-items:flex-start">
+      <span class="real-partner-label">Team ${String.fromCharCode(65 + i)} · captain ${escapeHtml(t.captain.name)}</span>
+      <ul class="player-tips-list" style="display:block;width:100%">${t.roster.map(p => `<li>${playerLink(p.id, p.name)}</li>`).join("")}</ul>
+      <span class="real-partner-pct">avg quality ${t.avgQ.toFixed(1)}</span>
+    </div>`).join("")}</div>`;
+}
+
+// ---------- Season Timeline ----------
+// One chronological scroll of the real season's story: who held the crown each real party night,
+// and any upsets that same night (from computeUpsets(), grouped by date) -- a narrative reading
+// of the same facts Season Recap and Upset Tracker already show as static summaries.
+function computeSeasonTimeline() {
+  if (typeof POOLEAN_RANKINGS === "undefined") return null;
+  const upsetsByDate = {};
+  (computeUpsets() || []).forEach(u => { (upsetsByDate[u.date] = upsetsByDate[u.date] || []).push(u); });
+  return [...POOLEAN_RANKINGS].sort((a, b) => a.date.localeCompare(b.date)).map(party => {
+    const crown = party.players.find(p => p.rank === 1);
+    const crownPlayer = crown ? state.players.find(p => p.id === crown.slug) : null;
+    return { date: party.date, crownPlayer, crownSlug: crown ? crown.slug : null, fieldSize: party.players.length, upsets: upsetsByDate[party.date] || [] };
+  });
+}
+
+function renderSeasonTimeline() {
+  const wrap = document.getElementById("seasonTimeline");
+  if (!wrap) return;
+  const entries = computeSeasonTimeline();
+  if (!entries) { wrap.innerHTML = '<p class="empty-state">No real-site data loaded yet.</p>'; return; }
+  wrap.innerHTML = `<ul class="season-timeline-list">${entries.map(e => `
+    <li class="season-timeline-item">
+      <span class="season-timeline-date">${escapeHtml(formatDateDisplay(e.date))}</span>
+      <span class="season-timeline-body">
+        ${e.crownPlayer ? `👑 ${playerLink(e.crownPlayer.id, e.crownPlayer.name)} took the crown (${e.fieldSize} ranked)` : `${e.fieldSize} players ranked`}
+        ${e.upsets.length > 0 ? `<br><span class="hint" style="margin:0">🎲 ${e.upsets.length} upset${e.upsets.length === 1 ? "" : "s"} that night</span>` : ""}
+      </span>
+    </li>`).join("")}</ul>`;
+}
+
 function renderPlayerAwardBadges(playerId) {
   const wrap = document.getElementById("playerAwardBadges");
   if (!wrap) return;
@@ -10084,11 +10381,16 @@ function renderLeaderboard() {
   renderWinSharesModelPanel();
   renderCloseGameShootingPanel();
   renderCloseGameDefensePanel();
+  renderComebackTracker();
+  renderFantasyDraft();
   renderSeasonRecap();
+  renderSeasonTimeline();
   renderRivalries();
+  renderRealRivalryMatrix();
   renderUpsetTracker();
   renderPartyRecap();
   renderTrophyCase();
+  renderIronMan();
   renderIndividualGamePerformances();
   renderLeagueHighlights();
   renderPlayerComparisonSelects();
@@ -10271,6 +10573,8 @@ function renderPlayerDetail() {
       : player.name,
     url: `${location.origin}${location.pathname}#player=${encodeURIComponent(player.id)}`
   }, shareBtn);
+  const cardBtn = document.getElementById("downloadCardBtn");
+  if (cardBtn) cardBtn.onclick = () => downloadTradingCard(player.id);
 
   // Render order follows the panels' actual top-to-bottom order in index.html — tips first, then
   // past-season context, then season overview, then offense detail (shots, then who defended
@@ -10282,6 +10586,7 @@ function renderPlayerDetail() {
   renderPlayerRealRecord(player.id);
   renderPlayerRealPartners(player.id);
   renderPlayerStreaks(player.id);
+  renderPlayerAttendanceStreak(player.id);
   renderPlayerTips(player.id);
   renderNotableMatchups(player.id);
   renderSeasonHistoryPanel(player.id);
