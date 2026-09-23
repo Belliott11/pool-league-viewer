@@ -12350,7 +12350,7 @@ function renderPlayerLeagueRank(playerId) {
     return;
   }
   wrap.innerHTML = ranks.map(r => {
-    const tier = r.rank === 1 ? " league-rank-first" : r.rank <= 3 ? " league-rank-top" : "";
+    const tier = r.rank === 1 ? " league-rank-rank1" : r.rank === 2 ? " league-rank-rank2" : r.rank === 3 ? " league-rank-rank3" : "";
     const shown = r.decimals === undefined ? (Number.isInteger(r.value) ? r.value : r.value.toFixed(1)) : r.value.toFixed(r.decimals);
     return `<div class="league-rank-badge${tier}" title="${escapeHtml(r.label)}: ${shown}${r.key === "ts" ? "%" : ""} among players with at least ${LEAGUE_RANK_MIN_GP} games played">
       <span class="league-rank-place">${ordinal(r.rank)}</span>
@@ -12396,6 +12396,37 @@ function renderPlayerSectionTeasers(playerId) {
 
 // Wired once at load (the nav buttons are static markup, never re-rendered) -- opens the target
 // section if it was collapsed, then scrolls to it.
+function wireSectionNavExtras(tabSelector, idPrefix) {
+  // Shared by wirePlayerSectionNav / wireLeaderboardSectionNav: keeps each nav pill's active
+  // state synced to whether its section is open, and wires that tab's expand/collapse-all button.
+  // The nav and the <details class="player-section"> elements are siblings, not nested, so both
+  // are found from the enclosing tab rather than from the nav element itself.
+  const tab = document.querySelector(tabSelector);
+  if (!tab) return;
+  const nav = tab.querySelector(".player-section-nav");
+  const sections = tab.querySelectorAll(".player-section");
+  if (!nav || !sections.length) return;
+  const syncActive = section => {
+    const key = section.id.slice(idPrefix.length);
+    const link = nav.querySelector(`.player-section-nav-link[data-section="${key}"]`);
+    if (link) link.classList.toggle("player-section-nav-active", section.open);
+  };
+  sections.forEach(section => {
+    syncActive(section);
+    section.addEventListener("toggle", () => syncActive(section));
+  });
+  const expandBtn = nav.querySelector(".player-section-expand-all");
+  if (expandBtn) {
+    expandBtn.addEventListener("click", () => {
+      const shouldExpand = Array.from(sections).some(s => !s.open);
+      // Setting .open via script doesn't reliably fire "toggle" in every browser, so sync
+      // the pills here directly instead of waiting on the listener above to catch it.
+      sections.forEach(s => { s.open = shouldExpand; syncActive(s); });
+      expandBtn.textContent = shouldExpand ? "Collapse all" : "Expand all";
+    });
+  }
+}
+
 function wirePlayerSectionNav() {
   // Scoped to #tab-player: the Leaderboard tab's own section nav (wireLeaderboardSectionNav)
   // reuses the same .player-section-nav-link class and would otherwise get a second, wrong
@@ -12408,6 +12439,7 @@ function wirePlayerSectionNav() {
       section.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
+  wireSectionNavExtras("#tab-player", "section-");
 }
 
 // ---------- Leaderboard page: section teasers + jump nav ----------
@@ -12442,6 +12474,7 @@ function wireLeaderboardSectionNav() {
       section.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
+  wireSectionNavExtras("#tab-leaderboard", "lb-section-");
 }
 
 // ---------- Review Shot Types (backfill and re-check) ----------

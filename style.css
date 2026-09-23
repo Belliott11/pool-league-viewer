@@ -2109,13 +2109,44 @@ button:disabled {
 .league-rank-badge.league-rank-top .league-rank-place { color: var(--accent); }
 .league-rank-badge.league-rank-first { background: color-mix(in srgb, var(--accent) 16%, var(--panel-bg)); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .league-rank-badge.league-rank-first .league-rank-place { color: var(--accent); }
+/* Top-3 league rank badges: same gold/silver/bronze language as Trophy Case and award badges */
+.league-rank-badge.league-rank-rank1 { background: color-mix(in srgb, var(--award-gold) 16%, var(--panel-bg)); border-color: color-mix(in srgb, var(--award-gold) 45%, transparent); }
+.league-rank-badge.league-rank-rank1 .league-rank-place { color: var(--award-gold); }
+.league-rank-badge.league-rank-rank2 { background: linear-gradient(160deg, color-mix(in srgb, var(--award-silver) 18%, var(--panel-bg)), color-mix(in srgb, var(--award-silver-dark) 12%, var(--panel-bg))); border-color: color-mix(in srgb, var(--award-silver) 45%, transparent); }
+.league-rank-badge.league-rank-rank2 .league-rank-place { color: var(--award-silver); }
+.league-rank-badge.league-rank-rank3 { background: linear-gradient(160deg, color-mix(in srgb, var(--award-bronze) 18%, var(--panel-bg)), color-mix(in srgb, var(--award-bronze-dark) 12%, var(--panel-bg))); border-color: color-mix(in srgb, var(--award-bronze) 45%, transparent); }
+.league-rank-badge.league-rank-rank3 .league-rank-place { color: var(--award-bronze); }
+
+/* Tag next to a panel's <h2> when it's built from the real Poolean site's own data, not this app's local subset */
+.real-data-tag {
+  display: inline-block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+  vertical-align: middle;
+  margin-left: 6px;
+}
 
 /* Player page: grouped sections (League Rank on down) */
 .player-section-nav {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   margin: 0 0 14px;
+  position: sticky;
+  top: 84px;
+  z-index: 5;
+  background: var(--header-bg-translucent);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  padding: 8px 0;
 }
 .player-section-nav-link {
   background: var(--panel-bg);
@@ -2128,6 +2159,23 @@ button:disabled {
   cursor: pointer;
 }
 .player-section-nav-link:hover { border-color: var(--accent); color: var(--accent); }
+.player-section-nav-link.player-section-nav-active {
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel-bg));
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.player-section-expand-all {
+  margin-left: auto;
+  background: none;
+  border: 1px dashed color-mix(in srgb, var(--muted) 50%, transparent);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.player-section-expand-all:hover { border-color: var(--accent); color: var(--accent); }
 .player-section {
   background: var(--panel-bg);
   border-radius: 10px;

@@ -459,13 +459,14 @@
   <div class="tab-body-with-sidebar" id="leaderboardSidebarWrap">
   <div class="tab-main">
     <div id="poolDataDigest"></div>
-    <div class="player-section-nav">
+    <div class="player-section-nav" data-nav-scope="leaderboard">
       <button type="button" class="player-section-nav-link" data-section="comparison">Comparison & Trends</button>
       <button type="button" class="player-section-nav-link" data-section="shooting">Shooting</button>
       <button type="button" class="player-section-nav-link" data-section="matchups">Matchups & Team</button>
       <button type="button" class="player-section-nav-link" data-section="situational">Situational</button>
       <button type="button" class="player-section-nav-link" data-section="style">Play Style & Models</button>
       <button type="button" class="player-section-nav-link" data-section="media">History & Media</button>
+      <button type="button" class="player-section-expand-all" data-expand-toggle="1">Expand all</button>
     </div>
 
     <div id="leaderboard-section-overview">
@@ -656,17 +657,12 @@
       <summary><h3>Matchups & Team</h3><span class="player-section-teaser" id="lb-teaser-matchups"></span></summary>
       <div class="player-section-body">
     <div class="panel">
-      <h2>Rivalries</h2>
+      <h2>Rivalries <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">League-wide superlatives from the real Poolean site's full pairwise history: the most-played pairing, the best real record together, the tightest real head-to-head, and the most lopsided one, each needing at least 5 real games to count.</p>
       <div id="rivalriesPanel"></div>
     </div>
     <div class="panel">
-      <h2>Real Rivalry Matrix</h2>
-      <p class="hint">Every real together-win% at once, not just the four superlatives above: every player down one side, every player across the other, cell color follows red-low/green-high, opacity ramping up with real games shared. Click a name for their own page.</p>
-      <div id="realRivalryMatrix"></div>
-    </div>
-    <div class="panel">
-      <h2>Real Rivalry Matrix</h2>
+      <h2>Real Rivalry Matrix <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">Every real together-win% at once, not just the four superlatives above: every player down one side, every player across the other, cell color follows red-low/green-high, opacity ramping up with real games shared. Click a name for their own page.</p>
       <div id="realRivalryMatrix"></div>
     </div>
@@ -840,32 +836,32 @@
       <summary><h3>History & Media</h3><span class="player-section-teaser" id="lb-teaser-media"></span></summary>
       <div class="player-section-body">
     <div class="panel">
-      <h2>Season Timeline</h2>
+      <h2>Season Timeline <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">The real season's story in order: who held the crown each real party night, and any upsets that same night. The same facts Season Recap and Upset Tracker show as static summaries, read here as one continuous timeline.</p>
       <div id="seasonTimeline"></div>
     </div>
     <div class="panel">
-      <h2>Season Recap</h2>
+      <h2>Season Recap <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">A shareable summary of the real Poolean site's closed season: the champion, every award and its winner, the final top of the power rankings, and the season's biggest riser and faller (each player's rank at the very first real party versus their final overall season rank, not just one noisy last night). Built entirely from the real site's own data (POOLEAN_SEASON_CARDS/POOLEAN_RANKINGS/AWARD_RESULTS), not this app's own locally logged subset.</p>
       <div id="seasonRecap"></div>
     </div>
     <div class="panel">
-      <h2>Trophy Case</h2>
+      <h2>Trophy Case <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">Every player with a real award win, gold first. Ring color and thickness match the avatar ring on each player's own profile page.</p>
       <div id="trophyCase"></div>
     </div>
     <div class="panel">
-      <h2>Iron Man</h2>
+      <h2>Iron Man <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">Whoever holds the longest real attendance streak on the roster — consecutive parties attended without missing one.</p>
       <div id="ironManPanel"></div>
     </div>
     <div class="panel">
-      <h2>Upset Tracker</h2>
+      <h2>Upset Tracker <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">Real games where the lower-ranked side (by that same night's real power ranking percentile) won anyway, biggest gap first. Uneven games (3v2 and so on) are size-adjusted — the bigger side gets a real, data-derived bonus per extra player (from how often the bigger side actually wins across every uneven real game) before deciding who was the favorite — instead of being left out. A game only counts if both sides have a real ranking for that night.</p>
       <div id="upsetTracker"></div>
     </div>
     <div class="panel">
-      <h2>Party Recap</h2>
+      <h2>Party Recap <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">One real party night at a time: every attendee's record for just that night, and any upsets. Pick a date.</p>
       <select id="partyRecapSelect" style="margin-bottom:10px"></select>
       <div id="partyRecap"></div>
@@ -919,7 +915,7 @@
       <button id="downloadCardBtn" type="button" class="icon-btn" title="Download a shareable trading-card image">Card</button>
     </div>
 
-    <div class="player-section-nav">
+    <div class="player-section-nav" data-nav-scope="player">
       <button type="button" class="player-section-nav-link" data-section="shooting">Shooting</button>
       <button type="button" class="player-section-nav-link" data-section="passing">Passing & Ball Security</button>
       <button type="button" class="player-section-nav-link" data-section="defense">Defense</button>
@@ -927,6 +923,7 @@
       <button type="button" class="player-section-nav-link" data-section="team">Team Context</button>
       <button type="button" class="player-section-nav-link" data-section="trends">Trends & History</button>
       <button type="button" class="player-section-nav-link" data-section="media">Media & Log</button>
+      <button type="button" class="player-section-expand-all" data-expand-toggle="1">Expand all</button>
     </div>
 
     <div id="player-section-overview">
@@ -936,12 +933,12 @@
       <div id="playerLeagueRank" class="league-rank-grid"></div>
     </div>
     <div class="panel">
-      <h2>Real Site Awards</h2>
+      <h2>Real Site Awards <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">Wins and runner-up finishes from the real Poolean site's own voted awards, straight from that closed ballot. Nothing computed here; this app can't hold an election, it just shows the result.</p>
       <div id="playerAwardBadges"></div>
     </div>
     <div class="panel">
-      <h2>Power Rankings</h2>
+      <h2>Power Rankings <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">The real Poolean site's own per-night power ranking (rank and field-size-normalized percentile), averaged across every party this player has been ranked at, not just the ones with logged film. Frozen historical record, not something this tool computes.</p>
       <div id="playerPowerRanking"></div>
     </div>
@@ -1107,27 +1104,22 @@
       <div id="playerSeasonHistory"></div>
     </div>
     <div class="panel">
-      <h2>Real Game Record</h2>
+      <h2>Real Game Record <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">This player's actual overall win-loss across every game the real Poolean site has ever recorded, next to the smaller subset re-logged shot-by-shot in this app (the "reviewed" games everything else on this page is built from). Re-logging a game with full shot detail from film is real work; this shows how much of the real record that work has covered so far.</p>
       <div id="playerRealRecord"></div>
     </div>
     <div class="panel">
-      <h2>Real Partners & Matchups</h2>
+      <h2>Real Partners & Matchups <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">Best and worst teammate, and best and worst opponent, from the real Poolean site's full game history (not just what's logged in this app), needing at least 3 real games together or against to count.</p>
       <div id="playerRealPartners"></div>
     </div>
     <div class="panel">
-      <h2>Streaks</h2>
+      <h2>Streaks <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">Current and longest real win/losing streaks, from the real Poolean site's full game log in play order.</p>
       <div id="playerStreaks"></div>
     </div>
     <div class="panel">
-      <h2>Attendance Streak</h2>
-      <p class="hint">Consecutive real parties attended without missing one, from the real Poolean site's full attendance history.</p>
-      <div id="playerAttendanceStreak"></div>
-    </div>
-    <div class="panel">
-      <h2>Attendance Streak</h2>
+      <h2>Attendance Streak <span class="real-data-tag">Real site data</span></h2>
       <p class="hint">Consecutive real parties attended without missing one, from the real Poolean site's full attendance history.</p>
       <div id="playerAttendanceStreak"></div>
     </div>
