@@ -2214,6 +2214,43 @@ function generateBalancedTeamSets(attendeeIds, teamSize) {
     ? attendeeIds.filter(id => qualityMap[id]?.source !== "stats").length / attendeeIds.length
     : 0;
   const tieTolerance = 0.1 + reputationShare * 0.9;
+  const avgAttendeeHeight = averageAttendeeHeight(attendeeIds);
+  const tallFirst = (a, b) => {
+    const aTall = a.teams.every(team => teamHasAboveAverageHeight(team, avgAttendeeHeight));
+    const bTall = b.teams.every(team => teamHasAboveAverageHeight(team, avgAttendeeHeight));
+    return aTall === bTall ? 0 : aTall ? -1 : 1;
+  };
+
+  // Two teams, with enough real games for the Matchup Predictor: rank by its odds (closest to
+  // 50/50 first) instead of the quality spread. The predictor was tested against real results;
+  // the spread wasn't, and the two can disagree (a "most balanced" 30/70). Quality, chemistry and
+  // past record still build every candidate above. Adding quality to the predictor as a fourth
+  // input was tried and didn't hold up: its gain matched what the predictor gets from seeing the
+  // whole season's results in advance, and the film-only part didn't help. Options within
+  // ODDS_TIE_POINTS of each other count as tied and fall to height, physical, then spread.
+  if (targetSizes.length === 2 && getRealMatchupModel()) {
+    const ODDS_TIE_POINTS = 2;
+    const gapOf = teams => Math.abs(predictRealMatchup(teams[0], teams[1]).pA - 0.5) * 100;
+    const all = new Map();
+    [...scored, ...refined].forEach(e => all.set(teamSetSignature(e.teams), { ...e, oddsGap: gapOf(e.teams) }));
+    // Swap-based refinement on the predictor's own number, same idea as localSearchRefine().
+    [...all.values()].sort((a, b) => a.oddsGap - b.oddsGap).slice(0, 10).forEach(entry => {
+      let teams = entry.teams.map(t => [...t]), gap = entry.oddsGap;
+      for (let it = 0; it < 40; it++) {
+        const i = Math.floor(Math.random() * teams[0].length), j = Math.floor(Math.random() * teams[1].length);
+        const cand = [[...teams[0]], [...teams[1]]];
+        [cand[0][i], cand[1][j]] = [cand[1][j], cand[0][i]];
+        const g = gapOf(cand);
+        if (g < gap) { teams = cand; gap = g; }
+      }
+      const sig = teamSetSignature(teams);
+      if (!all.has(sig)) all.set(sig, { teams, ...scoreTeamSet(teams, qualityById, liftMap, winRateMap, nudgeCap), oddsGap: gap });
+    });
+    return [...all.values()].sort((a, b) => {
+      if (Math.abs(a.oddsGap - b.oddsGap) > ODDS_TIE_POINTS) return a.oddsGap - b.oddsGap;
+      return tallFirst(a, b) || a.physicalScore - b.physicalScore || a.spread - b.spread;
+    }).slice(0, 5);
+  }
 
   // "Every team needs someone above today's average height" is a strong guideline, not a hard
   // rule — it only gets to decide between options that are already practically tied on quality
@@ -2222,15 +2259,9 @@ function generateBalancedTeamSets(attendeeIds, teamSize) {
   // better-balanced split outside that tolerance window still wins even if it fails the height
   // check — this never excludes a candidate outright, just ranks it behind an equally-fair one
   // that also clears the bar.
-  const avgAttendeeHeight = averageAttendeeHeight(attendeeIds);
   const pool = refined.slice(0, 30);
   pool.sort((a, b) => {
-    if (Math.abs(a.spread - b.spread) <= tieTolerance) {
-      const aTall = a.teams.every(team => teamHasAboveAverageHeight(team, avgAttendeeHeight));
-      const bTall = b.teams.every(team => teamHasAboveAverageHeight(team, avgAttendeeHeight));
-      if (aTall !== bTall) return aTall ? -1 : 1;
-      return a.physicalScore - b.physicalScore;
-    }
+    if (Math.abs(a.spread - b.spread) <= tieTolerance) return tallFirst(a, b) || a.physicalScore - b.physicalScore;
     return a.spread - b.spread;
   });
   return pool.slice(0, 5);
@@ -2412,7 +2443,7 @@ function renderBalanceResults() {
       <div class="balance-option ${i === 0 ? "balance-option-best" : ""}">
         <div class="balance-option-header">
           <strong>${i === 0 ? "🏆 Most Balanced" : `Option ${i + 1}`}</strong>
-          <span class="balance-spread">Δ${r.spread.toFixed(1)} Two-Way/20 between strongest and weakest team</span>
+          <span class="balance-spread">${realPred ? `Predicted ${Math.round(realPred.pA * 100)}% / ${100 - Math.round(realPred.pA * 100)}% · ` : ""}Δ${r.spread.toFixed(1)} Two-Way/20 between strongest and weakest team</span>
         </div>
         <div class="balance-teams-row">${teamsHtml}</div>
         ${rivalryHtml}
