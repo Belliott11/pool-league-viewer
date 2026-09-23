@@ -6019,25 +6019,55 @@ function renderRivalries() {
   </div>`;
 }
 
-// Games where the lower-ranked side (by that same night's real power ranking percentile) won
-// anyway — an upset needs both sides to have a real ranking that night, so a game on a date with
-// no ranking (or missing players) is simply left out, not guessed at.
+// Extra-player advantage, in the same 0-100 percentile points PARTY_RANKINGS/POOLEAN_RANKINGS
+// already use, derived from the real games themselves rather than guessed: among every real game
+// with unequal team sizes, how often did the bigger side win? (percentile points) = (that win% -
+// 50) * 2, the same win%-to-percentile-scale conversion used elsewhere in this app (e.g.
+// teamWinRateAdjustment's win%-to-Two-Way-points conversion), applied once per extra player on a
+// side. Needs at least 8 real uneven games before trusting the estimate; below that, uneven games
+// are compared on raw percentile with no adjustment, same as an even game.
+function computeTeamSizeAdvantagePct() {
+  if (typeof POOLEAN_GAMES === "undefined") return 0;
+  let biggerWins = 0, total = 0;
+  POOLEAN_GAMES.forEach(g => {
+    const diff = g.a.length - g.b.length;
+    if (diff === 0) return;
+    total++;
+    if ((diff > 0 && g.w === "A") || (diff < 0 && g.w === "B")) biggerWins++;
+  });
+  if (total < 8) return 0;
+  return ((biggerWins / total) * 100 - 50) * 2;
+}
+
+// Games where the lower-ranked side (by that same night's real power ranking percentile, adjusted
+// for team size when sides are uneven) won anyway — an upset needs both sides to have a real
+// ranking that night, so a game on a date with no ranking (or missing players) is simply left
+// out, not guessed at.
 function computeUpsets() {
   if (typeof POOLEAN_GAMES === "undefined" || typeof POOLEAN_RANKINGS === "undefined") return null;
   const rankByDate = Object.fromEntries(POOLEAN_RANKINGS.map(r => [r.date, r.players]));
+  const sizeAdvantage = computeTeamSizeAdvantagePct();
   const upsets = [];
   POOLEAN_GAMES.forEach(g => {
     const night = rankByDate[g.date];
     if (!night) return;
     const pctOf = slug => { const p = night.find(x => x.slug === slug); return p ? p.pct : null; };
     const avg = ids => { const vals = ids.map(pctOf).filter(v => v !== null); return vals.length === ids.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null; };
-    const aPct = avg(g.a), bPct = avg(g.b);
-    if (aPct === null || bPct === null || aPct === bPct) return;
-    const favorite = aPct > bPct ? "A" : "B";
+    let aPct = avg(g.a), bPct = avg(g.b);
+    if (aPct === null || bPct === null) return;
+    // Team-size adjustment: whichever side has more players gets sizeAdvantage points per extra
+    // player added to ITS effective percentile for the favorite comparison only -- the real
+    // (unadjusted) percentiles are still what gets reported in the result below.
+    const sizeDiff = g.a.length - g.b.length;
+    const aEff = aPct + Math.max(0, sizeDiff) * sizeAdvantage;
+    const bEff = bPct + Math.max(0, -sizeDiff) * sizeAdvantage;
+    if (aEff === bEff) return;
+    const favorite = aEff > bEff ? "A" : "B";
     if (g.w === favorite) return; // favorite won, not an upset
     const winners = g.w === "A" ? g.a : g.b, losers = g.w === "A" ? g.b : g.a;
     const winPct = g.w === "A" ? aPct : bPct, losePct = g.w === "A" ? bPct : aPct;
-    upsets.push({ date: g.date, winners, losers, winPct, losePct, gap: losePct - winPct });
+    const winEff = g.w === "A" ? aEff : bEff, loseEff = g.w === "A" ? bEff : aEff;
+    upsets.push({ date: g.date, winners, losers, winPct, losePct, uneven: sizeDiff !== 0, gap: loseEff - winEff });
   });
   upsets.sort((a, b) => b.gap - a.gap);
   return upsets;
@@ -6055,12 +6085,13 @@ function renderUpsetTracker() {
       <td>${escapeHtml(formatDateDisplay(u.date))}</td>
       <td>${u.winners.map(nameOf).join(" & ")}</td>
       <td>${u.losers.map(nameOf).join(" & ")}</td>
-      <td>${Math.round(u.winPct)}% vs. ${Math.round(u.losePct)}%</td>
+      <td>${Math.round(u.winPct)}% vs. ${Math.round(u.losePct)}%${u.uneven ? ` <span class="hint" style="margin:0">(uneven teams, size-adjusted)</span>` : ""}</td>
     </tr>`).join("");
+  const unevenCount = upsets.filter(u => u.uneven).length;
   wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
     <thead><tr><th>Date</th><th>Won</th><th>Beat (the favorite)</th><th>Power ranking that night</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
-    <p class="hint" style="margin:10px 0 0">${upsets.length} upset${upsets.length === 1 ? "" : "s"} total, biggest gap first.</p>`;
+    <p class="hint" style="margin:10px 0 0">${upsets.length} upset${upsets.length === 1 ? "" : "s"} total, biggest gap first${unevenCount > 0 ? ` (${unevenCount} on uneven teams, adjusted for the extra player)` : ""}.</p>`;
 }
 
 // Every real party night with at least one logged game: who went off, that night's biggest
@@ -6181,25 +6212,29 @@ function renderPlayerAttendanceStreak(playerId) {
 }
 
 // League-wide: whoever holds the longest attendance streak of anyone on the roster.
+// Every player tied for the longest real attendance streak, not just whoever happens to come
+// first in roster order — a real tie (e.g. two players who've both made every party) should show
+// as a tie, not silently pick a winner.
 function computeIronMan() {
   if (typeof POOLEAN_RANKINGS === "undefined") return null;
-  let best = null;
-  state.players.forEach(p => {
-    const s = computePlayerAttendanceStreak(p.id);
-    if (s && (!best || s.longest > best.streak.longest)) best = { player: p, streak: s };
-  });
-  return best;
+  const all = state.players
+    .map(p => ({ player: p, streak: computePlayerAttendanceStreak(p.id) }))
+    .filter(r => r.streak);
+  if (all.length === 0) return null;
+  const longest = Math.max(...all.map(r => r.streak.longest));
+  return { holders: all.filter(r => r.streak.longest === longest), longest, of: all[0].streak.of };
 }
 
 function renderIronMan() {
   const wrap = document.getElementById("ironManPanel");
   if (!wrap) return;
-  const best = computeIronMan();
-  if (!best) { wrap.innerHTML = '<p class="empty-state">No real-site attendance data loaded yet.</p>'; return; }
+  const result = computeIronMan();
+  if (!result) { wrap.innerHTML = '<p class="empty-state">No real-site attendance data loaded yet.</p>'; return; }
+  const names = result.holders.map(r => playerLink(r.player.id, r.player.name)).join(", ");
   wrap.innerHTML = `<div class="real-partner-tile">
-    <span class="real-partner-label">Iron Man</span>
-    ${playerLink(best.player.id, best.player.name)}
-    <span class="real-partner-pct">${best.streak.longest} real part${best.streak.longest === 1 ? "y" : "ies"} in a row, out of ${best.streak.of} total</span>
+    <span class="real-partner-label">Iron Man${result.holders.length > 1 ? " (tied)" : ""}</span>
+    <span>${names}</span>
+    <span class="real-partner-pct">${result.longest} real part${result.longest === 1 ? "y" : "ies"} in a row, out of ${result.of} total</span>
   </div>`;
 }
 
@@ -6266,14 +6301,29 @@ function renderComebackTracker() {
 const TRADING_CARD_TIER_COLORS = {
   gold: ["#3a2f14", "#E3A93A"], silver: ["#0d2b29", "#3FE0D4"], bronze: ["#3a2210", "#F0873A"]
 };
+// This player's own power-ranking movement across the real season: their percentile at the very
+// first real party versus the most recent one. Same two datapoints Season Recap's league-wide
+// "biggest riser/faller" picks its winner from, just read for one specific player instead of
+// picking the single best/worst across the whole roster. null if they weren't ranked at both ends
+// (joined partway through, or the season is only one party old so far).
+function computePlayerPowerMovement(playerId) {
+  if (typeof POOLEAN_RANKINGS === "undefined" || POOLEAN_RANKINGS.length < 2) return null;
+  const first = POOLEAN_RANKINGS[0], last = POOLEAN_RANKINGS[POOLEAN_RANKINGS.length - 1];
+  const f = first.players.find(x => x.slug === playerId), l = last.players.find(x => x.slug === playerId);
+  if (!f || !l) return null;
+  return { from: f.pct, to: l.pct, delta: l.pct - f.pct };
+}
+
 async function generateTradingCardCanvas(playerId) {
   const player = state.players.find(p => p.id === playerId);
   if (!player) return null;
   const tier = computePlayerAwardTier(playerId);
   const real = poolRealRecord(playerId);
   const power = computePowerRankingSummary(playerId);
+  const movement = computePlayerPowerMovement(playerId);
+  const row = computeLeaderboard().find(r => r.player.id === playerId);
   const badges = computePlayerAwardBadges(playerId).filter(b => b.isWinner).slice(0, 3);
-  const W = 600, H = 800;
+  const W = 600, H = 880;
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
@@ -6310,9 +6360,21 @@ async function generateTradingCardCanvas(playerId) {
   let y = 450;
   ctx.font = "28px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.85)";
   if (real) { ctx.fillText(`Real Record: ${real.w}-${real.l}`, W / 2, y); y += 42; }
-  if (power) { ctx.fillText(`Power Ranking: ${Math.round(power.avgPct)}%`, W / 2, y); y += 42; }
-  y += 18;
-  ctx.font = "24px sans-serif";
+  if (power) {
+    const moveText = movement ? ` (Day 1: ${Math.round(movement.from)}% → ${movement.delta >= 0 ? "+" : ""}${Math.round(movement.delta)})` : "";
+    ctx.fillText(`Power Ranking: ${Math.round(power.avgPct)}%${moveText}`, W / 2, y); y += 42;
+  }
+  y += 10;
+  // Statline: the same per-20 core numbers shown on the profile header itself, so the card
+  // carries this app's own local read alongside the real site's data above it.
+  if (row) {
+    const tsPct = trueShootingPct(row.totals.pts, row.shooting.fga, row.shooting.fta);
+    ctx.font = "22px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.fillText(`${row.rate.pts.toFixed(1)} PTS/20 · ${row.rate.ast.toFixed(1)} AST/20${tsPct !== null ? ` · ${tsPct}% TS` : ""} · ${row.twoWayPer20.toFixed(1)} Two-Way/20`, W / 2, y);
+    y += 40;
+  }
+  y += 12;
+  ctx.font = "24px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.85)";
   badges.forEach(b => { ctx.fillText(`${b.icon} ${b.label}`, W / 2, y); y += 36; });
 
   ctx.font = "16px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.5)";
