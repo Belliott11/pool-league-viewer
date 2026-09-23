@@ -2456,3 +2456,18 @@ body.live-open { overflow: hidden; }
   color: var(--muted);
 }
 .scoreboard:has(.scoreboard-live) { flex-wrap: wrap; row-gap: 6px; }
+
+/* Check Against the Real Site */
+.real-check-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.real-check-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 0.88rem; }
+
+/* Backup reminder (Games tab) and the live game's auto-backup switch */
+.backup-reminder {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  margin: 0 0 14px; padding: 10px 14px; border-radius: var(--radius-sm);
+  background: var(--warning-light); color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  font-size: 0.9rem;
+}
+.backup-reminder[hidden] { display: none; }
+.live-backup-toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 0.85rem; color: var(--muted); }

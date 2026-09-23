@@ -38,6 +38,9 @@ function isBalancedGame(game) {
 // into every computed comparison. A tracker that's never had a season closed has
 // currentSeasonStartedAt === null, so every game counts as "current" and this is a no-op.
 const INCLUDE_PAST_SEASONS_KEY = "poolLeagueIncludePastSeasons";
+// Per-browser backup bookkeeping (see Backups below); up here because saveState() uses it and can run during page load.
+const BACKUP_META_KEY = "poolLeagueBackupMeta";
+const BACKUP_NUDGE_DAYS = 7;
 let includePastSeasons = localStorage.getItem(INCLUDE_PAST_SEASONS_KEY) === "true";
 function isCurrentSeasonGame(game) {
   return !state.currentSeasonStartedAt || (game.date || "") >= state.currentSeasonStartedAt;
@@ -329,9 +332,14 @@ function normalizeGame(game) {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  // Invalidate the Leaderboard and Win Shares fit caches (see computeLeaderboard()/
-  // computeWinSharesWeights()) -- any real edit can change either's underlying data, so a cached
-  // result from before this edit can't be trusted anymore.
+  invalidateComputedCaches();
+  noteEditForBackup();
+}
+
+// The Leaderboard table, Win Shares fit and calibrated thresholds are expensive (about a second
+// together) and only change when game data changes (saveState) or when a switch changes which
+// games count (Include Imbalanced / Past Seasons / Outlier Games). Everything else reuses them.
+function invalidateComputedCaches() {
   leaderboardCache = null;
   winSharesWeightsCache = null;
   calibrationCache = null;
@@ -586,7 +594,7 @@ function showTab(tab) {
   document.getElementById("tab-" + tab).classList.add("active");
   const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
   if (btn) btn.classList.add("active");
-  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderSameMomentReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); }
+  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderSameMomentReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); renderRealSiteCheck(); }
   if (tab === "leaderboard") renderLeaderboard();
   // Refreshes the attendee picker against the current roster — cheap, and a player added while
   // on a different tab shouldn't require a page reload to show up here.
@@ -1172,6 +1180,8 @@ function copyGameShareLink(game, btn) {
 
 function renderGames() {
   renderNeedsReviewSummary();
+  renderRealSiteCheck();
+  renderBackupReminder();
   renderShotLocationGapSummary();
   // A game being created/deleted can resolve (or un-resolve) a pending RSVP entry for that same
   // date, so the recent-RSVP list's Pending/Everyone showed/missed status needs to stay in sync
@@ -2592,7 +2602,10 @@ function renderLiveGameOverlay() {
     saveState();
     renderLiveGameOverlay();
   });
-  el.querySelector("[data-live-finish]").addEventListener("click", () => finishLiveGame(game));
+  el.querySelector("[data-live-finish]").addEventListener("click", () => {
+    finishLiveGame(game);
+    if (autoBackupAfterLiveGame()) downloadBackup();
+  });
   el.querySelector("[data-live-close]").addEventListener("click", () => { closeLiveGameOverlay(); renderLiveGamePanel(); });
   el.querySelector("[data-live-discard]").addEventListener("click", () => {
     if (!confirm("Delete this live game and its score?")) return;
@@ -2625,7 +2638,9 @@ function renderLiveGamePanel() {
     <div class="balance-controls">
       <label>Game to <select id="liveTargetSelect">${LIVE_TARGETS.map(t => `<option value="${t}"${t === 21 ? " selected" : ""}>${t}</option>`).join("")}</select></label>
       <button type="button" id="liveStartBtn" ${teamA.length && teamB.length ? "" : "disabled"}>Start Live Game</button>
-    </div>`;
+    </div>
+    <label class="live-backup-toggle"><input type="checkbox" id="liveAutoBackup" ${autoBackupAfterLiveGame() ? "checked" : ""}> Save a backup file after each live game</label>`;
+  document.getElementById("liveAutoBackup").addEventListener("change", e => writeBackupMeta({ autoAfterLive: e.target.checked }));
   wrap.querySelectorAll("[data-live-pick]").forEach(btn => btn.addEventListener("click", () => {
     const id = btn.dataset.livePick;
     const next = { undefined: "A", A: "B", B: undefined }[liveSetupSides[id]];
@@ -2636,6 +2651,74 @@ function renderLiveGamePanel() {
     liveSetupSides = {};
     startLiveGame(teamA, teamB);
   });
+}
+
+// ---------- Check against the real site ----------
+// Every game in this app with a result (logged from film, or a finished live score) is matched
+// to the real site's game from the same night with the same two rosters, and the winners are
+// compared. Rematches between identical teams on one night are paired up in order. A game whose
+// night has real games but no roster match is listed too (usually a roster or date typo on one
+// side); a night the real site has no games for yet is just counted.
+function localGameResult(game) {
+  if (game.liveInProgress) return null;
+  if (game.scoringEvents.length > 0) {
+    const a = teamScore(game, game.teamA), b = teamScore(game, game.teamB);
+    return a > b ? "A" : b > a ? "B" : null;
+  }
+  return (game.liveScores || []).length ? game.winner : null;
+}
+
+function computeRealSiteCheck() {
+  if (typeof POOLEAN_SEASONS === "undefined") return null;
+  const realGames = realSeasonsInOrder().flatMap(season => [...season.games].sort(byPlayOrder));
+  const realDates = new Set(realGames.map(g => g.date));
+  const sameSet = (x, y) => x.length === y.length && x.every(id => y.includes(id));
+  const used = new Set();
+  const out = { agree: [], disagree: [], unmatched: [], noRealNight: 0 };
+  [...state.games].sort((x, y) => (x.date || "").localeCompare(y.date || "")).forEach(game => {
+    const result = localGameResult(game);
+    if (!result) return;
+    if (!realDates.has(game.date)) { out.noRealNight++; return; }
+    const match = realGames.find(g => !used.has(g) && g.date === game.date &&
+      ((sameSet(g.a, game.teamA) && sameSet(g.b, game.teamB)) || (sameSet(g.a, game.teamB) && sameSet(g.b, game.teamA))));
+    if (!match) { out.unmatched.push({ game }); return; }
+    used.add(match);
+    const realWinnerIsA = sameSet(match.a, game.teamA) ? match.w === "A" : match.w === "B";
+    (realWinnerIsA === (result === "A") ? out.agree : out.disagree).push({ game, real: match });
+  });
+  return out;
+}
+
+function renderRealSiteCheck() {
+  const wrap = document.getElementById("realSiteCheck");
+  const summary = document.getElementById("realSiteMismatchSummary");
+  const check = computeRealSiteCheck();
+  const problems = check ? check.disagree.length + check.unmatched.length : 0;
+  if (summary) {
+    summary.innerHTML = problems
+      ? `⚠️ ${problems} game${problems === 1 ? "" : "s"} here ${problems === 1 ? "doesn't" : "don't"} match the real site. <button type="button" class="secondary-btn" id="jumpToRealSiteCheckBtn">Review</button>`
+      : "";
+    document.getElementById("jumpToRealSiteCheckBtn")?.addEventListener("click", () => {
+      showTab("export");
+      document.getElementById("realSiteCheck")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+  if (!wrap) return;
+  if (!check) { wrap.innerHTML = '<p class="empty-state">No real-site data loaded yet.</p>'; return; }
+  const names = ids => ids.map(id => escapeHtml(poolNameOf(id))).join(", ");
+  const gameLine = (game, extra) => `<li><button type="button" class="secondary-btn" data-open-game="${escapeHtml(game.id)}">Open</button>
+    ${escapeHtml(formatDateDisplay(game.date))}: ${names(game.teamA)} vs. ${names(game.teamB)} ${extra}</li>`;
+  const winnerText = (game, isA) => `${isA ? "Team A" : "Team B"} (${names(isA ? game.teamA : game.teamB)})`;
+  const disagreeHtml = check.disagree.map(({ game, real }) => {
+    const realA = real.a.every(id => game.teamA.includes(id)) ? real.w === "A" : real.w === "B";
+    return gameLine(game, `<span class="hint" style="margin:0">here: ${winnerText(game, localGameResult(game) === "A")} won; real site: ${winnerText(game, realA)} won</span>`);
+  }).join("");
+  const unmatchedHtml = check.unmatched.map(({ game }) => gameLine(game, `<span class="hint" style="margin:0">no real game that night with these teams</span>`)).join("");
+  wrap.innerHTML = `<p class="hint" style="margin:0 0 10px">${check.agree.length} match${check.agree.length === 1 ? "es" : ""} the real site.${check.noRealNight ? ` ${check.noRealNight} ${check.noRealNight === 1 ? "is" : "are"} from nights the real site has no games for yet.` : ""}</p>
+    ${disagreeHtml ? `<h4 style="margin:10px 0 6px">Different winner</h4><ul class="real-check-list">${disagreeHtml}</ul>` : ""}
+    ${unmatchedHtml ? `<h4 style="margin:10px 0 6px">No matching real game</h4><ul class="real-check-list">${unmatchedHtml}</ul>` : ""}
+    ${!disagreeHtml && !unmatchedHtml ? '<p class="empty-state">Nothing to fix.</p>' : ""}`;
+  wrap.querySelectorAll("[data-open-game]").forEach(btn => btn.addEventListener("click", () => openGame(btn.dataset.openGame)));
 }
 
 // ---------- Party Night Planner ----------
@@ -6971,13 +7054,21 @@ function computeAwardRace() {
     const voted = AWARD_RESULTS.find(a => a.key === r.key) || null;
     const label = voted ? voted.label : (ALL_AWARD_RESULTS.find(a => a.key === r.key) || {}).label || r.key;
     // A hit: the projected leader(s) match who actually won. Team awards compare the whole top 3.
-    let hit = null;
+    // A hit: the projected leader(s) match who actually won. Team awards (three winners) get
+    // partial credit: how many of the projected three were actually voted onto the team.
+    let hit = null, teamMatched = null;
     if (voted && r.leaders.length) {
-      const projected = r.key.endsWith("-team") ? r.leaders.flatMap(l => l.ids) : r.leaders[0].ids;
       const winners = voted.winners;
-      hit = projected.length === winners.length ? winners.every(w => projected.includes(w)) : projected.every(id => winners.includes(id));
+      if (r.key.endsWith("-team")) {
+        const projected = r.leaders.flatMap(l => l.ids);
+        teamMatched = winners.filter(w => projected.includes(w)).length;
+        hit = teamMatched === winners.length;
+      } else {
+        const projected = r.leaders[0].ids;
+        hit = projected.length === winners.length ? winners.every(w => projected.includes(w)) : projected.every(id => winners.includes(id));
+      }
     }
-    return { ...r, label, voted, hit };
+    return { ...r, label, voted, hit, teamMatched };
   });
 }
 
@@ -6994,14 +7085,15 @@ function renderAwardRace() {
     const leaders = r.leaders.length
       ? `<ol class="award-race-leaders">${r.leaders.map(l => `<li>${names(l.ids)} <span class="hint" style="margin:0">${escapeHtml(l.value)}</span></li>`).join("")}</ol>`
       : `<p class="hint" style="margin:6px 0 0">${escapeHtml(r.empty || "Not enough data yet.")}</p>`;
-    const voted = r.voted ? `<p class="award-race-voted">${r.hit === true ? "✓ " : r.hit === false ? "✗ " : ""}Voted: ${r.voted.winners.map(poolPlayerLink).join(" + ")}</p>` : "";
+    const mark = r.teamMatched !== null && !r.hit ? `${r.teamMatched} of ${r.voted.winners.length} · ` : r.hit === true ? "✓ " : r.hit === false ? "✗ " : "";
+    const voted = r.voted ? `<p class="award-race-voted">${mark}Voted: ${r.voted.winners.map(poolPlayerLink).join(" + ")}</p>` : "";
     return `<div class="award-race-card${color ? ` award-race-${color}` : ""}">
       <div class="award-race-head"><span>${AWARD_ICONS[r.key] || "🏅"}</span><strong>${escapeHtml(r.label)}</strong></div>
       <span class="award-race-basis">${escapeHtml(r.basis)}${r.local ? " · logged games" : ""}</span>
       ${leaders}${voted}
     </div>`;
   }).join("")}</div>
-  ${hits.length ? `<p class="hint" style="margin:10px 0 0">The stats picked the actual winner for ${hits.filter(r => r.hit).length} of ${hits.length} awards this season.</p>` : `<p class="hint" style="margin:10px 0 0">No votes in yet for this season, so this is the stats' best guess.</p>`}`;
+  ${hits.length ? `<p class="hint" style="margin:10px 0 0">The stats picked the actual winner for ${hits.filter(r => r.hit).length} of ${hits.length} awards this season${hits.some(r => r.teamMatched && !r.hit) ? `, and got ${hits.filter(r => r.teamMatched !== null && !r.hit).map(r => `${r.teamMatched} of ${r.voted.winners.length} on ${r.label}`).join(" and ")}` : ""}.</p>` : `<p class="hint" style="margin:10px 0 0">No votes in yet for this season, so this is the stats' best guess.</p>`}`;
 }
 
 // Every player with a real award win, sorted gold-first, for a hall-of-fame style grid.
@@ -11119,6 +11211,7 @@ document.getElementById("toggleImbalancedGamesBtn").addEventListener("change", e
   includeImbalancedGames = e.target.checked;
   localStorage.setItem(INCLUDE_IMBALANCED_KEY, String(includeImbalancedGames));
   updateImbalancedGamesBtnLabel();
+  invalidateComputedCaches();
   // isQualifyingGame() feeds Leaderboard rates, awards, every Player Detail trend/panel, and
   // most of the league-wide Leaderboard panels — a full re-render, same as any other toggle
   // that changes what counts as "in" rather than just what's shown.
@@ -11133,6 +11226,7 @@ document.getElementById("toggleOutlierGamesBtn").addEventListener("change", e =>
   includeOutlierGames = e.target.checked;
   localStorage.setItem(INCLUDE_OUTLIER_GAMES_KEY, String(includeOutlierGames));
   updateOutlierGamesBtnLabel();
+  invalidateComputedCaches();
   // qualifyingGamesForPlayer() feeds Leaderboard rates and every per-player Player Detail
   // trend/panel that routes through it — same full-rerender pattern as the other two toggles.
   renderLeaderboard();
@@ -11162,6 +11256,7 @@ function togglePastSeasonsInclusion(e) {
   includePastSeasons = e.target.checked;
   localStorage.setItem(INCLUDE_PAST_SEASONS_KEY, String(includePastSeasons));
   updatePastSeasonsBtnLabel();
+  invalidateComputedCaches();
   // isQualifyingGame() feeds both views off the same flag, so both need a fresh render — cheap
   // even for the one not currently on screen, and keeps it correct whenever the user switches
   // back rather than re-deriving on tab switch.
@@ -11233,14 +11328,6 @@ function renderLeaderboardHeader() {
 // player-comparison scatters, then shot-location/efficiency, then matchup/chemistry grids, then
 // situational stats, capped with the season's best/worst individual games. Keep the two in sync.
 function renderLeaderboard() {
-  // Forces exactly one fresh Leaderboard computation and Win Shares fit for this whole render
-  // pass (see computeLeaderboard()/computeWinSharesWeights()'s own caches) -- every toggle that
-  // can change which games qualify already calls renderLeaderboard() right after flipping itself,
-  // so this is also what keeps the caches honest for those, not just for a real data edit
-  // (saveState() covers that case).
-  leaderboardCache = null;
-  winSharesWeightsCache = null;
-  calibrationCache = null;
   updateAdvancedColsBtnLabel();
   updateImbalancedGamesBtnLabel();
   updatePastSeasonsBtnLabel();
@@ -11456,11 +11543,6 @@ function renderPlayerDetail() {
   const player = state.players.find(p => p.id === currentPlayerId);
   if (!player) return;
 
-  // Same one-fresh-computation-per-render-pass reasoning as renderLeaderboard() -- Player Detail
-  // calls computeLeaderboard() several times over too (Off/Def Matchup Difficulty trends,
-  // Defensive Load, Shot Creation, etc.), and this render might be the first one this session,
-  // so it can't just rely on renderLeaderboard() having already primed the cache.
-  leaderboardCache = null;
   const row = computeLeaderboard().find(r => r.player.id === currentPlayerId);
   document.getElementById("playerDetailTitle").innerHTML = `${renderPlayerAvatar(player, "large", playerAvatarRingClass(player.id))}<span>${escapeHtml(player.name)}</span>`;
   renderPlayerRankPill(player.id);
@@ -12200,9 +12282,48 @@ function download(filename, content, mime) {
   URL.revokeObjectURL(url);
 }
 
-document.getElementById("exportAllJsonBtn").addEventListener("click", () => {
-  download("pool-league-data.json", JSON.stringify(state, null, 2), "application/json");
-});
+// ---------- Backups ----------
+// Games logged here live only in this browser's storage, so clearing site data or switching
+// browsers loses them. This remembers when the last backup file was saved and how many edits
+// have happened since (a per-browser note, not app data), nudges on the Games tab when a backup
+// is overdue, and saves one automatically before anything destructive and after each live game.
+function readBackupMeta() {
+  try { return JSON.parse(localStorage.getItem(BACKUP_META_KEY) || "{}"); } catch (e) { return {}; }
+}
+function writeBackupMeta(patch) {
+  try { localStorage.setItem(BACKUP_META_KEY, JSON.stringify({ ...readBackupMeta(), ...patch })); } catch (e) { /* storage full or blocked */ }
+}
+function noteEditForBackup() {
+  const meta = readBackupMeta();
+  writeBackupMeta({ editsSinceBackup: (meta.editsSinceBackup || 0) + 1 });
+}
+function downloadBackup(filename) {
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  download(filename || `pool-league-backup-${stamp}.json`, JSON.stringify(state, null, 2), "application/json");
+  writeBackupMeta({ lastBackupAt: Date.now(), editsSinceBackup: 0 });
+  renderBackupReminder();
+}
+function autoBackupAfterLiveGame() {
+  return readBackupMeta().autoAfterLive !== false;
+}
+
+function renderBackupReminder() {
+  const el = document.getElementById("backupReminder");
+  if (!el) return;
+  const meta = readBackupMeta();
+  const days = meta.lastBackupAt ? Math.floor((Date.now() - meta.lastBackupAt) / 86400000) : null;
+  let text = "";
+  if (state.games.length > 0 && days === null) {
+    text = "Your games are saved only in this browser. Save a backup file so they're safe if it gets cleared.";
+  } else if (days !== null && days >= BACKUP_NUDGE_DAYS && (meta.editsSinceBackup || 0) > 0) {
+    text = `Last backup was ${days} days ago, and there have been changes since.`;
+  }
+  el.hidden = !text;
+  el.innerHTML = text ? `💾 ${text} <button type="button" class="secondary-btn" id="backupNowBtn">Save Backup</button>` : "";
+  document.getElementById("backupNowBtn")?.addEventListener("click", () => downloadBackup());
+}
+
+document.getElementById("exportAllJsonBtn").addEventListener("click", () => downloadBackup("pool-league-data.json"));
 
 // ---- Shot Arc hand-labeling (see shot-arc/FINDINGS.md) ----
 // A click-to-label tool for producing fine-tuning data: stock ball detection doesn't find the
@@ -13988,7 +14109,8 @@ document.getElementById("startNewSeasonBtn").addEventListener("click", async () 
   const today = new Date().toISOString().slice(0, 10);
   const label = prompt('Name the season that\'s ending (shown on player profiles and the "Include Past Seasons" toggle), e.g. "Summer 2026":', "");
   if (label === null) return;
-  if (!confirm("This archives every current game behind today's date and clears locally-stored video files. Games, stats, the player roster, and every player's height/build/role tags are all kept. Download JSON first if you want a full backup anyway. Continue?")) return;
+  if (!confirm("This archives every current game behind today's date and clears locally-stored video files. Games, stats, the player roster, and every player's height/build/role tags are all kept. A backup file downloads first. Continue?")) return;
+  downloadBackup();
   state.seasonHistory.push({ label: label.trim() || `Season ending ${today}`, startedAt: state.currentSeasonStartedAt, endedAt: today });
   state.currentSeasonStartedAt = today;
   saveState();
@@ -14004,7 +14126,8 @@ document.getElementById("startNewSeasonBtn").addEventListener("click", async () 
 });
 
 document.getElementById("resetDataBtn").addEventListener("click", () => {
-  if (!confirm("This will permanently delete all players, games, and stats. Continue?")) return;
+  if (!confirm("This will permanently delete all players, games, and stats. A backup file downloads first. Continue?")) return;
+  downloadBackup();
   state = { players: [], games: [], masterVideos: [], seasonHistory: [], currentSeasonStartedAt: null, playerPhysicalOverrides: {}, rsvps: [] };
   saveState();
   renderPlayers();
@@ -14116,6 +14239,15 @@ function renderPoolDataDigest() {
 }
 
 // ---------- Init ----------
+// Works offline once it's been opened with a connection (see sw.js). Needs https, or localhost
+// for testing; the files this page already loaded are handed over so the first visit counts.
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).then(reg => {
+    const urls = performance.getEntriesByType("resource").map(e => e.name)
+      .filter(u => !/\.(mp4|mov|webm|m4v)(\?|$)/i.test(u));
+    reg.active?.postMessage({ cacheUrls: [location.href.split("#")[0], ...urls] });
+  }).catch(() => { /* offline support is a bonus; the app works without it */ });
+}
 // Sticky bars under the header (section nav, sidebar) sit at the header's real height, which
 // changes with screen width and wrapping, instead of a fixed guess.
 (function trackHeaderHeight() {
