@@ -5876,12 +5876,11 @@ function computePlayerAwardBadges(playerId) {
       ? (isWinner ? award.winners : award.votedStandings[placementIndex].slug.split("|"))
       : null;
     const partnerId = pairSlugs ? pairSlugs.find(id => id !== playerId) || null : null;
-    const partner = partnerId ? state.players.find(p => p.id === partnerId) : null;
     return {
       key: award.key, label: award.label, icon: AWARD_ICONS[award.key] || "🏅",
       isWinner, tier: AWARD_TIER[award.key] || null, color: AWARD_TIER_COLOR[AWARD_TIER[award.key]] || null,
       placementLabel: AWARD_PLACEMENT_LABEL[placementIndex],
-      partnerName: partner ? partner.name : null, partnerId
+      partnerName: partnerId ? poolNameOf(partnerId) : null, partnerId
     };
   }).filter(Boolean);
 }
@@ -6196,8 +6195,11 @@ function renderPartyRecap() {
 
 // Every player with a real award win, sorted gold-first, for a hall-of-fame style grid.
 function computeTrophyCase() {
-  return state.players
-    .map(p => ({ player: p, tier: computePlayerAwardTier(p.id) }))
+  // Every real slug that's won a tiered award, not just whoever's in this browser's local roster
+  // — a real winner not added locally yet still belongs in the case, by name.
+  const winnerSlugs = [...new Set(AWARD_RESULTS.flatMap(a => AWARD_TIER[a.key] ? a.winners : []))];
+  return winnerSlugs
+    .map(slug => ({ slug, tier: computePlayerAwardTier(slug) }))
     .filter(r => r.tier)
     .sort((a, b) => a.tier.tier - b.tier.tier);
 }
@@ -6207,11 +6209,15 @@ function renderTrophyCase() {
   if (!wrap) return;
   const rows = computeTrophyCase();
   if (rows.length === 0) { wrap.innerHTML = '<p class="empty-state">Nobody has a real award win yet.</p>'; return; }
-  wrap.innerHTML = `<div class="trophy-case-grid">${rows.map(r => `
+  wrap.innerHTML = `<div class="trophy-case-grid">${rows.map(r => {
+    const local = state.players.find(p => p.id === r.slug);
+    const avatarPlayer = local || { id: r.slug, name: poolNameOf(r.slug) };
+    return `
     <div class="trophy-case-tile">
-      ${renderPlayerAvatar(r.player, "large", playerAvatarRingClass(r.player.id))}
-      ${playerLink(r.player.id, r.player.name)}
-    </div>`).join("")}</div>`;
+      ${renderPlayerAvatar(avatarPlayer, "large", playerAvatarRingClass(r.slug))}
+      ${poolPlayerLink(r.slug)}
+    </div>`;
+  }).join("")}</div>`;
 }
 
 // ---------- Real Rivalry Matrix ----------
@@ -6468,8 +6474,7 @@ function computeSeasonTimeline() {
   (computeUpsets() || []).forEach(u => { (upsetsByDate[u.date] = upsetsByDate[u.date] || []).push(u); });
   return [...POOLEAN_RANKINGS].sort((a, b) => a.date.localeCompare(b.date)).map(party => {
     const crown = party.players.find(p => p.rank === 1);
-    const crownPlayer = crown ? state.players.find(p => p.id === crown.slug) : null;
-    return { date: party.date, crownPlayer, crownSlug: crown ? crown.slug : null, fieldSize: party.players.length, upsets: upsetsByDate[party.date] || [] };
+    return { date: party.date, crownSlug: crown ? crown.slug : null, fieldSize: party.players.length, upsets: upsetsByDate[party.date] || [] };
   });
 }
 
@@ -6482,7 +6487,7 @@ function renderSeasonTimeline() {
     <li class="season-timeline-item">
       <span class="season-timeline-date">${escapeHtml(formatDateDisplay(e.date))}</span>
       <span class="season-timeline-body">
-        ${e.crownPlayer ? `👑 ${playerLink(e.crownPlayer.id, e.crownPlayer.name)} took the crown (${e.fieldSize} ranked)` : `${e.fieldSize} players ranked`}
+        ${e.crownSlug ? `👑 ${poolPlayerLink(e.crownSlug)} took the crown (${e.fieldSize} ranked)` : `${e.fieldSize} players ranked`}
         ${e.upsets.length > 0 ? `<br><span class="hint" style="margin:0">🎲 ${e.upsets.length} upset${e.upsets.length === 1 ? "" : "s"} that night</span>` : ""}
       </span>
     </li>`).join("")}</ul>`;
