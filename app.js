@@ -1759,6 +1759,33 @@ function teamWinRateAdjustment(team, winRateMap) {
   return { value: count > 0 ? sum / count : 0, minGp, anyReal };
 }
 
+// A one-sided real head-to-head is a different fact than the "Past record" win-rate adjustment
+// above: that adjustment only ever looks at two players who've shared a TEAM, and folds their
+// combined record into a single team's average quality. This instead looks across teams, at every
+// opposing pair in a candidate split, and flags any real matchup lopsided enough to be worth
+// knowing about -- e.g. one player who's 8-0 against another -- purely as a surfaced fact, never
+// folded into the quality/ranking math itself (unlike win-rate/chemistry, "who tends to guard or
+// outscore whom individually" isn't the same thing as "which team wins," so this doesn't try to
+// re-rank candidate splits by it).
+const REAL_AGAINST_WARNING_MIN_GP = 4;
+const REAL_AGAINST_WARNING_THRESHOLD = 0.75;
+function computeCrossTeamRivalryWarnings(teams) {
+  if (typeof POOLEAN_AGAINST === "undefined") return [];
+  const warnings = [];
+  for (let i = 0; i < teams.length; i++) {
+    for (let j = i + 1; j < teams.length; j++) {
+      teams[i].forEach(a => {
+        teams[j].forEach(b => {
+          const v = POOLEAN_AGAINST[`${a}|${b}`];
+          if (!v || v.gp < REAL_AGAINST_WARNING_MIN_GP) return;
+          if (v.w / v.gp >= REAL_AGAINST_WARNING_THRESHOLD) warnings.push({ dominant: a, dominated: b, w: v.w, l: v.l });
+        });
+      });
+    }
+  }
+  return warnings;
+}
+
 // ---------- Balance Teams: win probability model ----------
 // A small, honestly-scoped machine learning model: retrained on every render straight from this
 // browser's own logged games, never anything hardcoded or pre-fit. Single feature — the gap
@@ -2176,6 +2203,9 @@ function renderBalanceResults() {
     const previewHtml = r.teams.length === 2
       ? `<div class="balance-preview-wrap" id="balancePreview${i}" hidden>${renderMatchupPreviewTable(r.teams[0], r.teams[1])}</div>`
       : "";
+    const rivalryWarnings = computeCrossTeamRivalryWarnings(r.teams);
+    const rivalryHtml = rivalryWarnings.length === 0 ? "" : `<div class="balance-rivalry-warnings">${rivalryWarnings.map(w => `
+      <div class="balance-rivalry-warning" title="Real Poolean site record, not this browser's own logged games.">⚔️ ${poolPlayerLink(w.dominant)} is ${w.w}-${w.l} against ${poolPlayerLink(w.dominated)} in real games, on opposite teams tonight</div>`).join("")}</div>`;
     return `
       <div class="balance-option ${i === 0 ? "balance-option-best" : ""}">
         <div class="balance-option-header">
@@ -2183,6 +2213,7 @@ function renderBalanceResults() {
           <span class="balance-spread">Δ${r.spread.toFixed(1)} Two-Way/20 between strongest and weakest team</span>
         </div>
         <div class="balance-teams-row">${teamsHtml}</div>
+        ${rivalryHtml}
         ${buttonsHtml}
         ${previewHtml}
       </div>
