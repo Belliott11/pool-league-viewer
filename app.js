@@ -5874,15 +5874,17 @@ function computePlayerAwardTier(playerId) {
 // "frozen historical record" reasoning as Power Rankings and Real Game Record above it.
 function computeSeasonRecap() {
   if (typeof POOLEAN_SEASON_CARDS === "undefined") return null;
+  // Every real slug (POOLEAN_NAMES), not just this browser's own local roster -- the champion,
+  // top power rankings, and biggest mover all need to be right even when whoever they land on
+  // isn't in the local roster yet, not silently skip that person and show second-best instead.
   const mvp = AWARD_RESULTS.find(a => a.key === "mvp");
-  const champion = mvp ? state.players.find(p => p.id === mvp.winners[0]) : null;
+  const champion = mvp ? { slug: mvp.winners[0], name: poolNameOf(mvp.winners[0]) } : null;
   const awardRows = AWARD_RESULTS.map(a => ({
     label: a.label, icon: AWARD_ICONS[a.key] || "🏅", color: AWARD_TIER_COLOR[AWARD_TIER[a.key]] || null,
-    winners: a.winners.map(id => state.players.find(p => p.id === id)).filter(Boolean)
+    winners: a.winners.map(slug => ({ slug, name: poolNameOf(slug) }))
   }));
   const topPower = Object.entries(POOLEAN_SEASON_CARDS)
-    .map(([slug, card]) => ({ player: state.players.find(p => p.id === slug), card }))
-    .filter(r => r.player)
+    .map(([slug, card]) => ({ slug, name: poolNameOf(slug), card }))
     .sort((a, b) => b.card.powerPct - a.card.powerPct)
     .slice(0, 3);
   // Biggest movers: each player's rank at the very first real party versus their FINAL overall
@@ -5890,19 +5892,20 @@ function computeSeasonRecap() {
   // party's percentile, which is noisy (one good or bad night against a small field can swing it
   // to 0% or 100% on its own). Rank 1 is best either way, so a positive delta means moved up.
   let riser = null, faller = null;
-  if (typeof POOLEAN_RANKINGS !== "undefined" && POOLEAN_RANKINGS.length >= 1 && typeof POOLEAN_SEASON_CARDS !== "undefined") {
+  if (typeof POOLEAN_RANKINGS !== "undefined" && POOLEAN_RANKINGS.length >= 1) {
     const first = POOLEAN_RANKINGS[0];
     const overallRank = Object.fromEntries(
       Object.entries(POOLEAN_SEASON_CARDS).sort((a, b) => b[1].powerPct - a[1].powerPct).map(([slug], i) => [slug, i + 1])
     );
     const fieldSize = Object.keys(POOLEAN_SEASON_CARDS).length;
-    state.players.forEach(p => {
-      const f = first.players.find(x => x.slug === p.id);
-      const finalRank = overallRank[p.id];
+    Object.keys(POOLEAN_SEASON_CARDS).forEach(slug => {
+      const f = first.players.find(x => x.slug === slug);
+      const finalRank = overallRank[slug];
       if (!f || !finalRank) return;
       const delta = f.rank - finalRank;
-      if (!riser || delta > riser.delta) riser = { player: p, delta, from: f.rank, fromOf: first.players.length, to: finalRank, toOf: fieldSize };
-      if (!faller || delta < faller.delta) faller = { player: p, delta, from: f.rank, fromOf: first.players.length, to: finalRank, toOf: fieldSize };
+      const entry = { slug, name: poolNameOf(slug), delta, from: f.rank, fromOf: first.players.length, to: finalRank, toOf: fieldSize };
+      if (!riser || delta > riser.delta) riser = entry;
+      if (!faller || delta < faller.delta) faller = entry;
     });
   }
   return { champion, mvpAward: mvp, awardRows, topPower, riser, faller };
@@ -5928,10 +5931,10 @@ function renderSeasonRecap() {
       <span class="award-badge-sub">${a.winners.map(w => escapeHtml(w.name)).join(" + ") || "—"}</span>
     </span>`).join("");
   const topPowerHtml = recap.topPower.map((r, i) => `
-    <li>${i + 1}. ${playerLink(r.player.id, r.player.name)} <span class="hint" style="margin:0">${r.card.powerPct}% · ${r.card.crowns}× #1</span></li>`).join("");
+    <li>${i + 1}. ${poolPlayerLink(r.slug)} <span class="hint" style="margin:0">${r.card.powerPct}% · ${r.card.crowns}× #1</span></li>`).join("");
   const mover = (label, m) => !m ? "" : `<div class="real-partner-tile">
       <span class="real-partner-label">${label}</span>
-      ${playerLink(m.player.id, m.player.name)}
+      ${poolPlayerLink(m.slug)}
       <span class="real-partner-pct">${ordinal(m.from)} of ${m.fromOf} on Day 1 → ${ordinal(m.to)} overall (${m.delta >= 0 ? "+" : ""}${m.delta})</span>
     </div>`;
   wrap.innerHTML = `
@@ -5981,16 +5984,35 @@ function renderPlayerStreaks(playerId) {
 
 const RIVALRY_MIN_GP = 5;
 
+// This player's display name, whether or not they're in this browser's own local roster (state.
+// players) — falls back to POOLEAN_NAMES (the real site's own name for that slug), so a real
+// player who hasn't been added locally yet still shows by name instead of silently vanishing from
+// every real-data panel that touches them. poolPlayerLink() additionally links to their own page
+// when a local match exists, or shows plain (unlinked) text when it doesn't, since there's no
+// Player Detail page to send them to.
+function poolNameOf(slug) {
+  const p = state.players.find(x => x.id === slug);
+  if (p) return p.name;
+  return typeof POOLEAN_NAMES !== "undefined" ? POOLEAN_NAMES[slug] || slug : slug;
+}
+function poolPlayerLink(slug) {
+  const p = state.players.find(x => x.id === slug);
+  return p ? playerLink(p.id, p.name) : escapeHtml(poolNameOf(slug));
+}
+function poolKnownSlug(slug) {
+  if (state.players.some(p => p.id === slug)) return true;
+  return typeof POOLEAN_NAMES !== "undefined" && !!POOLEAN_NAMES[slug];
+}
+
 // League-wide rivalry superlatives from the full pairwise real data (POOLEAN_TOGETHER/AGAINST),
 // not one player's own view of it — the most-played pairing, the tightest and most lopsided real
 // head-to-head, and the closest real record for two players who've actually shared a team.
 function computeRivalries() {
   if (typeof POOLEAN_TOGETHER === "undefined") return null;
-  const nameOf = slug => (state.players.find(p => p.id === slug) || {}).name;
-  const pairLabel = key => key.split("|").map(nameOf);
+  const pairLabel = key => key.split("|").map(poolNameOf);
   let mostPlayed = null, bestTeam = null, fiercestRivalry = null, mostLopsided = null;
   Object.entries(POOLEAN_TOGETHER).forEach(([key, v]) => {
-    if (!nameOf(key.split("|")[0]) || !nameOf(key.split("|")[1])) return;
+    if (!poolKnownSlug(key.split("|")[0]) || !poolKnownSlug(key.split("|")[1])) return;
     if (!mostPlayed || v.gp > mostPlayed.gp) mostPlayed = { key, ...v };
     if (v.gp >= RIVALRY_MIN_GP) {
       const winPct = v.w / v.gp;
@@ -5999,14 +6021,14 @@ function computeRivalries() {
   });
   Object.entries(POOLEAN_AGAINST).forEach(([key, v]) => {
     const [a, b] = key.split("|");
-    if (!nameOf(a) || !nameOf(b) || a > b) return; // one direction per pair is enough to compare
+    if (!poolKnownSlug(a) || !poolKnownSlug(b) || a > b) return; // one direction per pair is enough to compare
     if (v.gp < RIVALRY_MIN_GP) return;
     const dist = Math.abs(v.w / v.gp - 0.5);
     if (!fiercestRivalry || dist < fiercestRivalry.dist) fiercestRivalry = { key, ...v, dist };
     if (!mostLopsided || dist > mostLopsided.dist) mostLopsided = { key, ...v, dist };
   });
   if (!mostPlayed && !bestTeam && !fiercestRivalry && !mostLopsided) return null;
-  return { mostPlayed, bestTeam, fiercestRivalry, mostLopsided, nameOf, pairLabel };
+  return { mostPlayed, bestTeam, fiercestRivalry, mostLopsided, pairLabel };
 }
 
 function renderRivalries() {
@@ -6088,7 +6110,7 @@ function renderUpsetTracker() {
   const upsets = computeUpsets();
   if (!upsets) { wrap.innerHTML = '<p class="empty-state">No real-site game/ranking data loaded yet.</p>'; return; }
   if (upsets.length === 0) { wrap.innerHTML = '<p class="empty-state">No upsets found — the favorite always won, by this measure.</p>'; return; }
-  const nameOf = slug => { const p = state.players.find(x => x.id === slug); return p ? playerLink(p.id, p.name) : escapeHtml(slug); };
+  const nameOf = poolPlayerLink;
   const rows = upsets.slice(0, 10).map(u => `
     <tr>
       <td>${escapeHtml(formatDateDisplay(u.date))}</td>
@@ -6117,8 +6139,7 @@ function computePartyRecap(date) {
     g.b.forEach(slug => record[slug][g.w === "B" ? "w" : "l"]++);
   });
   const standings = Object.entries(record)
-    .map(([slug, wl]) => ({ player: state.players.find(p => p.id === slug), slug, ...wl }))
-    .filter(r => r.player)
+    .map(([slug, wl]) => ({ slug, ...wl }))
     .sort((a, b) => (b.w - b.l) - (a.w - a.l) || b.w - a.w);
   const nightUpsets = (computeUpsets() || []).filter(u => u.date === date);
   return { date, games: games.length, standings, upsets: nightUpsets };
@@ -6136,7 +6157,7 @@ function renderPartyRecap() {
   }
   const recap = computePartyRecap(select.value || dates[0]);
   if (!recap) { wrap.innerHTML = '<p class="empty-state">No games that night.</p>'; return; }
-  const standingsHtml = recap.standings.map(r => `<li>${playerLink(r.player.id, r.player.name)} <span class="hint" style="margin:0">${r.w}-${r.l}</span></li>`).join("");
+  const standingsHtml = recap.standings.map(r => `<li>${poolPlayerLink(r.slug)} <span class="hint" style="margin:0">${r.w}-${r.l}</span></li>`).join("");
   const upsetsHtml = recap.upsets.length === 0 ? "" : `<p class="hint" style="margin:10px 0 0">🎲 ${recap.upsets.length} upset${recap.upsets.length === 1 ? "" : "s"} that night.</p>`;
   wrap.innerHTML = `<p class="hint" style="margin:0 0 10px">${recap.games} game${recap.games === 1 ? "" : "s"} that night.</p>
     <ul class="player-tips-list" style="display:block">${standingsHtml}</ul>${upsetsHtml}`;
@@ -6170,22 +6191,24 @@ function renderRealRivalryMatrix() {
   const wrap = document.getElementById("realRivalryMatrix");
   if (!wrap) return;
   if (typeof POOLEAN_TOGETHER === "undefined") { wrap.innerHTML = '<p class="empty-state">No real-site pairwise data loaded yet.</p>'; return; }
-  const active = state.players.filter(p => Object.keys(POOLEAN_TOGETHER).some(k => k.split("|").includes(p.id)));
-  if (active.length < 2) { wrap.innerHTML = '<p class="empty-state">Not enough real-site pairwise data yet.</p>'; return; }
-  const players = [...active].sort((a, b) => a.name.localeCompare(b.name));
+  // Every real slug that appears in POOLEAN_TOGETHER, whether or not they're in this browser's
+  // own local roster -- a real player not yet added locally still gets a row/column, by name.
+  const activeSlugs = [...new Set(Object.keys(POOLEAN_TOGETHER).flatMap(k => k.split("|")))];
+  if (activeSlugs.length < 2) { wrap.innerHTML = '<p class="empty-state">Not enough real-site pairwise data yet.</p>'; return; }
+  const slugs = activeSlugs.sort((a, b) => poolNameOf(a).localeCompare(poolNameOf(b)));
   const maxGp = Math.max(1, ...Object.values(POOLEAN_TOGETHER).map(v => v.gp));
-  const headerHtml = players.map(p => `<th>${playerLink(p.id, p.name, false)}</th>`).join("");
-  const rows = players.map(rowP => {
-    const cells = players.map(colP => {
-      if (rowP.id === colP.id) return `<td class="matchup-grid-cell"></td>`;
-      const v = POOLEAN_TOGETHER[[rowP.id, colP.id].sort().join("|")];
+  const headerHtml = slugs.map(s => `<th>${poolPlayerLink(s)}</th>`).join("");
+  const rows = slugs.map(rowSlug => {
+    const cells = slugs.map(colSlug => {
+      if (rowSlug === colSlug) return `<td class="matchup-grid-cell"></td>`;
+      const v = POOLEAN_TOGETHER[[rowSlug, colSlug].sort().join("|")];
       if (!v) return `<td class="matchup-grid-cell matchup-grid-empty"></td>`;
       const pct = Math.round((v.w / v.gp) * 100);
       const hue = pct >= 50 ? 140 : 0;
       const opacity = 0.2 + 0.6 * (v.gp / maxGp);
-      return `<td class="matchup-grid-cell" style="background: hsla(${hue}, 70%, 42%, ${opacity})" title="${escapeHtml(rowP.name)} &amp; ${escapeHtml(colP.name)}: ${v.w}-${v.l} together">${pct}%</td>`;
+      return `<td class="matchup-grid-cell" style="background: hsla(${hue}, 70%, 42%, ${opacity})" title="${escapeHtml(poolNameOf(rowSlug))} &amp; ${escapeHtml(poolNameOf(colSlug))}: ${v.w}-${v.l} together">${pct}%</td>`;
     }).join("");
-    return `<tr><td class="sticky-col">${playerLink(rowP.id, rowP.name, false)}</td>${cells}</tr>`;
+    return `<tr><td class="sticky-col">${poolPlayerLink(rowSlug)}</td>${cells}</tr>`;
   }).join("");
   wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
     <thead><tr><th></th>${headerHtml}</tr></thead>
@@ -6226,8 +6249,11 @@ function renderPlayerAttendanceStreak(playerId) {
 // as a tie, not silently pick a winner.
 function computeIronMan() {
   if (typeof POOLEAN_RANKINGS === "undefined") return null;
-  const all = state.players
-    .map(p => ({ player: p, streak: computePlayerAttendanceStreak(p.id) }))
+  // Every real slug (POOLEAN_NAMES), not just this browser's local roster -- a real player who
+  // hasn't been added locally yet can still hold (or share) the real attendance streak.
+  const slugs = typeof POOLEAN_NAMES !== "undefined" ? Object.keys(POOLEAN_NAMES) : state.players.map(p => p.id);
+  const all = slugs
+    .map(slug => ({ slug, streak: computePlayerAttendanceStreak(slug) }))
     .filter(r => r.streak);
   if (all.length === 0) return null;
   const longest = Math.max(...all.map(r => r.streak.longest));
@@ -6239,7 +6265,7 @@ function renderIronMan() {
   if (!wrap) return;
   const result = computeIronMan();
   if (!result) { wrap.innerHTML = '<p class="empty-state">No real-site attendance data loaded yet.</p>'; return; }
-  const names = result.holders.map(r => playerLink(r.player.id, r.player.name)).join(", ");
+  const names = result.holders.map(r => poolPlayerLink(r.slug)).join(", ");
   wrap.innerHTML = `<div class="real-partner-tile">
     <span class="real-partner-label">Iron Man${result.holders.length > 1 ? " (tied)" : ""}</span>
     <span>${names}</span>
