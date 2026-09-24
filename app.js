@@ -1346,16 +1346,19 @@ function renderShotLocationGapSummary() {
 // ---------- Balance Teams ----------
 // Real season-average power-ranking percentile per player, pulled from Ben's own
 // poolean_player_profiles.xlsx ("Power Rankings & Awards" sheet) — a frozen external snapshot,
-// same hand-edited-historical-record pattern as AWARD_RESULTS/PARTY_RANKINGS, not derived from
-// anything in state. Covers every player who's attended at least one real-life party, including
-// the many with zero dashboard stats logged (no film reviewed yet) — exactly the gap Balance
-// Teams' quality estimate needs filling, since defaulting a player with no games to a flat 0.0
-// treats a real MVP-caliber player and a total beginner identically. Only ever used as a
-// *fallback* below, for a player with no dashboard stats — anyone with real logged games keeps
-// using their own Two-Way/20, untouched. Deliberately doesn't fold in anything from the
-// spreadsheet's "Player Profiles" sheet (attitude, effort, preferred role, shooting tendency,
-// free-text notes) — that's Ben's own subjective scouting, not something to silently encode into
-// a numeric fairness score. Update this table by hand if a newer export exists.
+// Only ever a fallback now: computePooleanReputation() below prefers the real, current
+// POOLEAN_SEASON_CARDS import whenever a player is in it (which is every party-going player
+// once an export's been loaded, so this table stops mattering the moment one has been), and this
+// stays frozen at whatever season it was hand-copied from otherwise. Keeps the app working for a
+// player from a season that predates any export existing at all. Covers every player who's
+// attended at least one real-life party, including the many with zero dashboard stats logged (no
+// film reviewed yet) — exactly the gap Balance Teams' quality estimate needs filling, since
+// defaulting a player with no games to a flat 0.0 treats a real MVP-caliber player and a total
+// beginner identically. Only ever used as a *fallback*, for a player with no dashboard stats —
+// anyone with real logged games keeps using their own Two-Way/20, untouched. Deliberately
+// doesn't fold in anything from the spreadsheet's "Player Profiles" sheet (attitude, effort,
+// preferred role, shooting tendency, free-text notes) — that's Ben's own subjective scouting,
+// not something to silently encode into a numeric fairness score.
 const PLAYER_REPUTATION_DATA = [
   { slug: "phillip", avgPercentile: 100, parties: 4 },
   { slug: "logan-hoskins", avgPercentile: 88.9, parties: 1 },
@@ -1477,6 +1480,18 @@ function estimatedQualityFromReputation(avgPercentile, parties) {
   return avgPercentile === 100 && parties >= 2 ? base + CLEAN_SWEEP_BONUS : base;
 }
 
+// This player's power-ranking reputation for the fallback above: the real site's current
+// season_cards line (POOLEAN_SEASON_CARDS, already on whichever season the header picker has
+// selected) when they're in it, so this always matches the site instead of a hand-typed snapshot
+// that goes stale the moment a new season updates the rankings. PLAYER_REPUTATION_DATA is only
+// checked for a player missing from that (a season before any export existed).
+function computePooleanReputation(playerId) {
+  const card = typeof POOLEAN_SEASON_CARDS !== "undefined" ? POOLEAN_SEASON_CARDS[playerId] : null;
+  if (card) return { avgPercentile: card.powerPct, parties: card.parties };
+  const rep = PLAYER_REPUTATION_BY_ID[playerId];
+  return rep ? { avgPercentile: rep.avgPercentile, parties: rep.parties } : null;
+}
+
 // Every attendee's balancing quality plus where it came from, computed once per generate/render
 // pass so the attendee picker, the results, and the search itself all agree with each other.
 function computeBalanceQualityMap() {
@@ -1486,7 +1501,7 @@ function computeBalanceQualityMap() {
     if (r.gp > 0) {
       map[r.player.id] = { quality: r.twoWayPer20, source: "stats" };
     } else {
-      const rep = PLAYER_REPUTATION_BY_ID[r.player.id];
+      const rep = computePooleanReputation(r.player.id);
       map[r.player.id] = rep
         ? { quality: estimatedQualityFromReputation(rep.avgPercentile, rep.parties), source: "reputation", avgPercentile: rep.avgPercentile, parties: rep.parties }
         : { quality: 0, source: "none" };
@@ -2127,7 +2142,7 @@ function scorePhysicalBalance(teams) {
 }
 
 // Season Two-Way/20 — or, for a player with no games logged yet, a reputation-based estimate
-// from PLAYER_REPUTATION_DATA (real power-ranking percentile, not a flat neutral 0) — is the
+// from computePooleanReputation() (real power-ranking percentile, not a flat neutral 0) — is the
 // balancing currency: Two-Way/20 is already this tool's single "how good, overall" number, used
 // the same way for MVP-style comparisons elsewhere. Team count is whichever integer is closest
 // to attendees/teamSize (at least 2, since a "team" needs an opponent) — for example 7 attendees
@@ -6325,23 +6340,42 @@ function renderIndividualGamePerformances() {
   });
 }
 
-// Every season's voted awards, straight from each season's closed ballot (award_results in the
-// season spreadsheet); `season` is the year. Add a new season's entries by hand once its voting
-// closes (the site export deliberately leaves awards out). Fixed, historical facts, not something this tool derives or
-// could recompute. `winners` are player slugs, which match this tool's own player.id for anyone
-// imported from poolean-seed.json (see INTEGRATION.md). `statKey` says which tracked stat is
-// the closest comparison for that award; null means there's no tracked equivalent to compare
-// against, so the panel says that plainly instead of forcing a stretch metric onto it. MVP uses
-// season-long Two-Way total rather than a per-20 rate, on the theory that "played a lot and
-// contributed a lot" should outweigh a slightly higher rate over fewer games for that specific
-// award — every other award here still compares on the per-20 rate.
-// `votedStandings` is the real ballot tally (`award_tally_long`'s `borda_points` measure —
-// `pair_votes` for the two duo awards, which aren't single-candidate ballots) for every
-// candidate who got at least one vote, not just the winner — a genuine second ranking to sit
-// next to the stat standings, sourced from the same spreadsheet as everything else here. `name`
-// is the display name straight from that sheet (pre-joined as "X + Y" for a duo), so this list
-// never depends on whether that person happens to be in the current browser's roster.
-const ALL_AWARD_RESULTS = [
+// What each award key means: its display label, the closest tracked stat for the Award Race/
+// Awards vs. Stats comparison (null when there isn't a real one, so the panel says that plainly
+// rather than forcing a stretch metric onto it — MVP uses season-long Two-Way total rather than
+// a per-20 rate, on the theory that "played a lot and contributed a lot" should outweigh a
+// slightly higher rate over fewer games for that specific award), and whether it's a pair award.
+// Static across every season (an award's own meaning doesn't change year to year), unlike the
+// winners/votedStandings below, which are that season's real result.
+const AWARD_LABELS = {
+  mvp: "MVP", "best-player": "Best Player", dpoy: "Defensive Player of the Year", clutch: "Clutch",
+  "mip-season": "Most Improved (Season)", "mip-yoy": "Most Improved (Year-over-Year)",
+  teammate: "Best Teammate", "first-team": "First Team", "second-team": "Second Team",
+  "best-duo": "Best Duo", "worst-duo": "Worst Duo"
+};
+const AWARD_STAT_KEYS = {
+  mvp: "twoWayTotal", "best-player": "twoWay", dpoy: "defRating", clutch: "closeGameTs",
+  "mip-season": "trend", "mip-yoy": null, teammate: "teammateLift",
+  "first-team": "twoWay", "second-team": "twoWay", "best-duo": null, "worst-duo": null
+};
+const AWARD_IS_DUO = new Set(["best-duo", "worst-duo"]);
+
+// A season's voted awards, straight from that season's closed ballot: `winners` (player slugs,
+// matching this tool's own player.id for anyone imported from poolean-seed.json — see
+// INTEGRATION.md) and `votedStandings` (the real ballot tally — `award_tally_long`'s
+// `borda_points` measure, `pair_votes` for the two duo awards, for every candidate who got at
+// least one vote, not just the winner — a genuine second ranking to sit next to the stat
+// standings, `name` pre-joined as "X + Y" for a duo so this list never depends on whether that
+// person happens to be in the current browser's roster). Fixed, historical facts, not something
+// this tool derives or could recompute.
+//
+// Imported automatically (build_poolean_data.py, into each season's own POOLEAN_SEASONS[year]
+// .awards) once that season's voting closes and its export is re-run — nothing to type by hand.
+// MANUAL_AWARD_RESULTS below is only a fallback, for a season whose export predates that (or a
+// season entered before an export existed at all); computeAllAwardResults() prefers the imported
+// version whenever both exist for the same season, so this list is never checked once real data
+// is available.
+const MANUAL_AWARD_RESULTS = [
   { season: 2026, key: "mvp", label: "MVP", winners: ["ben"], statKey: "twoWayTotal", votedStandings: [
     { slug: "ben", name: "Ben", points: 18 }, { slug: "adam", name: "Adam", points: 11 },
     { slug: "phillip", name: "Phillip", points: 7 }, { slug: "reilly", name: "Reilly", points: 6 },
@@ -6409,6 +6443,27 @@ const ALL_AWARD_RESULTS = [
     { slug: "alex|viraj", name: "Alex + Viraj", points: 1 }
   ] }
 ];
+
+// Every season's awards, one list across the whole history: each imported season's own real
+// data (POOLEAN_SEASONS[year].awards, see build_poolean_data.py) plus MANUAL_AWARD_RESULTS for
+// any season that has none imported yet — imported always wins when a season has both, so a
+// hand-typed entry silently stops being used the moment a real import covers the same season.
+function computeAllAwardResults() {
+  const imported = [];
+  if (typeof POOLEAN_SEASONS !== "undefined") {
+    Object.keys(POOLEAN_SEASONS).forEach(year => {
+      (POOLEAN_SEASONS[year].awards || []).forEach(a => imported.push({
+        season: Number(year), key: a.key, label: AWARD_LABELS[a.key] || a.key,
+        winners: a.winners, statKey: AWARD_STAT_KEYS[a.key] ?? null,
+        isDuo: AWARD_IS_DUO.has(a.key), votedStandings: a.votedStandings
+      }));
+    });
+  }
+  const importedSeasons = new Set(imported.map(a => a.season));
+  const manual = MANUAL_AWARD_RESULTS.filter(a => !importedSeasons.has(a.season));
+  return [...manual, ...imported];
+}
+const ALL_AWARD_RESULTS = computeAllAwardResults();
 
 // The awards for whichever real season is picked in the header (setPooleanSeason() below
 // reassigns this). ALL_AWARD_RESULTS stays the full history, for the avatar ring and badges.
