@@ -79,6 +79,32 @@
     // block rendering ASAP) — deferred to DOMContentLoaded so the lookup doesn't just silently
     // find nothing. Wired unconditionally, once, regardless of which branch below runs, since the
     // button itself is only ever visible after the gate is already unlocked.
+    //
+    // The "Me" tab button (meTabBtn, hidden by default in the markup) is the fix for a real
+    // report: a friend signs in, taps Games or Leaderboard, and has no way back to their own
+    // profile except the 👤 button above — which actually signs them OUT (it exists to let a
+    // different person use the same device), so "getting back to my profile" meant re-entering
+    // the PIN and picking their name again every time. For a signed-in (non-guest) player, this
+    // shows that button and always sends it to THEIR OWN profile specifically (not just whatever
+    // tab-player happens to be showing, which could be someone else's after browsing the
+    // Leaderboard) — a plain generic tab switch isn't enough for that. A guest has no personal
+    // profile to jump to, so it stays hidden for them, same as it always has been.
+    function wireMeTab(playerId) {
+      // The already-unlocked path runs before DOMContentLoaded (same as switchProfileBtn's own
+      // wiring above), but the fresh-unlock path runs from a form submit — long after
+      // DOMContentLoaded already fired, so a listener added for it at that point would never run.
+      var run = function () {
+        var meBtn = document.getElementById("meTabBtn");
+        if (!meBtn) return;
+        meBtn.hidden = false;
+        meBtn.addEventListener("click", function () {
+          if (typeof openPlayerDetail === "function") openPlayerDetail(playerId);
+        });
+      };
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
+      else run();
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
       var switchBtn = document.getElementById("switchProfileBtn");
       if (!switchBtn) return;
@@ -93,7 +119,10 @@
     if (localStorage.getItem(KEY) === "1") {
       overlay.remove();
       var savedPlayerId = localStorage.getItem(PLAYER_KEY);
-      if (savedPlayerId && !location.hash) location.hash = "#player=" + encodeURIComponent(savedPlayerId);
+      if (savedPlayerId) {
+        if (!location.hash) location.hash = "#player=" + encodeURIComponent(savedPlayerId);
+        wireMeTab(savedPlayerId);
+      }
       return;
     }
 
@@ -150,6 +179,7 @@
       if (!isGuest) {
         location.hash = "#player=" + encodeURIComponent(nameSelect.value);
         if (typeof openPlayerDetail === "function") openPlayerDetail(nameSelect.value);
+        wireMeTab(nameSelect.value);
       }
     });
   })();

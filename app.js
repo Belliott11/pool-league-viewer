@@ -13667,6 +13667,19 @@ function wireSectionNavExtras(tabSelector, idPrefix) {
   }
 }
 
+// The blanket `[id] { scroll-margin-top: var(--header-h) + 12px }` rule in style.css clears the
+// sticky app header, but a section-nav pill's own nav row is ALSO sticky (pinned right below the
+// header, see .player-section-nav's `top: var(--header-h)`), so jumping to a section needs that
+// nav's height added too or the section's own heading lands hidden behind the nav. Measured live
+// off the actual button clicked (its closest .player-section-nav), rather than a fixed guess,
+// since the nav can wrap to more than one row depending on viewport width and pill count.
+function scrollBelowStickyNav(section, navBtn) {
+  const nav = navBtn.closest(".player-section-nav");
+  const navH = nav ? nav.getBoundingClientRect().height : 0;
+  section.style.scrollMarginTop = `calc(var(--header-h, 84px) + ${Math.ceil(navH)}px + 12px)`;
+  section.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function wirePlayerSectionNav() {
   // Scoped to #tab-player: the Leaderboard tab's own section nav (wireLeaderboardSectionNav)
   // reuses the same .player-section-nav-link class and would otherwise get a second, wrong
@@ -13676,7 +13689,7 @@ function wirePlayerSectionNav() {
       const section = document.getElementById(`section-${btn.dataset.section}`);
       if (!section) return;
       section.open = true;
-      section.scrollIntoView({ behavior: "smooth", block: "start" });
+      scrollBelowStickyNav(section, btn);
     });
   });
   wireSectionNavExtras("#tab-player", "section-");
@@ -13711,7 +13724,7 @@ function wireLeaderboardSectionNav() {
       const section = document.getElementById(`lb-section-${btn.dataset.section}`);
       if (!section) return;
       section.open = true;
-      section.scrollIntoView({ behavior: "smooth", block: "start" });
+      scrollBelowStickyNav(section, btn);
     });
   });
   wireSectionNavExtras("#tab-leaderboard", "lb-section-");

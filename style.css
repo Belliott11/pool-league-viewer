@@ -149,6 +149,15 @@ main {
    reach it — a sticky element doesn't shrink to fit on its own, it just pins its top edge and lets
    its bottom run off-screen on a short window. overflow-y:auto here means the sidebar scrolls
    independently of the page once it's taller than the space available under the sticky offset. */
+/* Anything a scrollIntoView({block:"start"}) jump can land on (a section-nav pill, "Jump to
+   review", "Fill them in", etc.) should stop below the sticky header, not flush with the
+   viewport's own top edge, which the header covers. Scoped to every element with an id rather
+   than chasing each jump target individually, since scroll-margin only ever affects scrolling
+   itself, never normal layout, so a blanket rule here is free. */
+[id] {
+  scroll-margin-top: calc(var(--header-h, 84px) + 12px);
+}
+
 .tab-sidebar {
   position: sticky;
   top: calc(var(--header-h, 84px) + 12px);
