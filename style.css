@@ -2146,11 +2146,15 @@ button:disabled {
   margin-left: 6px;
 }
 
-/* Player page: grouped sections (League Rank on down) */
+/* Player page: grouped sections (League Rank on down). The pill row and the Expand All button
+   are two separate flex children (not one scrolling group) on purpose: Expand All used to live
+   inside the same scrolling row, pinned with position:sticky so it stayed reachable -- but that
+   meant it was permanently painted on top of whichever pill happened to be scrolled underneath it,
+   even at rest, clipping that pill's own text. Keeping it a true sibling outside the scrollable
+   area means there's nothing for it to ever sit on top of. */
 .player-section-nav {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   margin: 0 0 14px;
   position: sticky;
@@ -2160,6 +2164,14 @@ button:disabled {
   backdrop-filter: saturate(180%) blur(16px);
   -webkit-backdrop-filter: saturate(180%) blur(16px);
   padding: 8px 0;
+}
+.player-section-nav-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .player-section-nav-link {
   background: var(--panel-bg);
@@ -2178,7 +2190,7 @@ button:disabled {
   color: var(--accent);
 }
 .player-section-expand-all {
-  margin-left: auto;
+  flex: 0 0 auto;
   background: none;
   border: 1px dashed color-mix(in srgb, var(--muted) 50%, transparent);
   color: var(--muted);
@@ -2337,27 +2349,20 @@ button:disabled {
   border: 1px solid color-mix(in srgb, var(--danger, #e0555a) 40%, transparent);
 }
 
-/* Section nav on phones: one row you swipe sideways instead of 2-3 wrapped rows eating the
-   screen, with Expand all pinned at the right edge so it never scrolls out of reach. */
+/* Section nav on phones: the pill row swipes sideways in its own scroll area (not the whole nav
+   bar), so Expand All -- a true sibling now, see the plain rule above -- always just sits at the
+   end of the bar in its own reserved space instead of needing to pin itself over the scrolling
+   content. */
 @media (max-width: 700px) {
-  .player-section-nav {
+  .player-section-nav-scroll {
     flex-wrap: nowrap;
     overflow-x: auto;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
-    padding: 8px 0;
   }
-  .player-section-nav::-webkit-scrollbar { display: none; }
+  .player-section-nav-scroll::-webkit-scrollbar { display: none; }
   .player-section-nav-link { flex: 0 0 auto; white-space: nowrap; }
-  .player-section-expand-all {
-    flex: 0 0 auto;
-    white-space: nowrap;
-    position: sticky;
-    right: 0;
-    background: var(--panel-bg);
-    border-style: solid;
-    box-shadow: -10px 0 10px -4px var(--bg);
-  }
+  .player-section-expand-all { white-space: nowrap; }
 }
 
 /* Header season picker (only shown once there's more than one season) */
@@ -2565,7 +2570,32 @@ body.live-open { overflow: hidden; }
   text-overflow: ellipsis;
 }
 .bottom-tab-btn.active { color: var(--primary-dark); background: var(--surface-muted); }
-.bottom-tab-icon { font-size: 1.3rem; line-height: 1; }
+.bottom-tab-icon { font-size: 1.3rem; line-height: 1; position: relative; }
+
+/* Live Game's own bottom-bar button: not a real tab (no data-tab, doesn't get the generic
+   .tab-btn click wiring or active-state), just a dedicated shortcut into it from anywhere. The
+   red dot only shows once a game is actually in progress (see updateLiveNavIndicator in app.js),
+   so at rest it looks like any other bottom-bar action. */
+.bottom-tab-live-dot { display: none; }
+.bottom-tab-live.has-live .bottom-tab-live-dot {
+  display: block;
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger, #e0555a);
+  box-shadow: 0 0 0 2px var(--header-bg-translucent);
+  animation: liveDotPulse 1.6s ease-in-out infinite;
+}
+@keyframes liveDotPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(1.25); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bottom-tab-live.has-live .bottom-tab-live-dot { animation: none; }
+}
 
 /* "Add to Home Screen" banner */
 .install-banner {

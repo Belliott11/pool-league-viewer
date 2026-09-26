@@ -621,13 +621,21 @@ function showTab(tab) {
 }
 
 // ---------- Players (league-wide roster) ----------
+// Shared by the Players tab's own form and Live Game's inline one -- adding someone new
+// shouldn't require leaving whichever screen you're already on to do it.
+function addNewPlayer(rawName) {
+  const name = rawName.trim();
+  if (!name) return null;
+  const player = { id: uid("player"), name };
+  state.players.push(player);
+  saveState();
+  return player;
+}
+
 document.getElementById("addPlayerForm").addEventListener("submit", e => {
   e.preventDefault();
   const nameInput = document.getElementById("playerNameInput");
-  const name = nameInput.value.trim();
-  if (!name) return;
-  state.players.push({ id: uid("player"), name });
-  saveState();
+  if (!addNewPlayer(nameInput.value)) return;
   nameInput.value = "";
   renderPlayers();
 });
@@ -1486,6 +1494,16 @@ function estimatedQualityFromReputation(avgPercentile, parties) {
   return avgPercentile === 100 && parties >= 2 ? base + CLEAN_SWEEP_BONUS : base;
 }
 
+// Real percentile assumed for a player with literally no track record at all -- no logged
+// stats, no real-site power ranking, ever. Deliberately low, not a neutral 50: an unproven
+// wildcard is a real risk in a team split, not a known-average quantity, and crediting them as
+// "average" is the more dangerous assumption to get wrong. 10 sits clearly below the real
+// season's own average, but well above the true floor (several real players did finish real
+// nights at 0%) -- a genuine "assume they're likely still learning," not "assume the worst human
+// possible." Shared by Balance Teams' fallback quality (below) and the Matchup Predictor (see
+// realMatchupLookups/buildRealMatchupRows), so both treat "we simply don't know" the same way.
+const UNKNOWN_PLAYER_PCT = 10;
+
 // This player's power-ranking reputation for the fallback above: the real site's current
 // season_cards line (POOLEAN_SEASON_CARDS, already on whichever season the header picker has
 // selected) when they're in it, so this always matches the site instead of a hand-typed snapshot
@@ -1510,7 +1528,7 @@ function computeBalanceQualityMap() {
       const rep = computePooleanReputation(r.player.id);
       map[r.player.id] = rep
         ? { quality: estimatedQualityFromReputation(rep.avgPercentile, rep.parties), source: "reputation", avgPercentile: rep.avgPercentile, parties: rep.parties }
-        : { quality: 0, source: "none" };
+        : { quality: estimatedQualityFromReputation(UNKNOWN_PLAYER_PCT, 0), source: "none" };
     }
   });
   return map;
@@ -1885,7 +1903,7 @@ function buildRealMatchupRows() {
       const pctOf = id => {
         const v = nightPcts[id];
         if (v && v.length) return v.reduce((x, y) => x + y, 0) / v.length;
-        return prevCards && prevCards[id] ? prevCards[id].powerPct : 50;
+        return prevCards && prevCards[id] ? prevCards[id].powerPct : UNKNOWN_PLAYER_PCT;
       };
       const x = realMatchupFeatures(g.a, g.b, pctOf, (p, q) => together[[p, q].sort().join("|")], (p, q) => against[`${p}|${q}`]);
       const aWon = g.w === "A";
@@ -1925,7 +1943,7 @@ function realMatchupLookups() {
     add(against, season.against);
   });
   return {
-    pctOf: id => pct[id] ?? 50,
+    pctOf: id => pct[id] ?? UNKNOWN_PLAYER_PCT,
     hasPct: id => id in pct,
     togetherOf: (p, q) => together[[p, q].sort().join("|")],
     againstOf: (p, q) => against[`${p}|${q}`]
@@ -2071,7 +2089,7 @@ function renderMatchupOddsHtml(teamA, teamB, pred) {
   const names = ids => ids.map(poolPlayerLink).join(", ");
   const factorHtml = pred.factors.filter(f => Math.abs(f.lean) >= 1).map(f =>
     `<li>${escapeHtml(f.label)}: leans ${f.lean > 0 ? "Team A" : "Team B"} +${Math.round(Math.abs(f.lean))}%</li>`).join("");
-  const unranked = pred.unranked.length ? `<p class="hint" style="margin:6px 0 0">No power ranking yet for ${pred.unranked.map(id => escapeHtml(poolNameOf(id))).join(", ")}, counted as average.</p>` : "";
+  const unranked = pred.unranked.length ? `<p class="hint" style="margin:6px 0 0">No power ranking yet for ${pred.unranked.map(id => escapeHtml(poolNameOf(id))).join(", ")}, counted as well below average until they've actually played.</p>` : "";
   return `<div class="matchup-odds">
       <div class="matchup-odds-side"><span class="matchup-odds-pct">${pA}%</span><span class="matchup-odds-label">Team A</span><span class="matchup-odds-names">${names(teamA)}</span></div>
       <div class="matchup-odds-side matchup-odds-side-b"><span class="matchup-odds-pct">${pB}%</span><span class="matchup-odds-label">Team B</span><span class="matchup-odds-names">${names(teamB)}</span></div>
@@ -2513,7 +2531,6 @@ function applyBalancedTeamsToNewGame(teamA, teamB) {
 // defenders or assists were tracked); it counts once it's logged from film in Stat Entry, like
 // any other unreviewed game. Saved after every tap, so a locked phone or closed tab loses
 // nothing. Only on the dashboard (needs #liveGamePanel).
-const LIVE_TARGETS = [16, 21];
 let liveSetupSides = {};
 let liveWakeLock = null;
 
@@ -2536,10 +2553,10 @@ function startLiveGame(teamA, teamB) {
   const existing = liveGameInProgress();
   if (existing && !confirm("A live game is already going. Finish it and start this one?")) { openLiveGameOverlay(); return; }
   if (existing) finishLiveGame(existing, false);
-  const targetSel = document.getElementById("liveTargetSelect");
+  const targetInput = document.getElementById("liveTargetInput");
   const date = document.getElementById("gameDateInput").value || new Date().toISOString().slice(0, 10);
   const game = { id: uid("game"), date, videoUrl: "", notes: "", winner: null, teamA: [...teamA], teamB: [...teamB], stats: [], matchups: [], scoringEvents: [], plays: [],
-    liveScores: [], liveInProgress: true, liveTarget: Number(targetSel?.value) || 21 };
+    liveScores: [], liveInProgress: true, liveTarget: Math.max(1, Number(targetInput?.value) || 21) };
   normalizeGame(game);
   state.games.push(game);
   saveState();
@@ -2589,11 +2606,20 @@ function closeLiveGameOverlay() {
   document.body.classList.remove("live-open");
   try { liveWakeLock?.release(); } catch (e) { /* already released */ }
   liveWakeLock = null;
+  updateLiveNavIndicator();
+}
+
+// The bottom bar's own "Live" button (see index.html): a red dot while a game is actually in
+// progress, so it doubles as "there's a game going, tap to get back to it" from anywhere in the
+// app, not just once you've already navigated to Games.
+function updateLiveNavIndicator() {
+  document.getElementById("liveNavBtn")?.classList.toggle("has-live", !!liveGameInProgress());
 }
 
 function renderLiveGameOverlay() {
   const el = document.getElementById("liveGameOverlay");
   const game = liveGameInProgress();
+  updateLiveNavIndicator();
   if (!el || !game) { closeLiveGameOverlay(); return; }
   const score = { A: liveScoreOf(game, game.teamA), B: liveScoreOf(game, game.teamB) };
   const pred = predictRealMatchup(game.teamA, game.teamB);
@@ -2665,19 +2691,33 @@ function renderLiveGamePanel() {
     document.getElementById("liveResumeBtn").addEventListener("click", openLiveGameOverlay);
     return;
   }
-  const chips = [...state.players].sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+  // Every real player, not just the local roster (see realMatchupPlayerPool) -- someone who's
+  // never been added locally can still be picked to score a live game, same as the Matchup
+  // Predictor and Party Night Planner already allow.
+  const chips = realMatchupPlayerPool().map(p => {
     const side = liveSetupSides[p.id];
     return `<button type="button" class="attendee-chip${side ? ` selected matchup-chip-${side.toLowerCase()}` : ""}" data-live-pick="${escapeHtml(p.id)}">${side ? `${side} · ` : ""}${escapeHtml(p.name)}</button>`;
   }).join("");
   const teamA = Object.keys(liveSetupSides).filter(id => liveSetupSides[id] === "A");
   const teamB = Object.keys(liveSetupSides).filter(id => liveSetupSides[id] === "B");
-  wrap.innerHTML = `<div class="attendee-picker">${chips || '<p class="empty-state">No players yet. Add players in the Players tab.</p>'}</div>
+  wrap.innerHTML = `<form class="inline-form" id="liveAddPlayerForm" style="margin-bottom:10px">
+      <input type="text" id="liveNewPlayerName" placeholder="Someone new here? Add them">
+      <button type="submit" class="secondary-btn">+ Add</button>
+    </form>
+    <div class="attendee-picker">${chips || '<p class="empty-state">Nobody here yet -- add a name above.</p>'}</div>
     <div class="balance-controls">
-      <label>Game to <select id="liveTargetSelect">${LIVE_TARGETS.map(t => `<option value="${t}"${t === 21 ? " selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label>Game to <input type="number" id="liveTargetInput" min="1" value="21" style="width:70px"></label>
       <button type="button" id="liveStartBtn" ${teamA.length && teamB.length ? "" : "disabled"}>Start Live Game</button>
     </div>
     <label class="live-backup-toggle"><input type="checkbox" id="liveAutoBackup" ${autoBackupAfterLiveGame() ? "checked" : ""}> Save a backup file after each live game</label>`;
   document.getElementById("liveAutoBackup").addEventListener("change", e => writeBackupMeta({ autoAfterLive: e.target.checked }));
+  document.getElementById("liveAddPlayerForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const input = document.getElementById("liveNewPlayerName");
+    const player = addNewPlayer(input.value);
+    if (!player) return;
+    renderLiveGamePanel();
+  });
   wrap.querySelectorAll("[data-live-pick]").forEach(btn => btn.addEventListener("click", () => {
     const id = btn.dataset.livePick;
     const next = { undefined: "A", A: "B", B: undefined }[liveSetupSides[id]];
@@ -14700,6 +14740,16 @@ function renderPoolDataDigest() {
 }
 
 // ---------- Init ----------
+// The bottom bar's own "Live" button (dashboard-only, no equivalent in the friends viewer): jumps
+// straight back into a game already in progress, or to the Live Game panel to start one -- a
+// dedicated, always-reachable way in, not just "scroll to it once you're already on Games".
+document.getElementById("liveNavBtn")?.addEventListener("click", () => {
+  if (liveGameInProgress()) { openLiveGameOverlay(); return; }
+  showTab("games");
+  document.getElementById("liveGamePanel")?.closest(".panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+updateLiveNavIndicator();
+
 // Works offline once it's been opened with a connection (see sw.js). Needs https, or localhost
 // for testing; the files this page already loaded are handed over so the first visit counts.
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
