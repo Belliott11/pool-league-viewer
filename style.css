@@ -614,6 +614,19 @@ button:disabled {
   margin-top: 2px;
 }
 
+/* Bigger than the base .icon-btn (which stays compact for inline table use elsewhere): these two
+   are the only tap targets on a whole game-card row that AREN'T the card's own click-to-open, so
+   there's real room to make them thumb-sized without cramping anything. */
+.game-card .game-share-btn,
+.game-card .game-delete-btn {
+  min-width: 44px;
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+}
+.game-card .game-share-btn:hover { background: var(--surface-hover); color: var(--text); }
+
 .stat-entry-header {
   display: flex;
   align-items: center;
@@ -2513,3 +2526,73 @@ body.live-open { overflow: hidden; }
 
 /* Matchup Predictor: most even trade */
 .matchup-swap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-tint); border: 1px solid var(--border); font-size: 0.88rem; }
+
+/* Bottom tab bar: phone-only (see the media query below), an ESPN-app-style persistent nav so
+   switching sections is a thumb's reach instead of stretching to the very top of a big phone.
+   Shares .tab-btn with the top bar (same class, same data-tab) so the existing generic click
+   wiring and active-state logic just work for both, unmodified. */
+.bottom-tab-bar {
+  display: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  gap: 2px;
+  background: var(--header-bg-translucent);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  border-top: 1px solid var(--border);
+  padding: 4px max(4px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
+}
+.bottom-tab-btn:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 48px;
+  padding: 4px 2px;
+  border-radius: 10px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bottom-tab-btn.active { color: var(--primary-dark); background: var(--surface-muted); }
+.bottom-tab-icon { font-size: 1.3rem; line-height: 1; }
+
+/* "Add to Home Screen" banner */
+.install-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-light);
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  font-size: 0.85rem;
+}
+.install-banner[hidden] { display: none; }
+.install-banner-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+@media (max-width: 700px) {
+  .bottom-tab-bar { display: flex; }
+  .app-header .tabs { display: none; }
+  main { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
+}
+
+/* Tighter density on small phones: more content per screen without the table becoming unreadable
+   -- ESPN's own stat tables run this compact. */
+@media (max-width: 480px) {
+  .panel { padding: 14px 16px; }
+  .matchup-table th, .matchup-table td { padding: 6px; font-size: 0.82rem; }
+}

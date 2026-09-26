@@ -93,12 +93,15 @@
       // The already-unlocked path runs before DOMContentLoaded (same as switchProfileBtn's own
       // wiring above), but the fresh-unlock path runs from a form submit — long after
       // DOMContentLoaded already fired, so a listener added for it at that point would never run.
+      // Two buttons share the "me-tab-btn" class now (the top bar's own, plus its bottom-tab-bar
+      // twin for phones) -- both get shown and wired the same way, from one class instead of two ids.
       var run = function () {
-        var meBtn = document.getElementById("meTabBtn");
-        if (!meBtn) return;
-        meBtn.hidden = false;
-        meBtn.addEventListener("click", function () {
-          if (typeof openPlayerDetail === "function") openPlayerDetail(playerId);
+        var meBtns = document.querySelectorAll(".me-tab-btn");
+        meBtns.forEach(function (meBtn) {
+          meBtn.hidden = false;
+          meBtn.addEventListener("click", function () {
+            if (typeof openPlayerDetail === "function") openPlayerDetail(playerId);
+          });
         });
       };
       if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
@@ -197,7 +200,7 @@
     </div>
     <nav class="tabs">
       <button class="tab-btn active" data-tab="games">Games</button>
-      <button class="tab-btn" data-tab="player" id="meTabBtn" hidden>Me</button>
+      <button class="tab-btn me-tab-btn" data-tab="player" id="meTabBtn" hidden>Me</button>
       <button class="tab-btn" data-tab="stats" id="statsTabBtn" hidden>Stat Entry</button>
       <button class="tab-btn" data-tab="leaderboard">Leaderboard</button>
       <button class="tab-btn" data-tab="players">Players</button>
@@ -205,6 +208,7 @@
     </nav>
   </div>
 </header>
+<p id="installBanner" class="install-banner" hidden></p>
 
 <main>
 
@@ -956,7 +960,7 @@
       <p class="hint" id="playSearchSummary" style="margin:0 0 10px"></p>
       <div class="table-scroll">
         <table class="matchup-table">
-          <thead><tr><th>Date</th><th>Player</th><th>Play</th><th>Detail</th><th></th></tr></thead>
+          <thead><tr><th class="sticky-col">Player</th><th>Date</th><th>Play</th><th>Detail</th><th></th></tr></thead>
           <tbody id="playSearchBody"></tbody>
         </table>
       </div>
@@ -1368,6 +1372,14 @@
   </section>
 
 </main>
+
+<nav class="bottom-tab-bar">
+  <button class="tab-btn bottom-tab-btn active" data-tab="games"><span class="bottom-tab-icon">🏐</span><span class="bottom-tab-label">Games</span></button>
+  <button class="tab-btn bottom-tab-btn me-tab-btn" data-tab="player" hidden><span class="bottom-tab-icon">👤</span><span class="bottom-tab-label">Me</span></button>
+  <button class="tab-btn bottom-tab-btn" data-tab="leaderboard"><span class="bottom-tab-icon">📊</span><span class="bottom-tab-label">Leaderboard</span></button>
+  <button class="tab-btn bottom-tab-btn" data-tab="players"><span class="bottom-tab-icon">👥</span><span class="bottom-tab-label">Players</span></button>
+  <button class="tab-btn bottom-tab-btn" data-tab="export"><span class="bottom-tab-icon">📤</span><span class="bottom-tab-label">Export</span></button>
+</nav>
 
 <!-- viewer-seed-data.js already loaded at the top of <body>, ahead of the PIN gate's own name
      picker; no need to load it a second time here. -->

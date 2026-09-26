@@ -588,12 +588,18 @@ function renderLeaderboardHighlights() {
   });
 }
 
+// A drill-in screen (Stat Entry, Player Detail) has no button of its own in the bottom tab bar --
+// it's reached by opening a specific game or player, not by picking a persistent section, same as
+// on the top bar. While one of those is open, the bottom bar instead highlights whichever section
+// it was opened from, so it never just goes dark.
+const BOTTOM_TAB_ALIAS = { stats: "games", player: "leaderboard" };
 function showTab(tab) {
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
   document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
   document.getElementById("tab-" + tab).classList.add("active");
-  const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
-  if (btn) btn.classList.add("active");
+  document.querySelectorAll(`.tab-btn[data-tab="${tab}"]`).forEach(b => b.classList.add("active"));
+  const bottomAlias = BOTTOM_TAB_ALIAS[tab];
+  if (bottomAlias) document.querySelectorAll(`.bottom-tab-btn[data-tab="${bottomAlias}"]`).forEach(b => b.classList.add("active"));
   if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderSameMomentReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); renderRealSiteCheck(); }
   if (tab === "leaderboard") renderLeaderboard();
   // Refreshes the attendee picker against the current roster — cheap, and a player added while
@@ -2543,6 +2549,10 @@ function startLiveGame(teamA, teamB) {
 
 function liveAddScore(game, pid, points) {
   game.liveScores.push({ pid, points });
+  // A quick buzz confirms the tap landed without having to look at the screen -- useful with wet
+  // hands at the pool. Not supported everywhere (notably iOS Safari), so this is a bonus, not a
+  // dependency: nothing here checks whether it actually fired.
+  navigator.vibrate?.(15);
   saveState();
   renderLiveGameOverlay();
 }
@@ -12117,8 +12127,8 @@ function renderPlaySearch() {
     if (r.defenderIds.length) bits.push(`vs. ${r.defenderIds.map(id => escapeHtml(state.players.find(p => p.id === id)?.name || "?")).join("/")}`);
     const detail = bits.join(" · ");
     return `<tr>
+      <td class="sticky-col">${player ? playerLink(player.id, player.name) : "?"}</td>
       <td>${escapeHtml(formatDateDisplay(r.gameDate))}</td>
-      <td>${player ? playerLink(player.id, player.name) : "?"}</td>
       <td>${escapeHtml(PLAY_SEARCH_LABEL_BY_KEY[r.type])}</td>
       <td>${detail}</td>
       <td><button type="button" class="secondary-btn play-search-jump" data-game-id="${escapeHtml(r.gameId)}" data-video-time="${r.videoTime === null || r.videoTime === undefined ? "" : r.videoTime}">▶ Jump</button></td>
@@ -14699,6 +14709,44 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
     reg.active?.postMessage({ cacheUrls: [location.href.split("#")[0], ...urls] });
   }).catch(() => { /* offline support is a bonus; the app works without it */ });
 }
+// A small "Add to Home Screen" banner (phone widths only, via CSS) -- the manifest already
+// supports installing this as an app, but nothing ever told anyone that. Chrome/Android fires
+// beforeinstallprompt and can install directly; iOS Safari never fires that event at all, so it
+// gets fixed instructions instead. Dismissing either way is permanent (a localStorage flag), not
+// per-session, so this never nags on repeat visits.
+(function installBanner() {
+  const el = document.getElementById("installBanner");
+  if (!el) return;
+  const DISMISS_KEY = "installBannerDismissed";
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  if (isStandalone || localStorage.getItem(DISMISS_KEY) === "1") return;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+  const dismiss = () => { localStorage.setItem(DISMISS_KEY, "1"); el.hidden = true; };
+  const show = (text, actionLabel, onAction) => {
+    el.innerHTML = `<span>${text}</span>
+      <span class="install-banner-actions">
+        ${actionLabel ? `<button type="button" class="secondary-btn" id="installBannerActionBtn">${actionLabel}</button>` : ""}
+        <button type="button" class="icon-btn" id="installBannerDismissBtn">Not now</button>
+      </span>`;
+    el.hidden = false;
+    document.getElementById("installBannerDismissBtn").addEventListener("click", dismiss);
+    if (onAction) document.getElementById("installBannerActionBtn")?.addEventListener("click", onAction);
+  };
+  let deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", e => {
+    e.preventDefault();
+    deferredPrompt = e;
+    show("Install this as an app for quicker access and offline use.", "Install", async () => {
+      el.hidden = true;
+      deferredPrompt.prompt();
+      const choice = await deferredPrompt.userChoice;
+      if (choice.outcome !== "accepted") el.hidden = false; // declined the native prompt itself -- let them try again later, not a hard dismiss
+      else dismiss();
+    });
+  });
+  if (isIOS) show("Add this to your home screen: tap the Share icon, then “Add to Home Screen.”", null, null);
+})();
+
 // Sticky bars under the header (section nav, sidebar) sit at the header's real height, which
 // changes with screen width and wrapping, instead of a fixed guess.
 (function trackHeaderHeight() {
