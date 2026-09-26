@@ -184,6 +184,7 @@ main {
   flex-shrink: 0;
 }
 .sidebar-toggle-btn:hover { background: var(--surface-muted-hover); }
+.sidebar-toggle-label { display: none; }
 .tab-body-with-sidebar.sidebar-collapsed .tab-sidebar-inner { display: none; }
 @media (max-width: 900px) {
   .tab-body-with-sidebar, .tab-body-with-sidebar.sidebar-collapsed { grid-template-columns: 1fr; }
@@ -191,6 +192,26 @@ main {
      max-height/scroll above (needed only to keep a sticky sidebar's bottom reachable) would just
      get in the way here — let it flow at its natural height like everything else on the page. */
   .tab-sidebar { position: static; max-height: none; overflow-y: visible; }
+  /* Desktop's small round icon floats with nothing around it once the sidebar is no longer its
+     own sticky, pinned-beside-content strip -- it reads as an orphaned button in a gap of empty
+     space. Turned into a full-width labeled bar here instead, so it looks like the header of the
+     card stack it controls rather than a stray control floating above it. */
+  .sidebar-toggle-btn {
+    position: static;
+    align-self: stretch;
+    width: 100%;
+    height: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.85rem;
+  }
+  .sidebar-toggle-btn .sidebar-toggle-label { display: inline; }
 }
 
 /* Compact standings widget (renderStandingsSidebar() in app.js) — tighter than the main
@@ -810,6 +831,14 @@ button:disabled {
 }
 .sortable-th:hover { color: var(--text); }
 .sortable-th.sorted { color: var(--accent); }
+
+/* A faint tint down the whole currently-sorted column, not just an arrow on its header -- makes
+   it obvious at a glance which column a busy table is even ordered by, the way a sports app's own
+   stat tables do it. Kept to a single class selector (not ".matchup-table td.sorted-col") so its
+   specificity matches .leaderboard-leader-cell/.leaderboard-worst-cell below -- those carry more
+   specific information (season leader/worst) and, declared later, win the tie over the plain
+   "this is the sort column" tint whenever a cell is both. */
+.sorted-col { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 
 .matchup-table td {
   text-align: left;
@@ -2440,6 +2469,36 @@ button:disabled {
 .matchup-track { margin-top: 12px; }
 .matchup-track summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; }
 
+/* Shared preview for every generated share image (Trading Card, Party Recap) -- see
+   showImagePreview() in app.js. Same full-screen dialog treatment as Live Game below, since both
+   are "look before you commit" overlays. */
+.image-preview-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.image-preview-overlay[hidden] { display: none; }
+.image-preview-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: min(480px, 100%);
+  max-height: 100%;
+}
+.image-preview-img {
+  max-width: 100%;
+  max-height: calc(100vh - 120px);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  object-fit: contain;
+}
+.image-preview-actions { display: flex; gap: 10px; justify-content: center; }
+
 /* Live Game: full-screen phone scoreboard */
 body.live-open { overflow: hidden; }
 .live-overlay {
@@ -2594,8 +2653,51 @@ body.live-open { overflow: hidden; }
   50% { opacity: 0.55; transform: scale(1.25); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .bottom-tab-live.has-live .bottom-tab-live-dot { animation: none; }
+  .bottom-tab-live.has-live .bottom-tab-live-dot, .live-mini-dot { animation: none; }
 }
+
+/* Persistent mini scoreboard (dashboard only, renderLiveMiniBar() in app.js): sits above the
+   bottom tab bar the whole time a live game is going, even after "Hide" closes the full-screen
+   scoreboard, so the score is never more than a glance away and one tap gets back into it -- the
+   same job ESPN's own bottom-of-screen live-game strip does. Stacked with the tab bar inside
+   .bottom-fixed-stack so its height doesn't need to be hardcoded relative to the bar below it. */
+.bottom-fixed-stack {
+  display: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  flex-direction: column;
+}
+.bottom-fixed-stack .bottom-tab-bar { position: static; }
+.live-mini-bar {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 8px 14px;
+  background: var(--surface-tint);
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.live-mini-bar[hidden] { display: none; }
+.live-mini-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger, #e0555a);
+  flex-shrink: 0;
+  animation: liveDotPulse 1.6s ease-in-out infinite;
+}
+.live-mini-label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; color: var(--danger); flex-shrink: 0; }
+.live-mini-score { flex: 1 1 auto; min-width: 0; font-size: 0.85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live-mini-target { font-size: 0.72rem; color: var(--muted); flex-shrink: 0; }
 
 /* "Add to Home Screen" banner */
 .install-banner {
@@ -2616,8 +2718,12 @@ body.live-open { overflow: hidden; }
 
 @media (max-width: 700px) {
   .bottom-tab-bar { display: flex; }
+  .bottom-fixed-stack { display: flex; }
   .app-header .tabs { display: none; }
   main { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
+  /* Extra clearance so the mini scoreboard doesn't sit on top of the page's own last card while a
+     live game is going -- JS toggles this class on <main> only while .live-mini-bar is shown. */
+  main.has-live-mini-bar { padding-bottom: calc(70px + 40px + env(safe-area-inset-bottom)); }
 }
 
 /* Tighter density on small phones: more content per screen without the table becoming unreadable

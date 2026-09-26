@@ -2614,7 +2614,27 @@ function closeLiveGameOverlay() {
 // app, not just once you've already navigated to Games.
 function updateLiveNavIndicator() {
   document.getElementById("liveNavBtn")?.classList.toggle("has-live", !!liveGameInProgress());
+  renderLiveMiniBar();
 }
+
+// Persistent mini scoreboard above the bottom tab bar (mobile only, see .live-mini-bar in
+// style.css): stays up the whole time a live game is going, even after "Hide" closes the
+// full-screen overlay, so the score is reachable from any tab with one tap. Re-derives its text
+// from scratch each call instead of diffing, same as every other render function here.
+function renderLiveMiniBar() {
+  const bar = document.getElementById("liveMiniBar");
+  if (!bar) return;
+  const game = liveGameInProgress();
+  document.querySelector("main")?.classList.toggle("has-live-mini-bar", !!game);
+  if (!game) { bar.hidden = true; bar.innerHTML = ""; return; }
+  const namesOf = ids => ids.map(id => poolNameOf(id)).join(", ");
+  const a = liveScoreOf(game, game.teamA), b = liveScoreOf(game, game.teamB);
+  bar.hidden = false;
+  bar.innerHTML = `<span class="live-mini-dot"></span><span class="live-mini-label">LIVE</span>` +
+    `<span class="live-mini-score">${escapeHtml(namesOf(game.teamA))} ${a} &ndash; ${b} ${escapeHtml(namesOf(game.teamB))}</span>` +
+    `<span class="live-mini-target">to ${game.liveTarget}</span>`;
+}
+document.getElementById("liveMiniBar")?.addEventListener("click", () => openLiveGameOverlay());
 
 function renderLiveGameOverlay() {
   const el = document.getElementById("liveGameOverlay");
@@ -6985,7 +7005,12 @@ function computeUpsets() {
     const winners = g.w === "A" ? g.a : g.b, losers = g.w === "A" ? g.b : g.a;
     const winPct = g.w === "A" ? aPct : bPct, losePct = g.w === "A" ? bPct : aPct;
     const winEff = g.w === "A" ? aEff : bEff, loseEff = g.w === "A" ? bEff : aEff;
-    upsets.push({ date: g.date, winners, losers, winPct, losePct, uneven: sizeDiff !== 0, gap: loseEff - winEff });
+    // Pre-game win odds for the team that actually won, from the same head-to-head model the
+    // Matchup Predictor uses -- a more legible "how big an upset was this" number than two raw
+    // power-ranking percentiles, since it's already a single probability the winner beat.
+    const pred = predictRealMatchup(winners, losers);
+    const winOdds = pred ? Math.round(pred.pA * 100) : null;
+    upsets.push({ date: g.date, winners, losers, winPct, losePct, winOdds, uneven: sizeDiff !== 0, gap: loseEff - winEff });
   });
   upsets.sort((a, b) => b.gap - a.gap);
   return upsets;
@@ -7003,11 +7028,11 @@ function renderUpsetTracker() {
       <td>${escapeHtml(formatDateDisplay(u.date))}</td>
       <td>${u.winners.map(nameOf).join(" & ")}</td>
       <td>${u.losers.map(nameOf).join(" & ")}</td>
-      <td>${Math.round(u.winPct)}% vs. ${Math.round(u.losePct)}%${u.uneven ? ` <span class="hint" style="margin:0">(uneven teams, size-adjusted)</span>` : ""}</td>
+      <td>${u.winOdds !== null ? `${u.winOdds}% predicted vs. ${100 - u.winOdds}%` : `${Math.round(u.winPct)}% vs. ${Math.round(u.losePct)}% <span class="hint" style="margin:0">(power ranking, not enough real games yet for predicted odds)</span>`}${u.uneven ? ` <span class="hint" style="margin:0">(uneven teams, size-adjusted)</span>` : ""}</td>
     </tr>`).join("");
   const unevenCount = upsets.filter(u => u.uneven).length;
   wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
-    <thead><tr><th>Date</th><th>Won</th><th>Beat (the favorite)</th><th>Power ranking that night</th></tr></thead>
+    <thead><tr><th>Date</th><th>Won</th><th>Beat (the favorite)</th><th>Predicted odds (winner vs. favorite)</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
     <p class="hint" style="margin:10px 0 0">${upsets.length} upset${upsets.length === 1 ? "" : "s"} total, biggest gap first${unevenCount > 0 ? ` (${unevenCount} on uneven teams, adjusted for the extra player)` : ""}.</p>`;
 }
@@ -7073,6 +7098,42 @@ function wrapCanvasText(ctx, text, maxWidth) {
   });
   if (line) lines.push(line);
   return lines;
+}
+
+// Shared preview step for every generated share image (Trading Card, Party Recap): shows what
+// the PNG actually looks like before it hits the downloads folder, instead of firing the download
+// the instant the canvas is ready. Built lazily on first use, same pattern as the Live Game
+// overlay above.
+function showImagePreview(canvas, filename) {
+  if (!canvas) return;
+  let el = document.getElementById("imagePreviewOverlay");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "imagePreviewOverlay";
+    el.className = "image-preview-overlay";
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-label", "Image preview");
+    document.body.appendChild(el);
+  }
+  canvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    el.innerHTML = `
+      <div class="image-preview-inner">
+        <img class="image-preview-img" src="${url}" alt="Preview">
+        <div class="image-preview-actions">
+          <button type="button" class="secondary-btn" data-preview-close>Close</button>
+          <button type="button" data-preview-download>Download</button>
+        </div>
+      </div>`;
+    const close = () => { el.hidden = true; URL.revokeObjectURL(url); el.innerHTML = ""; };
+    el.querySelector("[data-preview-close]").addEventListener("click", close);
+    el.querySelector("[data-preview-download]").addEventListener("click", () => {
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    });
+    el.hidden = false;
+  }, "image/png");
 }
 
 function generatePartyRecapCanvas(date) {
@@ -7145,14 +7206,7 @@ function downloadPartyRecapImage() {
   const select = document.getElementById("partyRecapSelect");
   if (!select || !select.value) return;
   const canvas = generatePartyRecapCanvas(select.value);
-  if (!canvas) return;
-  canvas.toBlob(blob => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `Poolean_recap_${select.value}.png`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, "image/png");
+  showImagePreview(canvas, `Poolean_recap_${select.value}.png`);
 }
 
 // ---------- Award Race ----------
@@ -7720,13 +7774,7 @@ async function downloadTradingCard(playerId) {
   const canvas = await generateTradingCardCanvas(playerId);
   if (!canvas) return;
   const player = state.players.find(p => p.id === playerId);
-  canvas.toBlob(blob => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `${(player.name || "player").replace(/\s+/g, "_")}_card.png`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, "image/png");
+  showImagePreview(canvas, `${(player.name || "player").replace(/\s+/g, "_")}_card.png`);
 }
 
 // ---------- Season Timeline ----------
@@ -11802,6 +11850,8 @@ function renderLeaderboard() {
     cols.forEach(col => {
       const td = document.createElement("td");
       if (col.key === "player") {
+        // sticky-col's own solid background already wins over sorted-col's tint here (same
+        // specificity, declared later), so there's nothing to add when player is the sort key.
         td.className = "sticky-col";
         const nameBtn = document.createElement("button");
         nameBtn.className = "icon-btn player-name-btn";
@@ -11811,7 +11861,7 @@ function renderLeaderboard() {
         nameBtn.addEventListener("click", () => openPlayerDetail(r.player.id));
         td.appendChild(nameBtn);
       } else {
-        td.className = "num-cell";
+        td.className = col.key === leaderboardSort.key ? "num-cell sorted-col" : "num-cell";
         td.textContent = col.display ? col.display(r) : col.accessor(r);
         const value = col.accessor(r);
         if (columnBest[col.key] !== undefined && value === columnBest[col.key]) {
