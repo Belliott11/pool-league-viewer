@@ -1841,9 +1841,13 @@ function realSeasonsInOrder() {
 }
 
 const sigmoid = z => 1 / (1 + Math.exp(-z));
-// Real play order: by date, then game number. Game numbers alone aren't chronological, since the
-// site numbers games as they're entered and some nights were entered after later ones.
-const byPlayOrder = (x, y) => x.date.localeCompare(y.date) || x.n - y.n;
+// Real play order: by date first (the one field that's always right), then CREATED (a real
+// wall-clock timestamp of when the game's record was made -- a better within-day signal than the
+// site's own game number, which is just an entry counter: some whole nights were entered after
+// later ones, and even within a single night the two can disagree, e.g. real 2026-08-02 orders
+// its own six games differently by number than by CREATED). Falls back to game number only for a
+// game with no CREATED value at all.
+const byPlayOrder = (x, y) => x.date.localeCompare(y.date) || (x.created && y.created ? x.created.localeCompare(y.created) : 0) || x.n - y.n;
 const shrunkEdge = rec => rec ? (rec.w + 2.5) / (rec.gp + 5) - 0.5 : 0;
 
 function realMatchupFeatures(a, b, pctOf, togetherOf, againstOf) {
@@ -12041,23 +12045,31 @@ const PLAY_SEARCH_TYPES = [
 ];
 const PLAY_SEARCH_LABEL_BY_KEY = Object.fromEntries(PLAY_SEARCH_TYPES.map(t => [t.key, t.label]));
 
+// Field-goal rows (made/missed 2PT/3PT/FT, dunks) additionally carry shotType and defenderIds
+// straight off the scoring event, so "Ben's catch-and-shoots" or "shots against Adam" work too --
+// every other row (assist/steal/block/turnover/foul/rebound) just has neither, since a shot type
+// or a tagged defender genuinely isn't a fact about a steal or a foul.
 function computePlaySearchResults() {
   const rows = [];
-  const add = (type, playerId, game, videoTime, otherId) => {
-    rows.push({ type, playerId, gameId: game.id, gameDate: game.date, videoTime: padJumpTime(videoTime), otherId: otherId || null });
+  const add = (type, playerId, game, videoTime, otherId, extra) => {
+    rows.push({
+      type, playerId, gameId: game.id, gameDate: game.date, videoTime: padJumpTime(videoTime),
+      otherId: otherId || null, shotType: (extra && extra.shotType) || null, defenderIds: (extra && extra.defenderIds) || []
+    });
   };
   state.games.forEach(game => {
     game.scoringEvents.forEach(ev => {
       const made = ev.made !== false;
+      const fgExtra = { shotType: ev.shotType || null, defenderIds: ev.defenderIds || [] };
       if (made) {
-        add(ev.points === 3 ? "made-3" : ev.points === 1 ? "made-ft" : "made-2", ev.scorerId, game, ev.videoTime);
+        add(ev.points === 3 ? "made-3" : ev.points === 1 ? "made-ft" : "made-2", ev.scorerId, game, ev.videoTime, null, fgExtra);
         if (ev.assistId) add("assist", ev.assistId, game, ev.videoTime, ev.scorerId);
       } else {
-        add(ev.points === 3 ? "missed-3" : ev.points === 1 ? "missed-ft" : "missed-2", ev.scorerId, game, ev.videoTime);
+        add(ev.points === 3 ? "missed-3" : ev.points === 1 ? "missed-ft" : "missed-2", ev.scorerId, game, ev.videoTime, null, fgExtra);
         if (ev.blockerId) add("block", ev.blockerId, game, ev.videoTime, ev.scorerId);
         if (ev.rebounderId) add(sameTeam(game, ev.scorerId, ev.rebounderId) ? "oreb" : "dreb", ev.rebounderId, game, ev.videoTime);
       }
-      if (ev.dunk) add("dunk", ev.scorerId, game, ev.videoTime);
+      if (ev.dunk) add("dunk", ev.scorerId, game, ev.videoTime, null, fgExtra);
     });
     game.stealEvents.forEach(ev => add("steal", ev.playerId, game, ev.videoTime, ev.opponentId));
     game.turnoverEvents.forEach(ev => add("turnover", ev.playerId, game, ev.videoTime, ev.opponentId));
@@ -12070,21 +12082,28 @@ const PLAY_SEARCH_DETAIL_VERB = { assist: "assisted", block: "blocked", steal: "
 function renderPlaySearch() {
   const playerSel = document.getElementById("playSearchPlayerSelect");
   const typeSel = document.getElementById("playSearchTypeSelect");
+  const shotTypeSel = document.getElementById("playSearchShotTypeSelect");
+  const defenderSel = document.getElementById("playSearchDefenderSelect");
   const body = document.getElementById("playSearchBody");
   const summary = document.getElementById("playSearchSummary");
-  if (!playerSel || !typeSel || !body) return;
-  const prevPlayer = playerSel.value;
-  playerSel.innerHTML = '<option value="">Any player</option>' +
-    [...state.players].sort((a, b) => a.name.localeCompare(b.name)).map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join("");
+  if (!playerSel || !typeSel || !shotTypeSel || !defenderSel || !body) return;
+  const prevPlayer = playerSel.value, prevDefender = defenderSel.value;
+  const playerOptions = [...state.players].sort((a, b) => a.name.localeCompare(b.name)).map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join("");
+  playerSel.innerHTML = '<option value="">Any player</option>' + playerOptions;
   playerSel.value = prevPlayer;
+  defenderSel.innerHTML = '<option value="">Any defender</option>' + playerOptions;
+  defenderSel.value = prevDefender;
   if (!typeSel.dataset.wired) {
     typeSel.dataset.wired = "1";
     typeSel.innerHTML = '<option value="">Any play</option>' + PLAY_SEARCH_TYPES.map(t => `<option value="${t.key}">${escapeHtml(t.label)}</option>`).join("");
-    playerSel.addEventListener("change", renderPlaySearch);
-    typeSel.addEventListener("change", renderPlaySearch);
+    shotTypeSel.innerHTML = '<option value="">Any shot type</option>' + TAGGABLE_SHOT_TYPES.map(t => `<option value="${t.key}">${escapeHtml(t.label)}</option>`).join("");
+    [playerSel, typeSel, shotTypeSel, defenderSel].forEach(sel => sel.addEventListener("change", renderPlaySearch));
   }
   const rows = computePlaySearchResults().filter(r =>
-    (!playerSel.value || r.playerId === playerSel.value) && (!typeSel.value || r.type === typeSel.value));
+    (!playerSel.value || r.playerId === playerSel.value) &&
+    (!typeSel.value || r.type === typeSel.value) &&
+    (!shotTypeSel.value || r.shotType === shotTypeSel.value) &&
+    (!defenderSel.value || r.defenderIds.includes(defenderSel.value)));
   const gameCount = new Set(rows.map(r => r.gameId)).size;
   summary.textContent = rows.length
     ? `${rows.length} play${rows.length === 1 ? "" : "s"} across ${gameCount} game${gameCount === 1 ? "" : "s"}.`
@@ -12092,7 +12111,11 @@ function renderPlaySearch() {
   body.innerHTML = rows.length === 0 ? "" : rows.map(r => {
     const player = state.players.find(p => p.id === r.playerId);
     const other = r.otherId ? state.players.find(p => p.id === r.otherId) : null;
-    const detail = other && PLAY_SEARCH_DETAIL_VERB[r.type] ? `${PLAY_SEARCH_DETAIL_VERB[r.type]} ${escapeHtml(other.name)}` : "";
+    const bits = [];
+    if (other && PLAY_SEARCH_DETAIL_VERB[r.type]) bits.push(`${PLAY_SEARCH_DETAIL_VERB[r.type]} ${escapeHtml(other.name)}`);
+    if (r.shotType) bits.push(escapeHtml((TAGGABLE_SHOT_TYPES.find(t => t.key === r.shotType) || {}).label || r.shotType));
+    if (r.defenderIds.length) bits.push(`vs. ${r.defenderIds.map(id => escapeHtml(state.players.find(p => p.id === id)?.name || "?")).join("/")}`);
+    const detail = bits.join(" · ");
     return `<tr>
       <td>${escapeHtml(formatDateDisplay(r.gameDate))}</td>
       <td>${player ? playerLink(player.id, player.name) : "?"}</td>
