@@ -115,19 +115,19 @@ const TAGGED_STAT_CONFIG = [
 ];
 
 // ---------- Theme ----------
+// Used to follow each device's own OS light/dark setting when nothing had been chosen yet, which
+// meant the same site could look completely different phone vs. laptop for no reason other than
+// two different system settings. Now it's just one fixed default (dark, matching how this app's
+// actually designed and screenshotted everywhere) until someone taps the toggle -- same look on
+// every device unless a device's own toggle has been used to opt out of it.
 function effectiveTheme() {
   const stored = localStorage.getItem(THEME_KEY);
   if (stored === "light" || stored === "dark") return stored;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return "dark";
 }
 
 function applyTheme() {
-  const stored = localStorage.getItem(THEME_KEY);
-  if (stored === "light" || stored === "dark") {
-    document.documentElement.setAttribute("data-theme", stored);
-  } else {
-    document.documentElement.removeAttribute("data-theme");
-  }
+  document.documentElement.setAttribute("data-theme", effectiveTheme());
   const btn = document.getElementById("themeToggleBtn");
   if (btn) btn.textContent = effectiveTheme() === "dark" ? "☀️" : "🌙";
 }
@@ -146,6 +146,37 @@ document.getElementById("shareSiteBtn").addEventListener("click", function () {
 });
 
 applyTheme();
+
+// ---------- Scroll-fade cue ----------
+// A wide table or a swipeable pill row otherwise just looks cut off at the edge, with nothing
+// telling you there's more to scroll to. Toggled by class rather than baked into a screenshot-time
+// check, so it tracks the user's own scroll position (and disappears once they've actually reached
+// the end) instead of showing a fade that's a stale lie. See .table-scroll/.player-section-nav-scroll
+// in style.css for the actual gradient.
+const SCROLL_FADE_SELECTOR = ".table-scroll, .player-section-nav-scroll";
+function updateScrollFade(el) {
+  const max = el.scrollWidth - el.clientWidth;
+  el.classList.toggle("can-scroll-left", el.scrollLeft > 4);
+  el.classList.toggle("can-scroll-right", max > 4 && el.scrollLeft < max - 4);
+}
+let scrollFadeScheduled = false;
+function scheduleScrollFadeUpdate() {
+  if (scrollFadeScheduled) return;
+  scrollFadeScheduled = true;
+  // setTimeout, not requestAnimationFrame -- rAF is paused in a backgrounded tab, which would
+  // leave a table that finished rendering while the tab wasn't focused with no fade cue at all
+  // until something else happened to trigger another pass.
+  setTimeout(() => {
+    scrollFadeScheduled = false;
+    document.querySelectorAll(SCROLL_FADE_SELECTOR).forEach(updateScrollFade);
+  }, 0);
+}
+document.addEventListener("scroll", e => {
+  if (e.target.matches && e.target.matches(SCROLL_FADE_SELECTOR)) updateScrollFade(e.target);
+}, true);
+window.addEventListener("resize", scheduleScrollFadeUpdate);
+new MutationObserver(scheduleScrollFadeUpdate).observe(document.body, { childList: true, subtree: true });
+scheduleScrollFadeUpdate();
 
 let state = loadState();
 let currentGameId = null;
@@ -2554,7 +2585,10 @@ function startLiveGame(teamA, teamB) {
   if (existing && !confirm("A live game is already going. Finish it and start this one?")) { openLiveGameOverlay(); return; }
   if (existing) finishLiveGame(existing, false);
   const targetInput = document.getElementById("liveTargetInput");
-  const date = document.getElementById("gameDateInput").value || new Date().toISOString().slice(0, 10);
+  // No #gameDateInput on the viewer (its Live Game is scored on whoever's phone starts it, same
+  // night it's happening) -- today's date is exactly right there, same fallback the dashboard uses
+  // when the field is just left blank.
+  const date = document.getElementById("gameDateInput")?.value || new Date().toISOString().slice(0, 10);
   const game = { id: uid("game"), date, videoUrl: "", notes: "", winner: null, teamA: [...teamA], teamB: [...teamB], stats: [], matchups: [], scoringEvents: [], plays: [],
     liveScores: [], liveInProgress: true, liveTarget: Math.max(1, Number(targetInput?.value) || 21) };
   normalizeGame(game);
@@ -2577,11 +2611,101 @@ function liveAddScore(game, pid, points) {
 function finishLiveGame(game, rerender = true) {
   const a = liveScoreOf(game, game.teamA), b = liveScoreOf(game, game.teamB);
   game.winner = a > b ? "A" : b > a ? "B" : null;
+  // Captured before liveTarget is deleted below -- only used on the viewer (see
+  // maybeShowLiveHandoff), where this game just lived in whoever's phone scored it and needs to be
+  // handed back to the real roster as a result code, not deleted along with the rest of the
+  // in-progress bookkeeping.
+  const target = game.liveTarget;
   delete game.liveInProgress;
   delete game.liveTarget;
   saveState();
   closeLiveGameOverlay();
   if (rerender) { renderGames(); renderLiveGamePanel(); }
+  maybeShowLiveHandoff(game, target);
+}
+
+// ---------- Live Game handoff (viewer only) ----------
+// The viewer has no shared backend, and doesn't need one for this: only one person scores a game
+// at a time, so instead of syncing state live, whoever scored it hands the finished result back as
+// a short copyable/shareable code -- the dashboard side (importLiveHandoffCode below) turns that
+// back into a real logged game with its full shot-by-shot liveScores, same as if it had been
+// scored there directly.
+const LIVE_HANDOFF_PREFIX = "POOLEAN1:";
+
+function buildLiveHandoffCode(game, target) {
+  const roster = [...game.teamA, ...game.teamB];
+  const shots = (game.liveScores || []).map(s => [roster.indexOf(s.pid), s.points]);
+  const payload = { d: game.date, a: game.teamA, b: game.teamB, t: target || 21, s: shots };
+  return LIVE_HANDOFF_PREFIX + btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+}
+
+function parseLiveHandoffCode(raw) {
+  const trimmed = (raw || "").trim();
+  if (!trimmed.startsWith(LIVE_HANDOFF_PREFIX)) return null;
+  try {
+    const payload = JSON.parse(decodeURIComponent(escape(atob(trimmed.slice(LIVE_HANDOFF_PREFIX.length)))));
+    if (!payload || !Array.isArray(payload.a) || !Array.isArray(payload.b) || !payload.a.length || !payload.b.length) return null;
+    return payload;
+  } catch (e) { return null; }
+}
+
+// Dashboard-only: only present when #liveHandoffImportInput exists (see renderLiveGamePanel).
+function importLiveHandoffCode(raw) {
+  const payload = parseLiveHandoffCode(raw);
+  if (!payload) return { ok: false, error: "That doesn't look like a valid result code." };
+  const roster = [...payload.a, ...payload.b];
+  const liveScores = (payload.s || []).map(([idx, points]) => ({ pid: roster[idx], points })).filter(s => s.pid);
+  const scoreA = liveScores.filter(s => payload.a.includes(s.pid)).reduce((sum, s) => sum + s.points, 0);
+  const scoreB = liveScores.filter(s => payload.b.includes(s.pid)).reduce((sum, s) => sum + s.points, 0);
+  const game = {
+    id: uid("game"), date: payload.d || new Date().toISOString().slice(0, 10), videoUrl: "", notes: "",
+    winner: scoreA > scoreB ? "A" : scoreB > scoreA ? "B" : null,
+    teamA: [...payload.a], teamB: [...payload.b], stats: [], matchups: [], scoringEvents: [], plays: [],
+    liveScores, liveTarget: payload.t,
+  };
+  normalizeGame(game);
+  state.games.push(game);
+  saveState();
+  renderGames();
+  return { ok: true, game, scoreA, scoreB };
+}
+
+// Viewer-only: only present when #liveHandoffPanel exists in the page.
+function maybeShowLiveHandoff(game, target) {
+  const panel = document.getElementById("liveHandoffPanel");
+  if (!panel) return;
+  const code = buildLiveHandoffCode(game, target);
+  const a = liveScoreOf(game, game.teamA), b = liveScoreOf(game, game.teamB);
+  const summary = `${game.teamA.map(id => poolNameOf(id)).join(", ")} ${a}-${b} ${game.teamB.map(id => poolNameOf(id)).join(", ")}`;
+  let el = document.getElementById("liveHandoffOverlay");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "liveHandoffOverlay";
+    el.className = "image-preview-overlay";
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-label", "Send this result back");
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `
+    <div class="image-preview-inner live-handoff-inner">
+      <h3 style="margin:0">Send this result back</h3>
+      <p class="hint" style="margin:0">${escapeHtml(summary)}. Copy or share this code -- whoever keeps the real records pastes it in to log the game.</p>
+      <textarea id="liveHandoffCodeBox" class="live-handoff-code" readonly rows="3">${escapeHtml(code)}</textarea>
+      <div class="image-preview-actions">
+        <button type="button" class="secondary-btn" data-preview-close>Close</button>
+        <button type="button" id="liveHandoffCopyBtn">Copy</button>
+        ${navigator.share ? '<button type="button" id="liveHandoffShareBtn">Share</button>' : ""}
+      </div>
+    </div>`;
+  el.querySelector("[data-preview-close]").addEventListener("click", () => { el.hidden = true; el.innerHTML = ""; });
+  el.querySelector("#liveHandoffCopyBtn").addEventListener("click", () => {
+    navigator.clipboard?.writeText(code).catch(() => {});
+    el.querySelector("#liveHandoffCodeBox").select();
+  });
+  el.querySelector("#liveHandoffShareBtn")?.addEventListener("click", () => {
+    navigator.share({ title: "Poolean live game result", text: `${summary}\n\n${code}` }).catch(() => {});
+  });
+  el.hidden = false;
 }
 
 function openLiveGameOverlay() {
@@ -2635,6 +2759,19 @@ function renderLiveMiniBar() {
     `<span class="live-mini-target">to ${game.liveTarget}</span>`;
 }
 document.getElementById("liveMiniBar")?.addEventListener("click", () => openLiveGameOverlay());
+
+// Dashboard-only (see importLiveHandoffCode above): paste-in for a result code someone else
+// scored on the viewer and sent back.
+document.getElementById("liveHandoffImportBtn")?.addEventListener("click", () => {
+  const input = document.getElementById("liveHandoffImportInput");
+  const msg = document.getElementById("liveHandoffImportMsg");
+  const result = importLiveHandoffCode(input.value);
+  if (!result.ok) { msg.textContent = result.error; msg.style.color = "var(--danger)"; return; }
+  const g = result.game;
+  msg.textContent = `Imported: ${g.teamA.map(id => poolNameOf(id)).join(", ")} ${result.scoreA}-${result.scoreB} ${g.teamB.map(id => poolNameOf(id)).join(", ")}, ${formatDateDisplay(g.date)}.`;
+  msg.style.color = "var(--success)";
+  input.value = "";
+});
 
 function renderLiveGameOverlay() {
   const el = document.getElementById("liveGameOverlay");
@@ -2706,9 +2843,35 @@ function renderLiveGamePanel() {
   if (!wrap) return;
   const live = liveGameInProgress();
   if (live) {
-    wrap.innerHTML = `<p class="hint" style="margin:0 0 10px">A live game is going: ${live.teamA.map(id => escapeHtml(poolNameOf(id))).join(", ")} vs. ${live.teamB.map(id => escapeHtml(poolNameOf(id))).join(", ")}, ${liveScoreOf(live, live.teamA)}-${liveScoreOf(live, live.teamB)}.</p>
-      <button type="button" id="liveResumeBtn">Resume Live Game</button>`;
-    document.getElementById("liveResumeBtn").addEventListener("click", openLiveGameOverlay);
+    // Promoted to a proper score card (ESPN-home-style) instead of a plain status line, since
+    // this is the first thing anyone lands on mid-party -- the score should read at a glance, not
+    // just confirm a game exists. Whole card is one button; see .live-hero-card in style.css.
+    const a = liveScoreOf(live, live.teamA), b = liveScoreOf(live, live.teamB);
+    const pred = predictRealMatchup(live.teamA, live.teamB);
+    const oddsA = pred ? Math.round(pred.pA * 100) : null;
+    wrap.innerHTML = `<button type="button" class="live-hero-card" id="liveHeroCard">
+      <div class="live-hero-top">
+        <span class="live-hero-dot"></span>
+        <span class="live-hero-label">LIVE NOW</span>
+        <span class="live-hero-target">Game to ${live.liveTarget}</span>
+      </div>
+      <div class="live-hero-score">
+        <div class="live-hero-side">
+          <span class="live-hero-name">${escapeHtml(live.teamA.map(id => poolNameOf(id)).join(", "))}</span>
+          <span class="live-hero-pts">${a}</span>
+        </div>
+        <span class="live-hero-dash">&ndash;</span>
+        <div class="live-hero-side live-hero-side-b">
+          <span class="live-hero-name">${escapeHtml(live.teamB.map(id => poolNameOf(id)).join(", "))}</span>
+          <span class="live-hero-pts">${b}</span>
+        </div>
+      </div>
+      <div class="live-hero-bottom">
+        <span class="live-hero-odds">${oddsA !== null ? `Tip-off odds ${oddsA}% / ${100 - oddsA}%` : ""}</span>
+        <span class="live-hero-cta">Jump back in &rarr;</span>
+      </div>
+    </button>`;
+    document.getElementById("liveHeroCard").addEventListener("click", openLiveGameOverlay);
     return;
   }
   // Every real player, not just the local roster (see realMatchupPlayerPool) -- someone who's

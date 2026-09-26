@@ -235,6 +235,13 @@
   <div class="tab-body-with-sidebar" id="gamesSidebarWrap">
   <div class="tab-main">
     <div class="panel">
+      <h2>Live Game</h2>
+      <p class="hint">Keeps score on your phone right now. Anyone here can be picked, including someone brand new -- add them by name first. Tap a player once for Team A, twice for Team B, set the target score, then start, and tap +1, +2 or +3 on whoever scores. Only one person needs to score a game -- when you're done, it gives you a short code to send back to whoever keeps the real records so it gets logged.</p>
+      <div id="liveGamePanel"></div>
+      <div id="liveHandoffPanel" hidden></div>
+    </div>
+
+    <div class="panel">
       <h2>Who's Coming?</h2>
       <p class="hint">Mark who said they're coming on a date. This doesn't create a game. Once a game is logged that day, anyone who said yes but didn't play counts toward their Flake %. Saving the same date again replaces it.</p>
       <input type="date" id="rsvpDateInput" style="margin-bottom:10px">
@@ -1377,13 +1384,17 @@
 
 </main>
 
-<nav class="bottom-tab-bar">
-  <button class="tab-btn bottom-tab-btn active" data-tab="games"><span class="bottom-tab-icon">🏀</span><span class="bottom-tab-label">Games</span></button>
-  <button class="tab-btn bottom-tab-btn me-tab-btn" data-tab="player" hidden><span class="bottom-tab-icon">👤</span><span class="bottom-tab-label">Me</span></button>
-  <button class="tab-btn bottom-tab-btn" data-tab="leaderboard"><span class="bottom-tab-icon">📊</span><span class="bottom-tab-label">Leaderboard</span></button>
-  <button class="tab-btn bottom-tab-btn" data-tab="players"><span class="bottom-tab-icon">👥</span><span class="bottom-tab-label">Players</span></button>
-  <button class="tab-btn bottom-tab-btn" data-tab="export"><span class="bottom-tab-icon">📤</span><span class="bottom-tab-label">Export</span></button>
-</nav>
+<div class="bottom-fixed-stack">
+  <button type="button" class="live-mini-bar" id="liveMiniBar" hidden></button>
+  <nav class="bottom-tab-bar">
+    <button class="tab-btn bottom-tab-btn active" data-tab="games"><span class="bottom-tab-icon">🏀</span><span class="bottom-tab-label">Games</span></button>
+    <button type="button" class="bottom-tab-btn bottom-tab-live" id="liveNavBtn" title="Jump into a live game, or start one"><span class="bottom-tab-icon">⏱️<span class="bottom-tab-live-dot"></span></span><span class="bottom-tab-label">Live</span></button>
+    <button class="tab-btn bottom-tab-btn me-tab-btn" data-tab="player" hidden><span class="bottom-tab-icon">👤</span><span class="bottom-tab-label">Me</span></button>
+    <button class="tab-btn bottom-tab-btn" data-tab="leaderboard"><span class="bottom-tab-icon">📊</span><span class="bottom-tab-label">Leaderboard</span></button>
+    <button class="tab-btn bottom-tab-btn" data-tab="players"><span class="bottom-tab-icon">👥</span><span class="bottom-tab-label">Players</span></button>
+    <button class="tab-btn bottom-tab-btn" data-tab="export"><span class="bottom-tab-icon">📤</span><span class="bottom-tab-label">Export</span></button>
+  </nav>
+</div>
 
 <!-- viewer-seed-data.js already loaded at the top of <body>, ahead of the PIN gate's own name
      picker; no need to load it a second time here. -->

@@ -1372,6 +1372,7 @@ button:disabled {
 .table-scroll {
   overflow: auto;
   max-height: min(70vh, 640px);
+  position: relative;
 }
 .table-scroll thead th {
   position: sticky;
@@ -1379,6 +1380,21 @@ button:disabled {
   z-index: 1;
   background: var(--panel-bg);
 }
+/* Cue that there are more columns off to the right -- a table this wide otherwise just looks cut
+   off at the edge with nothing telling you to swipe/scroll for the rest (the sticky player column
+   already anchors the left edge, so only the right side needs the hint). JS toggles
+   .can-scroll-right (see updateScrollFade() in app.js); no JS yet = no fade, never a false cue. */
+.table-scroll::after {
+  content: "";
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 28px;
+  pointer-events: none;
+  background: linear-gradient(to left, var(--panel-bg), transparent);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.table-scroll.can-scroll-right::after { opacity: 1; }
 
 /* Scoring log defender picker */
 .stat-cell.expanded {
@@ -2201,7 +2217,26 @@ button:disabled {
   gap: 6px;
   flex: 1 1 auto;
   min-width: 0;
+  position: relative;
 }
+/* Swipe cue for the mobile version of this row (see the max-width:700px block below, where it
+   switches from wrapping to a single scrolling line) -- same JS-driven .can-scroll-left/-right
+   toggle as .table-scroll above, colored to fade into this row's own translucent header
+   background instead of a plain panel. */
+.player-section-nav-scroll::before,
+.player-section-nav-scroll::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.player-section-nav-scroll::before { left: 0; background: linear-gradient(to right, var(--header-bg-translucent), transparent); }
+.player-section-nav-scroll::after { right: 0; background: linear-gradient(to left, var(--header-bg-translucent), transparent); }
+.player-section-nav-scroll.can-scroll-left::before { opacity: 1; }
+.player-section-nav-scroll.can-scroll-right::after { opacity: 1; }
 .player-section-nav-link {
   background: var(--panel-bg);
   color: var(--fg);
@@ -2469,6 +2504,43 @@ button:disabled {
 .matchup-track { margin-top: 12px; }
 .matchup-track summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; }
 
+/* Live Game panel's score card once a game is going (renderLiveGamePanel() in app.js) -- the
+   whole thing is a <button> so tapping/clicking anywhere on it resumes the full scoreboard, same
+   idea as the mini bar below the bottom tab bar but for the Games tab itself, and not phone-only:
+   this is just as useful glanced at from a laptop across the room. */
+.live-hero-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 14px 18px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--success-light), var(--accent-light));
+  border: 1px solid color-mix(in srgb, var(--success) 45%, transparent);
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+}
+.live-hero-top { display: flex; align-items: center; gap: 8px; }
+.live-hero-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--danger);
+  animation: liveDotPulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .live-hero-dot { animation: none; } }
+.live-hero-label { font-family: var(--font-display); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; color: var(--danger); }
+.live-hero-target { margin-left: auto; font-size: 0.8rem; color: var(--muted); }
+.live-hero-score { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.live-hero-side { display: flex; flex-direction: column; gap: 3px; }
+.live-hero-side-b { align-items: flex-end; text-align: right; }
+.live-hero-name { font-size: 0.82rem; font-weight: 700; }
+.live-hero-pts { font-family: var(--font-display); font-size: 1.9rem; font-weight: 800; line-height: 1; }
+.live-hero-dash { font-size: 1.1rem; color: var(--muted); padding: 0 4px; }
+.live-hero-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.8rem; }
+.live-hero-odds { color: var(--muted); }
+.live-hero-cta { font-family: var(--font-display); font-weight: 700; color: var(--accent); }
+
 /* Shared preview for every generated share image (Trading Card, Party Recap) -- see
    showImagePreview() in app.js. Same full-screen dialog treatment as Live Game below, since both
    are "look before you commit" overlays. */
@@ -2497,7 +2569,25 @@ button:disabled {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
   object-fit: contain;
 }
-.image-preview-actions { display: flex; gap: 10px; justify-content: center; }
+.image-preview-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+/* Live Game handoff (viewer only, maybeShowLiveHandoff() in app.js): reuses the image-preview
+   overlay shell for the same "here's what you're about to hand off" framing, swapping the image
+   for a plain-text result code. */
+.live-handoff-inner { background: var(--panel-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; gap: 12px; max-width: min(420px, 100%); }
+.live-handoff-code {
+  width: 100%;
+  resize: none;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--muted);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  word-break: break-all;
+}
 
 /* Live Game: full-screen phone scoreboard */
 body.live-open { overflow: hidden; }
