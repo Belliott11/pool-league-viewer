@@ -64,6 +64,15 @@ body {
   font-style: normal;
   color: var(--accent);
 }
+/* At narrow widths "Pool League Stat Tracker" doesn't fit the h1's flex row on one line, so each
+   word-group shrinks and wraps independently instead of the title just wrapping cleanly -- a
+   dedicated short label (not "Poolean", which already means the real external site everywhere
+   else in this app) sidesteps that instead of fighting flex-shrink with more CSS. */
+.app-title-short { display: none; white-space: nowrap; }
+@media (max-width: 480px) {
+  .app-title-full { display: none; }
+  .app-title-short { display: inline; color: var(--accent); }
+}
 
 .theme-toggle-btn {
   background: var(--surface-muted);
@@ -609,8 +618,9 @@ button:disabled {
 .game-card {
   background: var(--panel-bg);
   border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius);
-  padding: 14px 20px;
+  padding: 14px 20px 14px 18px;
   display: flex;
   justify-content: space-between;
   align-items: center;
