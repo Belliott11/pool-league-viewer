@@ -11669,6 +11669,7 @@ function renderLeaderboard() {
   renderTrophyCase();
   renderIronMan();
   renderIndividualGamePerformances();
+  renderPlaySearch();
   renderLeagueHighlights();
   renderPlayerComparisonSelects();
   renderPlayerComparison();
@@ -11979,6 +11980,95 @@ function renderPlayerReel(playerId) {
     tr.appendChild(tdBtn);
     body.appendChild(tr);
   });
+}
+
+// ---------- Play Search ----------
+// Every logged play across every game, flattened into one list and tagged with its type and the
+// player it's about, so "Ben's steals" or "Zach's missed 3s" is two dropdowns instead of clicking
+// into each game's own Shot Log/Other Events tables by hand. Built fresh each render (cheap: a
+// season's worth of games is a few hundred plays at most, nowhere near needing a cache).
+const PLAY_SEARCH_TYPES = [
+  { key: "made-2", label: "Made 2PT" },
+  { key: "made-3", label: "Made 3PT" },
+  { key: "made-ft", label: "Made FT" },
+  { key: "missed-2", label: "Missed 2PT" },
+  { key: "missed-3", label: "Missed 3PT" },
+  { key: "missed-ft", label: "Missed FT" },
+  { key: "dunk", label: "Dunks" },
+  { key: "assist", label: "Assists" },
+  { key: "steal", label: "Steals" },
+  { key: "block", label: "Blocks" },
+  { key: "turnover", label: "Turnovers" },
+  { key: "foul", label: "Fouls" },
+  { key: "oreb", label: "Offensive Rebounds" },
+  { key: "dreb", label: "Defensive Rebounds" }
+];
+const PLAY_SEARCH_LABEL_BY_KEY = Object.fromEntries(PLAY_SEARCH_TYPES.map(t => [t.key, t.label]));
+
+function computePlaySearchResults() {
+  const rows = [];
+  const add = (type, playerId, game, videoTime, otherId) => {
+    rows.push({ type, playerId, gameId: game.id, gameDate: game.date, videoTime: padJumpTime(videoTime), otherId: otherId || null });
+  };
+  state.games.forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      const made = ev.made !== false;
+      if (made) {
+        add(ev.points === 3 ? "made-3" : ev.points === 1 ? "made-ft" : "made-2", ev.scorerId, game, ev.videoTime);
+        if (ev.assistId) add("assist", ev.assistId, game, ev.videoTime, ev.scorerId);
+      } else {
+        add(ev.points === 3 ? "missed-3" : ev.points === 1 ? "missed-ft" : "missed-2", ev.scorerId, game, ev.videoTime);
+        if (ev.blockerId) add("block", ev.blockerId, game, ev.videoTime, ev.scorerId);
+        if (ev.rebounderId) add(sameTeam(game, ev.scorerId, ev.rebounderId) ? "oreb" : "dreb", ev.rebounderId, game, ev.videoTime);
+      }
+      if (ev.dunk) add("dunk", ev.scorerId, game, ev.videoTime);
+    });
+    game.stealEvents.forEach(ev => add("steal", ev.playerId, game, ev.videoTime, ev.opponentId));
+    game.turnoverEvents.forEach(ev => add("turnover", ev.playerId, game, ev.videoTime, ev.opponentId));
+    game.foulEvents.forEach(ev => add("foul", ev.playerId, game, ev.videoTime, ev.opponentId));
+  });
+  return rows.sort((a, b) => (b.gameDate || "").localeCompare(a.gameDate || ""));
+}
+
+const PLAY_SEARCH_DETAIL_VERB = { assist: "assisted", block: "blocked", steal: "off", turnover: "forced by", foul: "on" };
+function renderPlaySearch() {
+  const playerSel = document.getElementById("playSearchPlayerSelect");
+  const typeSel = document.getElementById("playSearchTypeSelect");
+  const body = document.getElementById("playSearchBody");
+  const summary = document.getElementById("playSearchSummary");
+  if (!playerSel || !typeSel || !body) return;
+  const prevPlayer = playerSel.value;
+  playerSel.innerHTML = '<option value="">Any player</option>' +
+    [...state.players].sort((a, b) => a.name.localeCompare(b.name)).map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join("");
+  playerSel.value = prevPlayer;
+  if (!typeSel.dataset.wired) {
+    typeSel.dataset.wired = "1";
+    typeSel.innerHTML = '<option value="">Any play</option>' + PLAY_SEARCH_TYPES.map(t => `<option value="${t.key}">${escapeHtml(t.label)}</option>`).join("");
+    playerSel.addEventListener("change", renderPlaySearch);
+    typeSel.addEventListener("change", renderPlaySearch);
+  }
+  const rows = computePlaySearchResults().filter(r =>
+    (!playerSel.value || r.playerId === playerSel.value) && (!typeSel.value || r.type === typeSel.value));
+  const gameCount = new Set(rows.map(r => r.gameId)).size;
+  summary.textContent = rows.length
+    ? `${rows.length} play${rows.length === 1 ? "" : "s"} across ${gameCount} game${gameCount === 1 ? "" : "s"}.`
+    : "No plays match yet.";
+  body.innerHTML = rows.length === 0 ? "" : rows.map(r => {
+    const player = state.players.find(p => p.id === r.playerId);
+    const other = r.otherId ? state.players.find(p => p.id === r.otherId) : null;
+    const detail = other && PLAY_SEARCH_DETAIL_VERB[r.type] ? `${PLAY_SEARCH_DETAIL_VERB[r.type]} ${escapeHtml(other.name)}` : "";
+    return `<tr>
+      <td>${escapeHtml(formatDateDisplay(r.gameDate))}</td>
+      <td>${player ? playerLink(player.id, player.name) : "?"}</td>
+      <td>${escapeHtml(PLAY_SEARCH_LABEL_BY_KEY[r.type])}</td>
+      <td>${detail}</td>
+      <td><button type="button" class="secondary-btn play-search-jump" data-game-id="${escapeHtml(r.gameId)}" data-video-time="${r.videoTime === null || r.videoTime === undefined ? "" : r.videoTime}">▶ Jump</button></td>
+    </tr>`;
+  }).join("");
+  body.querySelectorAll(".play-search-jump").forEach(btn => btn.addEventListener("click", () => {
+    const t = btn.dataset.videoTime;
+    openGameAndSeek(btn.dataset.gameId, t === "" ? null : Number(t));
+  }));
 }
 
 // League-wide Highlights & Lowlights — every tagged clip across every player and game, not

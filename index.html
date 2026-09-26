@@ -945,6 +945,21 @@
       <video controls style="width:100%;max-height:70vh;border-radius:var(--radius-sm, 8px);display:block;background:#000;" src="highlight-reel.mp4"></video>
     </div>
     <div class="panel">
+      <h2>Play Search</h2>
+      <p class="hint">Pick a player and a play type to see every one of them across every game -- Ben's steals, Zach's missed 3s, whatever you're after -- newest first, with a jump straight to the moment.</p>
+      <div class="balance-controls" style="margin-bottom:10px">
+        <select id="playSearchPlayerSelect" aria-label="Player"></select>
+        <select id="playSearchTypeSelect" aria-label="Play type"></select>
+      </div>
+      <p class="hint" id="playSearchSummary" style="margin:0 0 10px"></p>
+      <div class="table-scroll">
+        <table class="matchup-table">
+          <thead><tr><th>Date</th><th>Player</th><th>Play</th><th>Detail</th><th></th></tr></thead>
+          <tbody id="playSearchBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
       <h2>Highlights &amp; Lowlights (League)</h2>
       <p class="hint">Every clip tagged to any player, newest first. Clips come from the Highlight / Lowlight Reel in Stat Entry.</p>
       <div class="table-scroll">
