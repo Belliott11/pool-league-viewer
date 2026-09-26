@@ -4,7 +4,7 @@
  * stylesheet after this one that redefines the same variable names on :root).
  * See INTEGRATION.md → "Theming" for what each token controls.
  *
- * This is Ben's own working palette (navy + a single teal accent, kept deliberately
+ * This is Ben's own working palette (navy + a single warm-orange accent, kept deliberately
  * restrained), not a Poolean brand mandate — swap it freely to match the live site.
  */
 
@@ -23,12 +23,13 @@
   --text: #0f211d;
   --muted: #5c7570;
 
-  /* Brand + semantic colors — one accent hue (teal) used everywhere, not split across two */
-  --primary: #0e8f86;
-  --primary-dark: #0b6f68;
-  --primary-light: #e2f3f1;
-  --accent: #0e8f86;
-  --accent-light: #e2f3f1;
+  /* Brand + semantic colors — one accent hue (a warm basketball-orange, not teal) used
+     everywhere, not split across two */
+  --primary: #d9601a;
+  --primary-dark: #a8480f;
+  --primary-light: #fdece0;
+  --accent: #d9601a;
+  --accent-light: #fdece0;
   --danger: #b8382d;
   --danger-light: #fbe6e3;
   --success: #1f7f4f;
@@ -37,8 +38,8 @@
   --warning-light: #fbeedc;
 
   /* Decorative background glow (behind the whole page) */
-  --glow-1: #e2f3f1;
-  --glow-2: #eef4e9;
+  --glow-1: #fdece0;
+  --glow-2: #fbf1e4;
 
   /* Player-profile role tags (Players tab) — one hue per role so a roster scan reads by color,
      not just label text. role-player deliberately stays neutral (the --surface-tint/--muted
@@ -74,32 +75,38 @@
 /* Dark mode: system preference by default, overridden by the header toggle (data-theme) */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0c1d29;
-    --panel-bg: #122a3a;
-    --border: #1e3a4a;
-    --surface-muted: #16303f;
-    --surface-muted-hover: #1c3a4b;
-    --surface-tint: #102633;
-    --surface-hover: #142e3d;
-    --disabled-bg: #1c3644;
-    --text: #eaf3f2;
-    --muted: #7f9aa8;
-    --primary: #33cbc0;
-    --primary-dark: #7fe0d6;
-    --primary-light: #123645;
-    --accent: #33cbc0;
-    --accent-light: #123645;
+    /* Panel/border pulled noticeably lighter than the page background (not just a shade or two
+       off it) so cards actually read as their own surface instead of blending into the page --
+       the previous values put --bg/--panel-bg/--border within a few points of each other. */
+    --bg: #0a1622;
+    --panel-bg: #17293c;
+    --border: #2c4359;
+    --surface-muted: #0f2130;
+    --surface-muted-hover: #1d3446;
+    --surface-tint: #122536;
+    --surface-hover: #16293c;
+    --disabled-bg: #1e3344;
+    --text: #f4f8f9;
+    --muted: #93acbc;
+    /* Warm basketball-orange in place of the old cyan-teal -- reads with more energy against
+       this navy than another cool hue would, and no longer sits close enough to --success
+       (green) to blur together at a glance. */
+    --primary: #ff6a4d;
+    --primary-dark: #ff9678;
+    --primary-light: #3a1f16;
+    --accent: #ff6a4d;
+    --accent-light: #3a1f16;
     --danger: #f2726b;
     --danger-light: #3a1a17;
     --success: #4fd97f;
     --success-light: #123322;
-    --warning: #f2a33c;
-    --warning-light: #3a2412;
-    --glow-1: rgba(51, 203, 192, 0.07);
-    --glow-2: rgba(51, 203, 192, 0.04);
+    --warning: #f2c94c;
+    --warning-light: #3a3012;
+    --glow-1: rgba(255, 106, 77, 0.08);
+    --glow-2: rgba(255, 106, 77, 0.05);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.16), 0 4px 14px rgba(0, 0, 0, 0.22);
     --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.22), 0 12px 28px rgba(0, 0, 0, 0.32);
-    --header-bg-translucent: rgba(12, 29, 41, 0.72);
+    --header-bg-translucent: rgba(10, 22, 34, 0.72);
     --tag-scorer-bg: #3a2712;
     --tag-scorer-text: #f2ad5c;
     --tag-defender-bg: #16283f;
@@ -112,32 +119,32 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #0c1d29;
-  --panel-bg: #122a3a;
-  --border: #1e3a4a;
-  --surface-muted: #16303f;
-  --surface-muted-hover: #1c3a4b;
-  --surface-tint: #102633;
-  --surface-hover: #142e3d;
-  --disabled-bg: #1c3644;
-  --text: #eaf3f2;
-  --muted: #7f9aa8;
-  --primary: #33cbc0;
-  --primary-dark: #7fe0d6;
-  --primary-light: #123645;
-  --accent: #33cbc0;
-  --accent-light: #123645;
+  --bg: #0a1622;
+  --panel-bg: #17293c;
+  --border: #2c4359;
+  --surface-muted: #0f2130;
+  --surface-muted-hover: #1d3446;
+  --surface-tint: #122536;
+  --surface-hover: #16293c;
+  --disabled-bg: #1e3344;
+  --text: #f4f8f9;
+  --muted: #93acbc;
+  --primary: #ff6a4d;
+  --primary-dark: #ff9678;
+  --primary-light: #3a1f16;
+  --accent: #ff6a4d;
+  --accent-light: #3a1f16;
   --danger: #f2726b;
   --danger-light: #3a1a17;
   --success: #4fd97f;
   --success-light: #123322;
-  --warning: #f2a33c;
-  --warning-light: #3a2412;
-  --glow-1: rgba(51, 203, 192, 0.07);
-  --glow-2: rgba(51, 203, 192, 0.04);
+  --warning: #f2c94c;
+  --warning-light: #3a3012;
+  --glow-1: rgba(255, 106, 77, 0.08);
+  --glow-2: rgba(255, 106, 77, 0.05);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.16), 0 4px 14px rgba(0, 0, 0, 0.22);
   --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.22), 0 12px 28px rgba(0, 0, 0, 0.32);
-  --header-bg-translucent: rgba(12, 29, 41, 0.72);
+  --header-bg-translucent: rgba(10, 22, 34, 0.72);
   --tag-scorer-bg: #3a2712;
   --tag-scorer-text: #f2ad5c;
   --tag-defender-bg: #16283f;

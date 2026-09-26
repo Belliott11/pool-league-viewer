@@ -2526,8 +2526,8 @@ button:disabled {
   text-align: left;
   padding: 14px 18px;
   border-radius: var(--radius);
-  background: linear-gradient(135deg, var(--success-light), var(--accent-light));
-  border: 1px solid color-mix(in srgb, var(--success) 45%, transparent);
+  background: linear-gradient(135deg, var(--accent-light), var(--panel-bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   cursor: pointer;
   font: inherit;
   color: var(--text);
