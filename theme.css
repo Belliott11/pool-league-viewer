@@ -57,40 +57,41 @@
   /* Shape + elevation — generous continuous-looking radius and soft, diffuse shadows (the iOS
      card language: cards read as floating slightly above the background, not flat bordered
      boxes) — badges/pills stay full-round regardless of this token, see .badge in style.css */
-  --radius: 18px;
-  --radius-sm: 12px;
+  --radius: 20px;
+  --radius-sm: 14px;
   --shadow-sm: 0 1px 2px rgba(15, 33, 29, 0.04), 0 4px 14px rgba(15, 33, 29, 0.06);
   --shadow-md: 0 4px 10px rgba(15, 33, 29, 0.06), 0 12px 28px rgba(15, 33, 29, 0.10);
 
   /* Translucent panel-bg for the sticky header's frosted-glass look (backdrop-filter blur) */
   --header-bg-translucent: rgba(255, 255, 255, 0.72);
 
-  /* Typography — one grotesk family for both display and body (weight carries the
-     hierarchy), a monospace face reserved for tabular stat numbers */
+  /* Typography — a bolder, more characterful display face (Sora) for headings/scores/nav/
+     buttons, paired with the plainer Archivo for running body text -- a real pairing instead of
+     one grotesk doing both jobs. Mono face reserved for tabular stat numbers. */
   --font-body: "Archivo", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-display: "Archivo", var(--font-body);
+  --font-display: "Sora", "Archivo", var(--font-body);
   --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
 /* Dark mode: system preference by default, overridden by the header toggle (data-theme) */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    /* Panel/border pulled noticeably lighter than the page background (not just a shade or two
-       off it) so cards actually read as their own surface instead of blending into the page --
-       the previous values put --bg/--panel-bg/--border within a few points of each other. */
-    --bg: #0a1622;
-    --panel-bg: #17293c;
-    --border: #2c4359;
-    --surface-muted: #0f2130;
-    --surface-muted-hover: #1d3446;
-    --surface-tint: #122536;
-    --surface-hover: #16293c;
-    --disabled-bg: #1e3344;
-    --text: #f4f8f9;
-    --muted: #93acbc;
-    /* Warm basketball-orange in place of the old cyan-teal -- reads with more energy against
-       this navy than another cool hue would, and no longer sits close enough to --success
-       (green) to blur together at a glance. */
+    /* Warm charcoal instead of navy -- a blue-tinted base was fighting the orange accent (a
+       literal complementary clash: orange sits almost opposite blue on the wheel). A hue-neutral
+       warm dark lets the accent be the only strong color in the room instead of competing with
+       one baked into the background. Panel/border still pulled clearly lighter than the page. */
+    --bg: #14110d;
+    --panel-bg: #221c15;
+    --border: #3d3224;
+    --surface-muted: #1a1610;
+    --surface-muted-hover: #2b2318;
+    --surface-tint: #1d1811;
+    --surface-hover: #241d15;
+    --disabled-bg: #2c2419;
+    --text: #f8f3ea;
+    --muted: #a89a86;
+    /* Warm basketball-orange -- now the only strong hue on the page, since the background no
+       longer carries one of its own. */
     --primary: #ff6a4d;
     --primary-dark: #ff9678;
     --primary-light: #3a1f16;
@@ -99,14 +100,16 @@
     --danger: #f2726b;
     --danger-light: #3a1a17;
     --success: #4fd97f;
-    --success-light: #123322;
+    --success-light: #17271c;
     --warning: #f2c94c;
     --warning-light: #3a3012;
-    --glow-1: rgba(255, 106, 77, 0.08);
-    --glow-2: rgba(255, 106, 77, 0.05);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.16), 0 4px 14px rgba(0, 0, 0, 0.22);
-    --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.22), 0 12px 28px rgba(0, 0, 0, 0.32);
-    --header-bg-translucent: rgba(10, 22, 34, 0.72);
+    /* Two slightly different shades of the accent (not one flat glow) for a bit of depth behind
+       the page -- see body's background in style.css. */
+    --glow-1: rgba(255, 106, 77, 0.11);
+    --glow-2: rgba(255, 154, 110, 0.07);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.22), 0 4px 14px rgba(0, 0, 0, 0.30);
+    --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.30), 0 14px 32px rgba(0, 0, 0, 0.42);
+    --header-bg-translucent: rgba(20, 17, 13, 0.72);
     --tag-scorer-bg: #3a2712;
     --tag-scorer-text: #f2ad5c;
     --tag-defender-bg: #16283f;
@@ -119,16 +122,16 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #0a1622;
-  --panel-bg: #17293c;
-  --border: #2c4359;
-  --surface-muted: #0f2130;
-  --surface-muted-hover: #1d3446;
-  --surface-tint: #122536;
-  --surface-hover: #16293c;
-  --disabled-bg: #1e3344;
-  --text: #f4f8f9;
-  --muted: #93acbc;
+  --bg: #14110d;
+  --panel-bg: #221c15;
+  --border: #3d3224;
+  --surface-muted: #1a1610;
+  --surface-muted-hover: #2b2318;
+  --surface-tint: #1d1811;
+  --surface-hover: #241d15;
+  --disabled-bg: #2c2419;
+  --text: #f8f3ea;
+  --muted: #a89a86;
   --primary: #ff6a4d;
   --primary-dark: #ff9678;
   --primary-light: #3a1f16;
@@ -137,14 +140,14 @@
   --danger: #f2726b;
   --danger-light: #3a1a17;
   --success: #4fd97f;
-  --success-light: #123322;
+  --success-light: #17271c;
   --warning: #f2c94c;
   --warning-light: #3a3012;
-  --glow-1: rgba(255, 106, 77, 0.08);
-  --glow-2: rgba(255, 106, 77, 0.05);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.16), 0 4px 14px rgba(0, 0, 0, 0.22);
-  --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.22), 0 12px 28px rgba(0, 0, 0, 0.32);
-  --header-bg-translucent: rgba(10, 22, 34, 0.72);
+  --glow-1: rgba(255, 106, 77, 0.11);
+  --glow-2: rgba(255, 154, 110, 0.07);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.22), 0 4px 14px rgba(0, 0, 0, 0.30);
+  --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.30), 0 14px 32px rgba(0, 0, 0, 0.42);
+  --header-bg-translucent: rgba(20, 17, 13, 0.72);
   --tag-scorer-bg: #3a2712;
   --tag-scorer-text: #f2ad5c;
   --tag-defender-bg: #16283f;

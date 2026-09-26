@@ -306,12 +306,15 @@ main {
 }
 
 .panel {
-  background: var(--panel-bg);
+  /* A flat single fill read as paper-flat -- a faint top-to-bottom gradient plus a hairline
+     inset highlight along the top edge gives each card a slight sense of catching light from
+     above, without going anywhere near a heavy bevel/skeuomorphic look. */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel-bg) 100%, white 4%), var(--panel-bg) 60%);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px 24px;
   margin-bottom: 20px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 color-mix(in srgb, white 6%, transparent);
 }
 
 /* Groups two or more narrow panels (a small chart, a compact table) side by side instead of each
@@ -616,7 +619,7 @@ button:disabled {
 .icon-btn:hover { color: var(--danger); background: none; }
 
 .game-card {
-  background: var(--panel-bg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel-bg) 100%, white 4%), var(--panel-bg) 60%);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
   border-radius: var(--radius);
@@ -625,7 +628,7 @@ button:disabled {
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 color-mix(in srgb, white 6%, transparent);
   transition: box-shadow 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
 }
 .game-card:hover {
@@ -2215,9 +2218,10 @@ button:disabled {
   position: sticky;
   top: var(--header-h, 84px);
   z-index: 5;
-  background: var(--header-bg-translucent);
-  backdrop-filter: saturate(180%) blur(16px);
-  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  /* A frosted blur here sampled whatever colorful table content was scrolling underneath it and
+     averaged out to a washed-out grey band -- a plain opaque page-colored bar reads cleanly
+     instead, and still does its job (covering content scrolling up under it) without the artifact. */
+  background: var(--bg);
   padding: 8px 0;
 }
 .player-section-nav-scroll {
