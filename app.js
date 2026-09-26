@@ -2677,11 +2677,18 @@ function renderLiveGamePanel() {
 }
 
 // ---------- Check against the real site ----------
-// Every game in this app with a result (logged from film, or a finished live score) is matched
-// to the real site's game from the same night with the same two rosters, and the winners are
-// compared. Rematches between identical teams on one night are paired up in order. A game whose
-// night has real games but no roster match is listed too (usually a roster or date typo on one
-// side); a night the real site has no games for yet is just counted.
+// Every game in this app with a result (logged from film, or a finished live score) is checked
+// against the real site's games from the same night between the same two rosters. Grouped by
+// (date, roster pair) rather than matched one-to-one, and deliberately never by the site's own
+// GAME_NO or any other order: a real rematch's own numbering isn't reliable play order (see
+// byPlayOrder's own comment), so pairing "the first logged local game" with "the first-numbered
+// real game" on a night with a rematch can accidentally cross-wire two otherwise-correct results
+// and report a fake mismatch. Instead, each side's WIN COUNTS for that roster pair that night are
+// compared: this app's own logged record only ever needs to be a possible subset of the real
+// site's (it can't show a result the real site has no record of at all), which is true and checkable
+// with no assumption about which specific game is which. A night the real site has no games for
+// yet is just counted; a roster pair with no real game at all that date is a real mismatch either
+// way (usually a roster or date typo on one side).
 function localGameResult(game) {
   if (game.liveInProgress) return null;
   if (game.scoringEvents.length > 0) {
@@ -2693,21 +2700,47 @@ function localGameResult(game) {
 
 function computeRealSiteCheck() {
   if (typeof POOLEAN_SEASONS === "undefined") return null;
-  const realGames = realSeasonsInOrder().flatMap(season => [...season.games].sort(byPlayOrder));
+  const realGames = realSeasonsInOrder().flatMap(season => season.games);
   const realDates = new Set(realGames.map(g => g.date));
-  const sameSet = (x, y) => x.length === y.length && x.every(id => y.includes(id));
-  const used = new Set();
+  const rosterKey = ids => [...ids].sort().join("|");
   const out = { agree: [], disagree: [], unmatched: [], noRealNight: 0 };
-  [...state.games].sort((x, y) => (x.date || "").localeCompare(y.date || "")).forEach(game => {
+
+  const buckets = new Map(); // `${date}::${pairKey}` -> { date, xKey, yKey, games: [local games] }
+  state.games.forEach(game => {
     const result = localGameResult(game);
     if (!result) return;
     if (!realDates.has(game.date)) { out.noRealNight++; return; }
-    const match = realGames.find(g => !used.has(g) && g.date === game.date &&
-      ((sameSet(g.a, game.teamA) && sameSet(g.b, game.teamB)) || (sameSet(g.a, game.teamB) && sameSet(g.b, game.teamA))));
-    if (!match) { out.unmatched.push({ game }); return; }
-    used.add(match);
-    const realWinnerIsA = sameSet(match.a, game.teamA) ? match.w === "A" : match.w === "B";
-    (realWinnerIsA === (result === "A") ? out.agree : out.disagree).push({ game, real: match });
+    const [xKey, yKey] = [rosterKey(game.teamA), rosterKey(game.teamB)].sort();
+    const bucketKey = `${game.date}::${xKey}__${yKey}`;
+    if (!buckets.has(bucketKey)) buckets.set(bucketKey, { date: game.date, xKey, yKey, games: [] });
+    buckets.get(bucketKey).games.push(game);
+  });
+
+  buckets.forEach(bucket => {
+    const winnerKey = (teamA, teamB, winnerIsA) => rosterKey(winnerIsA ? teamA : teamB);
+    let localX = 0, localY = 0;
+    bucket.games.forEach(game => {
+      const wKey = winnerKey(game.teamA, game.teamB, localGameResult(game) === "A");
+      if (wKey === bucket.xKey) localX++; else localY++;
+    });
+    const realMatches = realGames.filter(g => g.date === bucket.date &&
+      [rosterKey(g.a), rosterKey(g.b)].sort().join("__") === `${bucket.xKey}__${bucket.yKey}`);
+    if (realMatches.length === 0) {
+      bucket.games.forEach(game => out.unmatched.push({ game }));
+      return;
+    }
+    let realX = 0, realY = 0;
+    realMatches.forEach(g => {
+      const wKey = winnerKey(g.a, g.b, g.w === "A");
+      if (wKey === bucket.xKey) realX++; else realY++;
+    });
+    // Feasible as long as neither side's logged win count exceeds what the real site has any
+    // record of at all -- true regardless of which specific local game maps to which real one.
+    if (localX <= realX && localY <= realY) {
+      bucket.games.forEach(game => out.agree.push({ game }));
+    } else {
+      out.disagree.push({ bucket, localX, localY, realX, realY });
+    }
   });
   return out;
 }
@@ -2719,7 +2752,7 @@ function renderRealSiteCheck() {
   const problems = check ? check.disagree.length + check.unmatched.length : 0;
   if (summary) {
     summary.innerHTML = problems
-      ? `⚠️ ${problems} game${problems === 1 ? "" : "s"} here ${problems === 1 ? "doesn't" : "don't"} match the real site. <button type="button" class="secondary-btn" id="jumpToRealSiteCheckBtn">Review</button>`
+      ? `⚠️ ${problems} thing${problems === 1 ? "" : "s"} here ${problems === 1 ? "doesn't" : "don't"} match the real site. <button type="button" class="secondary-btn" id="jumpToRealSiteCheckBtn">Review</button>`
       : "";
     document.getElementById("jumpToRealSiteCheckBtn")?.addEventListener("click", () => {
       showTab("export");
@@ -2729,16 +2762,19 @@ function renderRealSiteCheck() {
   if (!wrap) return;
   if (!check) { wrap.innerHTML = '<p class="empty-state">No real-site data loaded yet.</p>'; return; }
   const names = ids => ids.map(id => escapeHtml(poolNameOf(id))).join(", ");
-  const gameLine = (game, extra) => `<li><button type="button" class="secondary-btn" data-open-game="${escapeHtml(game.id)}">Open</button>
-    ${escapeHtml(formatDateDisplay(game.date))}: ${names(game.teamA)} vs. ${names(game.teamB)} ${extra}</li>`;
-  const winnerText = (game, isA) => `${isA ? "Team A" : "Team B"} (${names(isA ? game.teamA : game.teamB)})`;
-  const disagreeHtml = check.disagree.map(({ game, real }) => {
-    const realA = real.a.every(id => game.teamA.includes(id)) ? real.w === "A" : real.w === "B";
-    return gameLine(game, `<span class="hint" style="margin:0">here: ${winnerText(game, localGameResult(game) === "A")} won; real site: ${winnerText(game, realA)} won</span>`);
-  }).join("");
-  const unmatchedHtml = check.unmatched.map(({ game }) => gameLine(game, `<span class="hint" style="margin:0">no real game that night with these teams</span>`)).join("");
+  const openButtons = games => games.map(game => `<button type="button" class="secondary-btn" data-open-game="${escapeHtml(game.id)}">Open</button>`).join(" ");
+  const disagreeHtml = check.disagree.map(({ bucket, localX, localY, realX, realY }) => `<li>
+      ${openButtons(bucket.games)}
+      ${escapeHtml(formatDateDisplay(bucket.date))}: ${names(bucket.xKey.split("|"))} vs. ${names(bucket.yKey.split("|"))}
+      <span class="hint" style="margin:0">here: won ${localX}, lost ${localY} (of ${bucket.games.length} logged); real site: won ${realX}, lost ${realY}</span>
+    </li>`).join("");
+  const unmatchedHtml = check.unmatched.map(({ game }) => `<li>
+      ${openButtons([game])}
+      ${escapeHtml(formatDateDisplay(game.date))}: ${names(game.teamA)} vs. ${names(game.teamB)}
+      <span class="hint" style="margin:0">no real game that night with these teams</span>
+    </li>`).join("");
   wrap.innerHTML = `<p class="hint" style="margin:0 0 10px">${check.agree.length} match${check.agree.length === 1 ? "es" : ""} the real site.${check.noRealNight ? ` ${check.noRealNight} ${check.noRealNight === 1 ? "is" : "are"} from nights the real site has no games for yet.` : ""}</p>
-    ${disagreeHtml ? `<h4 style="margin:10px 0 6px">Different winner</h4><ul class="real-check-list">${disagreeHtml}</ul>` : ""}
+    ${disagreeHtml ? `<h4 style="margin:10px 0 6px">Doesn't fit the real record</h4><ul class="real-check-list">${disagreeHtml}</ul>` : ""}
     ${unmatchedHtml ? `<h4 style="margin:10px 0 6px">No matching real game</h4><ul class="real-check-list">${unmatchedHtml}</ul>` : ""}
     ${!disagreeHtml && !unmatchedHtml ? '<p class="empty-state">Nothing to fix.</p>' : ""}`;
   wrap.querySelectorAll("[data-open-game]").forEach(btn => btn.addEventListener("click", () => openGame(btn.dataset.openGame)));
