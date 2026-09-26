@@ -633,6 +633,7 @@ function showTab(tab) {
   if (bottomAlias) document.querySelectorAll(`.bottom-tab-btn[data-tab="${bottomAlias}"]`).forEach(b => b.classList.add("active"));
   if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderSameMomentReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); renderRealSiteCheck(); }
   if (tab === "leaderboard") renderLeaderboard();
+  if (tab === "live") renderLiveGamePanel();
   // Refreshes the attendee picker against the current roster — cheap, and a player added while
   // on a different tab shouldn't require a page reload to show up here.
   if (tab === "games") {
@@ -640,7 +641,6 @@ function showTab(tab) {
     renderBalanceRsvpDateSelect();
     renderPlannerAttendeePicker();
     renderMatchupPredictor();
-    renderLiveGamePanel();
     renderGamesFilterPlayerPicker();
     renderGamesFilterStatPlayerSelect();
     renderRsvpAttendeePicker();
@@ -14953,14 +14953,10 @@ function renderPoolDataDigest() {
 }
 
 // ---------- Init ----------
-// The bottom bar's own "Live" button (dashboard-only, no equivalent in the friends viewer): jumps
-// straight back into a game already in progress, or to the Live Game panel to start one -- a
-// dedicated, always-reachable way in, not just "scroll to it once you're already on Games".
-document.getElementById("liveNavBtn")?.addEventListener("click", () => {
-  if (liveGameInProgress()) { openLiveGameOverlay(); return; }
-  showTab("games");
-  document.getElementById("liveGamePanel")?.closest(".panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
-});
+// Live is a real tab (#tab-live) like any other now -- the bottom bar's own "Live" button just
+// carries data-tab="live" and gets the generic .tab-btn wiring above like everything else. Used to
+// jump to a spot mid-scroll on the Games tab instead, which is exactly the "it should be its own
+// page" complaint this replaced.
 updateLiveNavIndicator();
 
 // Works offline once it's been opened with a connection (see sw.js). Needs https, or localhost
