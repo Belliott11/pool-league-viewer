@@ -471,6 +471,16 @@ main {
   gap: 16px;
   margin: 10px 0;
 }
+/* Below the width where these 4 switches stop fitting on one line, flex-wrap drops each one onto
+   its own line -- but flex-end then right-hugs every one of those compact, content-sized rows
+   individually, so each label starts at a different, seemingly random x position depending on its
+   own text length, with a dead gap to its left. A real vertical settings list instead: every row
+   full width, label and switch pinned to opposite ends of the SAME row rather than the whole
+   toolbar. */
+@media (max-width: 560px) {
+  .leaderboard-toolbar { flex-direction: column; align-items: stretch; gap: 10px; }
+  .ios-switch-row { width: 100%; justify-content: space-between; }
+}
 
 /* iOS-style toggle switch — a settings-row label paired with a track/knob, replacing a button
    whose own text used to flip between "Include X"/"Exclude X" to show state. The label now names
