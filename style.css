@@ -18,12 +18,13 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Frosted-glass sticky nav bar, iOS-style: translucent + blurred rather than a flat opaque
-   panel, so page content is still faintly readable sliding underneath it on scroll. */
+/* Was frosted-glass (translucent + blurred), iOS-style, so page content stayed faintly visible
+   sliding underneath -- but that blur samples whatever's scrolling under it (game cards, colored
+   badges, table cells) and averages toward a washed-out grey, same bug as the section-nav had.
+   Opaque bar instead, with the same faint accent wash as the section-nav so a large plain swatch
+   of the neutral doesn't just read as grey. */
 .app-header {
-  background: var(--header-bg-translucent);
-  backdrop-filter: saturate(180%) blur(16px);
-  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg));
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -2260,9 +2261,11 @@ button:disabled {
   top: var(--header-h, 84px);
   z-index: 5;
   /* A frosted blur here sampled whatever colorful table content was scrolling underneath it and
-     averaged out to a washed-out grey band -- a plain opaque page-colored bar reads cleanly
-     instead, and still does its job (covering content scrolling up under it) without the artifact. */
-  background: var(--bg);
+     averaged out to a washed-out grey band -- switched to an opaque bar instead, and still does
+     its job (covering content scrolling up under it) without that artifact. Flat var(--bg) was
+     its own problem though: as one large plain swatch of the neutral with nothing else nearby, it
+     just reads as grey -- a faint wash of the accent keeps it from ever looking unstyled. */
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg));
   padding: 8px 0;
 }
 .player-section-nav-scroll {
@@ -2769,9 +2772,10 @@ body.live-open { overflow: hidden; }
   bottom: 0;
   z-index: 30;
   gap: 2px;
-  background: var(--header-bg-translucent);
-  backdrop-filter: saturate(180%) blur(16px);
-  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  /* Plain opaque bar, not frosted-blur -- same washed-out-grey artifact as the header/section-nav
+     otherwise, and this one sits over the live mini bar and game cards constantly. Same faint
+     accent wash as those two, for the same reason. */
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg));
   border-top: 1px solid var(--border);
   padding: 4px max(4px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
 }

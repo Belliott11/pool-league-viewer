@@ -631,7 +631,7 @@ function showTab(tab) {
   document.querySelectorAll(`.tab-btn[data-tab="${tab}"]`).forEach(b => b.classList.add("active"));
   const bottomAlias = BOTTOM_TAB_ALIAS[tab];
   if (bottomAlias) document.querySelectorAll(`.bottom-tab-btn[data-tab="${bottomAlias}"]`).forEach(b => b.classList.add("active"));
-  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderSameMomentReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); renderRealSiteCheck(); }
+  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderSameMomentReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); renderRealSiteCheck(); renderExportSectionTeasers(); }
   if (tab === "leaderboard") renderLeaderboard();
   if (tab === "live") renderLiveGamePanel();
   // Refreshes the attendee picker against the current roster — cheap, and a player added while
@@ -1339,6 +1339,7 @@ function renderGames() {
   });
 
   markGamesWithLocalVideo();
+  renderGamesSectionTeasers();
 }
 
 // Local video files live in IndexedDB, not `state`, so the "has video" badge (and the "Needs
@@ -14169,6 +14170,67 @@ function wireLeaderboardSectionNav() {
   wireSectionNavExtras("#tab-leaderboard", "lb-section-");
 }
 
+// ---------- Games tab: section jump nav ----------
+// Same pattern as Leaderboard's above -- the Game Log itself stays always visible (that's what
+// the tab is for), everything else that used to just be a long stack of unrelated setup panels is
+// grouped into two jump-to, collapsible sections instead.
+function computeGamesSectionTeasers() {
+  return {
+    setup: "RSVP who's coming and log tonight's game",
+    balance: "Even splits, matchup odds, and a full night's schedule"
+  };
+}
+
+function renderGamesSectionTeasers() {
+  const teasers = computeGamesSectionTeasers();
+  Object.entries(teasers).forEach(([key, text]) => {
+    const el = document.getElementById(`games-teaser-${key}`);
+    if (el) el.textContent = text;
+  });
+}
+
+function wireGamesSectionNav() {
+  document.querySelectorAll("#tab-games .player-section-nav-link").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const section = document.getElementById(`games-section-${btn.dataset.section}`);
+      if (!section) return;
+      section.open = true;
+      scrollBelowStickyNav(section, btn);
+    });
+  });
+  wireSectionNavExtras("#tab-games", "games-section-");
+}
+
+// ---------- Export tab: section jump nav ----------
+function computeExportSectionTeasers() {
+  return {
+    exportData: "Full data dump, or one game at a time",
+    review: "Backfill shot locations and clear every flagged review queue",
+    media: "Session recordings, broken links, and shot-arc labeling",
+    dataManagement: "Start a new season or reset everything"
+  };
+}
+
+function renderExportSectionTeasers() {
+  const teasers = computeExportSectionTeasers();
+  Object.entries(teasers).forEach(([key, text]) => {
+    const el = document.getElementById(`export-teaser-${key}`);
+    if (el) el.textContent = text;
+  });
+}
+
+function wireExportSectionNav() {
+  document.querySelectorAll("#tab-export .player-section-nav-link").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const section = document.getElementById(`export-section-${btn.dataset.section}`);
+      if (!section) return;
+      section.open = true;
+      scrollBelowStickyNav(section, btn);
+    });
+  });
+  wireSectionNavExtras("#tab-export", "export-section-");
+}
+
 // ---------- Review Shot Types (backfill and re-check) ----------
 // Default view: every 2- and 3-point attempt with no shot type yet, oldest first, a page at a time,
 // optionally narrowed to one player (so one player's shots can be tagged first). The re-check views
@@ -15045,6 +15107,8 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
 collapseSectionHints();
 wirePlayerSectionNav();
 wireLeaderboardSectionNav();
+wireGamesSectionNav();
+wireExportSectionNav();
 wirePlayerNameLinks();
 renderPoolDataDigest();
 initPooleanSeasonPicker();

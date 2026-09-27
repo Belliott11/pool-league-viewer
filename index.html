@@ -245,120 +245,140 @@
   <section id="tab-games" class="tab-panel active">
   <div class="tab-body-with-sidebar" id="gamesSidebarWrap">
   <div class="tab-main">
-    <div class="panel">
-      <h2>Who's Coming?</h2>
-      <p class="hint">Mark who said they're coming on a date. This doesn't create a game. Once a game is logged that day, anyone who said yes but didn't play counts toward their Flake %. Saving the same date again replaces it.</p>
-      <input type="date" id="rsvpDateInput" style="margin-bottom:10px">
-      <div id="rsvpAttendeePicker" class="attendee-picker"></div>
-      <div class="balance-controls">
-        <button type="button" class="secondary-btn" id="saveRsvpBtn">Save RSVPs</button>
-        <button type="button" class="icon-btn" id="clearRsvpBtn">Clear This Date</button>
+    <div id="games-section-overview">
+      <p id="needsReviewSummary" class="hint" style="margin:0 0 10px"></p>
+      <p id="shotLocationGapSummary" class="hint" style="margin:0 0 10px"></p>
+
+      <div class="inline-form" style="margin-bottom:12px">
+        <input type="text" id="gameFilterInput" placeholder="Filter by date, player, or notes…" style="flex:1;min-width:220px">
+        <button type="button" class="secondary-btn" id="toggleGamesAdvancedFilterBtn">Advanced Filters</button>
       </div>
-      <div id="rsvpRecentList" style="margin-top:14px"></div>
+
+      <div id="gamesAdvancedFilters" class="games-advanced-filters" hidden>
+        <div class="filter-block">
+          <div class="filter-block-label">Players (must all be in the game)</div>
+          <div id="gamesFilterPlayerPicker" class="attendee-picker"></div>
+          <label class="filter-inline-label">Team
+            <select id="gamesFilterTeamMode">
+              <option value="either">Doesn't matter</option>
+              <option value="together">On the same team</option>
+              <option value="against">On opposing teams</option>
+            </select>
+          </label>
+        </div>
+        <div class="filter-block">
+          <div class="filter-block-label">Date range</div>
+          <label class="filter-inline-label">From <input type="date" id="gamesFilterDateFrom"></label>
+          <label class="filter-inline-label">To <input type="date" id="gamesFilterDateTo"></label>
+        </div>
+        <div class="filter-block">
+          <div class="filter-block-label">Stat line: find games where a specific player hit a threshold</div>
+          <div class="filter-stat-row">
+            <select id="gamesFilterStatPlayer"><option value="">Any player…</option></select>
+            <select id="gamesFilterStatField">
+              <option value="pts">PTS</option>
+              <option value="oreb">OREB</option>
+              <option value="dreb">DREB</option>
+              <option value="ast">AST</option>
+              <option value="stl">STL</option>
+              <option value="blk">BLK</option>
+              <option value="tov">TOV</option>
+              <option value="pf">PF</option>
+              <option value="offRtg">Off Rating</option>
+              <option value="twoWay">Two-Way</option>
+            </select>
+            <select id="gamesFilterStatOp">
+              <option value="gte">&ge;</option>
+              <option value="lte">&le;</option>
+              <option value="eq">=</option>
+            </select>
+            <input type="number" id="gamesFilterStatValue" placeholder="value" style="width:70px">
+          </div>
+        </div>
+        <button type="button" class="secondary-btn" id="clearGamesFiltersBtn">Clear Filters</button>
+      </div>
+
+      <div id="gamesList" class="games-list"></div>
     </div>
 
-    <div class="panel">
-      <h2>Create Game</h2>
-      <form id="addGameForm" class="inline-form">
-        <input type="date" id="gameDateInput" required>
-        <input type="text" id="gameVideoInput" placeholder="Video URL (YouTube or direct link, optional)" style="flex:1;min-width:220px">
-        <input type="text" id="gameNotesInput" placeholder="Notes (optional)">
-        <button type="submit">Create Game</button>
-      </form>
+    <div class="player-section-nav" data-nav-scope="games">
+      <div class="player-section-nav-scroll">
+      <button type="button" class="player-section-nav-link" data-section="setup">Set Up Tonight</button>
+      <button type="button" class="player-section-nav-link" data-section="balance">Balance &amp; Predict</button>
+      </div>
+      <button type="button" class="player-section-expand-all" data-expand-toggle="1">Expand all</button>
     </div>
 
-    <div class="panel">
-      <h2>Balance Teams</h2>
-      <p class="hint">Pick who's here and set a team size. You get a few even splits built from player quality (* means estimated from power rankings), chemistry and past record together. Two-team options are ordered by the Matchup Predictor, closest to 50/50 first; height and role only break near-ties. Generate again for new options.</p>
-      <div class="balance-controls" style="margin-bottom:10px">
-        <label>Load from Who's Coming?
-          <select id="balanceRsvpDateSelect"></select>
-        </label>
-        <button type="button" class="secondary-btn" id="loadRsvpToBalanceBtn">Use These RSVPs</button>
-      </div>
-      <div id="balanceAttendeePicker" class="attendee-picker"></div>
-      <div class="balance-controls">
-        <label>Team size <input type="number" id="balanceTeamSizeInput" min="1" value="3"></label>
-        <button type="button" class="secondary-btn" id="generateBalancedTeamsBtn" disabled>Generate Balanced Teams</button>
-      </div>
-      <div id="balanceTeamsResults"></div>
-    </div>
-    <div class="panel">
-      <h2>Matchup Predictor <span class="real-data-tag">Real site data</span></h2>
-      <p class="hint">Tap a player once for Team A, again for Team B, and a third time to remove them. The odds come from a model trained on every real game: power rankings, an extra player, and how these players have done together and against each other.</p>
-      <div id="matchupPredictorPicker" class="attendee-picker"></div>
-      <div id="matchupPredictorResult"></div>
-      <div id="matchupTrackRecord"></div>
-    </div>
-    <div class="panel">
-      <h2>Party Night Planner</h2>
-      <p class="hint">Pick who's here to get a whole night of games: close matchups, mixed-up teammates, and fair turns sitting out. Reshuffle for a new schedule, or copy it for the group chat.</p>
-      <div class="balance-controls" style="margin-bottom:10px">
-        <button type="button" class="secondary-btn" id="plannerUseBalanceBtn">Same people as Balance Teams</button>
-        <span class="hint" id="plannerCount" style="margin:0"></span>
-      </div>
-      <div id="plannerAttendeePicker" class="attendee-picker"></div>
-      <div class="balance-controls">
-        <label>Players per side <select id="plannerTeamSize"><option value="0">Everyone plays</option></select></label>
-        <label>Games <input type="number" id="plannerGameCount" min="1" max="30" value="8"></label>
-        <button type="button" class="secondary-btn" id="plannerGenerateBtn" disabled>Plan the Night</button>
-      </div>
-      <div id="plannerResult"></div>
-    </div>
+    <details class="player-section" id="games-section-setup">
+      <summary><h3>Set Up Tonight</h3><span class="player-section-teaser" id="games-teaser-setup"></span></summary>
+      <div class="player-section-body">
+        <div class="panel">
+          <h2>Who's Coming?</h2>
+          <p class="hint">Mark who said they're coming on a date. This doesn't create a game. Once a game is logged that day, anyone who said yes but didn't play counts toward their Flake %. Saving the same date again replaces it.</p>
+          <input type="date" id="rsvpDateInput" style="margin-bottom:10px">
+          <div id="rsvpAttendeePicker" class="attendee-picker"></div>
+          <div class="balance-controls">
+            <button type="button" class="secondary-btn" id="saveRsvpBtn">Save RSVPs</button>
+            <button type="button" class="icon-btn" id="clearRsvpBtn">Clear This Date</button>
+          </div>
+          <div id="rsvpRecentList" style="margin-top:14px"></div>
+        </div>
 
-    <p id="needsReviewSummary" class="hint" style="margin:0 0 10px"></p>
-    <p id="shotLocationGapSummary" class="hint" style="margin:0 0 10px"></p>
-
-    <div class="inline-form" style="margin-bottom:12px">
-      <input type="text" id="gameFilterInput" placeholder="Filter by date, player, or notes…" style="flex:1;min-width:220px">
-      <button type="button" class="secondary-btn" id="toggleGamesAdvancedFilterBtn">Advanced Filters</button>
-    </div>
-
-    <div id="gamesAdvancedFilters" class="games-advanced-filters" hidden>
-      <div class="filter-block">
-        <div class="filter-block-label">Players (must all be in the game)</div>
-        <div id="gamesFilterPlayerPicker" class="attendee-picker"></div>
-        <label class="filter-inline-label">Team
-          <select id="gamesFilterTeamMode">
-            <option value="either">Doesn't matter</option>
-            <option value="together">On the same team</option>
-            <option value="against">On opposing teams</option>
-          </select>
-        </label>
-      </div>
-      <div class="filter-block">
-        <div class="filter-block-label">Date range</div>
-        <label class="filter-inline-label">From <input type="date" id="gamesFilterDateFrom"></label>
-        <label class="filter-inline-label">To <input type="date" id="gamesFilterDateTo"></label>
-      </div>
-      <div class="filter-block">
-        <div class="filter-block-label">Stat line: find games where a specific player hit a threshold</div>
-        <div class="filter-stat-row">
-          <select id="gamesFilterStatPlayer"><option value="">Any player…</option></select>
-          <select id="gamesFilterStatField">
-            <option value="pts">PTS</option>
-            <option value="oreb">OREB</option>
-            <option value="dreb">DREB</option>
-            <option value="ast">AST</option>
-            <option value="stl">STL</option>
-            <option value="blk">BLK</option>
-            <option value="tov">TOV</option>
-            <option value="pf">PF</option>
-            <option value="offRtg">Off Rating</option>
-            <option value="twoWay">Two-Way</option>
-          </select>
-          <select id="gamesFilterStatOp">
-            <option value="gte">&ge;</option>
-            <option value="lte">&le;</option>
-            <option value="eq">=</option>
-          </select>
-          <input type="number" id="gamesFilterStatValue" placeholder="value" style="width:70px">
+        <div class="panel">
+          <h2>Create Game</h2>
+          <form id="addGameForm" class="inline-form">
+            <input type="date" id="gameDateInput" required>
+            <input type="text" id="gameVideoInput" placeholder="Video URL (YouTube or direct link, optional)" style="flex:1;min-width:220px">
+            <input type="text" id="gameNotesInput" placeholder="Notes (optional)">
+            <button type="submit">Create Game</button>
+          </form>
         </div>
       </div>
-      <button type="button" class="secondary-btn" id="clearGamesFiltersBtn">Clear Filters</button>
-    </div>
+    </details>
 
-    <div id="gamesList" class="games-list"></div>
+    <details class="player-section" id="games-section-balance">
+      <summary><h3>Balance &amp; Predict</h3><span class="player-section-teaser" id="games-teaser-balance"></span></summary>
+      <div class="player-section-body">
+        <div class="panel">
+          <h2>Balance Teams</h2>
+          <p class="hint">Pick who's here and set a team size. You get a few even splits built from player quality (* means estimated from power rankings), chemistry and past record together. Two-team options are ordered by the Matchup Predictor, closest to 50/50 first; height and role only break near-ties. Generate again for new options.</p>
+          <div class="balance-controls" style="margin-bottom:10px">
+            <label>Load from Who's Coming?
+              <select id="balanceRsvpDateSelect"></select>
+            </label>
+            <button type="button" class="secondary-btn" id="loadRsvpToBalanceBtn">Use These RSVPs</button>
+          </div>
+          <div id="balanceAttendeePicker" class="attendee-picker"></div>
+          <div class="balance-controls">
+            <label>Team size <input type="number" id="balanceTeamSizeInput" min="1" value="3"></label>
+            <button type="button" class="secondary-btn" id="generateBalancedTeamsBtn" disabled>Generate Balanced Teams</button>
+          </div>
+          <div id="balanceTeamsResults"></div>
+        </div>
+        <div class="panel">
+          <h2>Matchup Predictor <span class="real-data-tag">Real site data</span></h2>
+          <p class="hint">Tap a player once for Team A, again for Team B, and a third time to remove them. The odds come from a model trained on every real game: power rankings, an extra player, and how these players have done together and against each other.</p>
+          <div id="matchupPredictorPicker" class="attendee-picker"></div>
+          <div id="matchupPredictorResult"></div>
+          <div id="matchupTrackRecord"></div>
+        </div>
+        <div class="panel">
+          <h2>Party Night Planner</h2>
+          <p class="hint">Pick who's here to get a whole night of games: close matchups, mixed-up teammates, and fair turns sitting out. Reshuffle for a new schedule, or copy it for the group chat.</p>
+          <div class="balance-controls" style="margin-bottom:10px">
+            <button type="button" class="secondary-btn" id="plannerUseBalanceBtn">Same people as Balance Teams</button>
+            <span class="hint" id="plannerCount" style="margin:0"></span>
+          </div>
+          <div id="plannerAttendeePicker" class="attendee-picker"></div>
+          <div class="balance-controls">
+            <label>Players per side <select id="plannerTeamSize"><option value="0">Everyone plays</option></select></label>
+            <label>Games <input type="number" id="plannerGameCount" min="1" max="30" value="8"></label>
+            <button type="button" class="secondary-btn" id="plannerGenerateBtn" disabled>Plan the Night</button>
+          </div>
+          <div id="plannerResult"></div>
+        </div>
+      </div>
+    </details>
   </div>
   <aside class="tab-sidebar">
     <button type="button" class="icon-btn sidebar-toggle-btn" data-sidebar-toggle="gamesSidebarWrap" title="Collapse/expand sidebar"><span class="sidebar-toggle-label">Quick Reference</span>☰</button>
@@ -1269,121 +1289,151 @@
 
 <!-- EXPORT -->
   <section id="tab-export" class="tab-panel">
-    <div class="panel">
-      <h2>Export All Data</h2>
-      <p class="hint">Full dump of players, games, box scores, and matchups. Give this to your friend to integrate into the website.</p>
-      <div class="button-row">
-        <button id="exportAllJsonBtn">Download JSON</button>
-        <button id="exportBoxScoreCsvBtn">Download Box Score CSV</button>
-        <button id="exportScoringLogCsvBtn">Download Shot Log CSV</button>
-        <button id="exportShotLocationsCsvBtn">Download Shot Locations CSV</button>
-        <button id="exportOtherEventsCsvBtn">Download Other Events CSV</button>
-        <button id="exportMatchupCsvBtn">Download Matchups CSV</button>
-        <button id="exportReelCsvBtn">Download Highlight Reel CSV</button>
-        <button id="exportLeaderboardCsvBtn">Download Leaderboard CSV</button>
-        <button id="exportAssistSynergyCsvBtn">Download Assist Connections CSV</button>
-        <button id="exportTeammateSynergyCsvBtn">Download Teammate Synergy CSV</button>
-        <button id="exportOutOfBoundsCsvBtn">Download Out-of-Bounds CSV</button>
+    <div class="player-section-nav" data-nav-scope="export">
+      <div class="player-section-nav-scroll">
+      <button type="button" class="player-section-nav-link" data-section="exportData">Export Data</button>
+      <button type="button" class="player-section-nav-link" data-section="review">Review &amp; Backfill</button>
+      <button type="button" class="player-section-nav-link" data-section="media">Video &amp; Media</button>
+      <button type="button" class="player-section-nav-link" data-section="dataManagement">Data Management</button>
       </div>
+      <button type="button" class="player-section-expand-all" data-expand-toggle="1">Expand all</button>
     </div>
 
-    <div class="panel">
-      <h2>Export a Single Game</h2>
-      <div class="inline-form">
-        <select id="exportGameSelect"></select>
-        <button id="exportGameJsonBtn">Download Game JSON</button>
+    <details class="player-section" id="export-section-exportData">
+      <summary><h3>Export Data</h3><span class="player-section-teaser" id="export-teaser-exportData"></span></summary>
+      <div class="player-section-body">
+        <div class="panel">
+          <h2>Export All Data</h2>
+          <p class="hint">Full dump of players, games, box scores, and matchups. Give this to your friend to integrate into the website.</p>
+          <div class="button-row">
+            <button id="exportAllJsonBtn">Download JSON</button>
+            <button id="exportBoxScoreCsvBtn">Download Box Score CSV</button>
+            <button id="exportScoringLogCsvBtn">Download Shot Log CSV</button>
+            <button id="exportShotLocationsCsvBtn">Download Shot Locations CSV</button>
+            <button id="exportOtherEventsCsvBtn">Download Other Events CSV</button>
+            <button id="exportMatchupCsvBtn">Download Matchups CSV</button>
+            <button id="exportReelCsvBtn">Download Highlight Reel CSV</button>
+            <button id="exportLeaderboardCsvBtn">Download Leaderboard CSV</button>
+            <button id="exportAssistSynergyCsvBtn">Download Assist Connections CSV</button>
+            <button id="exportTeammateSynergyCsvBtn">Download Teammate Synergy CSV</button>
+            <button id="exportOutOfBoundsCsvBtn">Download Out-of-Bounds CSV</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Export a Single Game</h2>
+          <div class="inline-form">
+            <select id="exportGameSelect"></select>
+            <button id="exportGameJsonBtn">Download Game JSON</button>
+          </div>
+        </div>
       </div>
-    </div>
+    </details>
 
-    <div class="panel">
-      <h2>Backfill Shot Locations</h2>
-      <p class="hint">Every field goal (2 or 3, not free throws) that's missing a shot chart location, across every game. Click a spot on the mini chart to set it, no need to reopen the game or its video. Each click saves immediately and the shot drops off this list.</p>
-      <div id="backfillShotLocations"></div>
-    </div>
+    <details class="player-section" id="export-section-review">
+      <summary><h3>Review &amp; Backfill</h3><span class="player-section-teaser" id="export-teaser-review"></span></summary>
+      <div class="player-section-body">
+        <div class="panel">
+          <h2>Backfill Shot Locations</h2>
+          <p class="hint">Every field goal (2 or 3, not free throws) that's missing a shot chart location, across every game. Click a spot on the mini chart to set it, no need to reopen the game or its video. Each click saves immediately and the shot drops off this list.</p>
+          <div id="backfillShotLocations"></div>
+        </div>
 
-    <div class="panel">
-      <h2>Flagged Shot Locations</h2>
-      <p class="hint">Shots whose marked spot doesn't match their point value. Click the mini chart to move the spot. If the point value was the mistake, delete the shot and log it again in the Shot Log.</p>
-      <div id="flaggedShotMismatches"></div>
-    </div>
+        <div class="panel">
+          <h2>Flagged Shot Locations</h2>
+          <p class="hint">Shots whose marked spot doesn't match their point value. Click the mini chart to move the spot. If the point value was the mistake, delete the shot and log it again in the Shot Log.</p>
+          <div id="flaggedShotMismatches"></div>
+        </div>
 
-    <div class="panel">
-      <h2>Session Videos</h2>
-      <p class="hint">Recordings uploaded once and shared across multiple games (see the Video panel in Stat Entry). Removing one here clears it from every game using it.</p>
-      <table class="matchup-table">
-        <thead><tr><th>Name</th><th>Used by</th><th></th></tr></thead>
-        <tbody id="masterVideoListBody"></tbody>
-      </table>
-    </div>
+        <div class="panel">
+          <h2>Review Possible Dunks</h2>
+          <p class="hint">Close/midrange 2PT field goals logged before shots could be marked as dunks, so the ball-flight tracking work can exclude real dunks. Click Watch film to check, then Dunk or Not a dunk; either answer removes it from this list.</p>
+          <div id="dunkReview"></div>
+        </div>
 
-    <div class="panel">
-      <h2>Broken Session Video Links</h2>
-      <p class="hint">Games pointing at a session video that isn't in this browser anymore, so their video won't load. Exporting one of these games won't include its video.</p>
-      <div id="brokenVideoLinks"></div>
-    </div>
+        <div class="panel">
+          <h2>Review Shot Types</h2>
+          <p class="hint">Shots with no type yet, oldest first. Pick a player to start with, watch the clip, and pick the type. Skip hides one until you reload. The re-check views list tagged shots worth a second look.</p>
+          <div id="shotTypeReview"></div>
+        </div>
 
-    <div class="panel">
-      <h2>Shot Arc Hand-Labeling</h2>
-      <p class="hint">Label the ball in shot clips to help train ball tracking. Click the ball's center on each frame (skipped frames are filled in), or No ball visible (Space). Mark Shot Start and End to trim the clip, or Not a valid shot for dunks and mixed plays. Download the labels when done.</p>
-      <div class="button-row">
-        <select id="labelShotSelect"><option value="">Loading available shots…</option></select>
-        <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0">Step <input type="number" id="labelStepSize" value="3" min="1" max="20" style="width:48px"></label>
-        <button id="labelPrevFrameBtn" class="secondary-btn" disabled>◀ Prev</button>
-        <button id="labelNoballBtn" class="secondary-btn" disabled>No ball visible (space)</button>
-        <button id="labelNextFrameBtn" class="secondary-btn" disabled>Next ▶</button>
+        <div class="panel">
+          <h2>Review Shots at the Same Moment</h2>
+          <p class="hint">Two shots at the exact same video time are usually a miss and its putback. Watch the film and give the putback its real time. Same moment is right hides the pair until you reload.</p>
+          <div id="sameMomentReview"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Review Stopped-Early Games</h2>
+          <p class="hint">Flag any game that was cut short, since a partial game throws off per-game panels like best games and power ranking comparisons. Season totals aren't affected.</p>
+          <div id="stoppedEarlyReview"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Review Rebound Battles</h2>
+          <p class="hint">Tag who was fighting for the rebound on each miss. One click tags one player; use Edit in the Shot Log for two. No contest means nobody was. Skip hides a row until you reload.</p>
+          <div id="reboundBattleReview"></div>
+        </div>
       </div>
-      <div class="button-row" style="margin-top:6px">
-        <button id="labelMarkStartBtn" class="secondary-btn" disabled>Mark Shot Start</button>
-        <button id="labelMarkEndBtn" class="secondary-btn" disabled>Mark Shot End</button>
-        <button id="labelDownloadBtn" class="secondary-btn" disabled>Download Labels JSON</button>
-        <button id="labelExcludeBtn" class="secondary-btn" disabled>Not a valid shot (dunk, etc.)</button>
+    </details>
+
+    <details class="player-section" id="export-section-media">
+      <summary><h3>Video &amp; Media</h3><span class="player-section-teaser" id="export-teaser-media"></span></summary>
+      <div class="player-section-body">
+        <div class="panel">
+          <h2>Session Videos</h2>
+          <p class="hint">Recordings uploaded once and shared across multiple games (see the Video panel in Stat Entry). Removing one here clears it from every game using it.</p>
+          <table class="matchup-table">
+            <thead><tr><th>Name</th><th>Used by</th><th></th></tr></thead>
+            <tbody id="masterVideoListBody"></tbody>
+          </table>
+        </div>
+
+        <div class="panel">
+          <h2>Broken Session Video Links</h2>
+          <p class="hint">Games pointing at a session video that isn't in this browser anymore, so their video won't load. Exporting one of these games won't include its video.</p>
+          <div id="brokenVideoLinks"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Shot Arc Hand-Labeling</h2>
+          <p class="hint">Label the ball in shot clips to help train ball tracking. Click the ball's center on each frame (skipped frames are filled in), or No ball visible (Space). Mark Shot Start and End to trim the clip, or Not a valid shot for dunks and mixed plays. Download the labels when done.</p>
+          <div class="button-row">
+            <select id="labelShotSelect"><option value="">Loading available shots…</option></select>
+            <label class="hint" style="display:inline-flex;align-items:center;gap:4px;margin:0">Step <input type="number" id="labelStepSize" value="3" min="1" max="20" style="width:48px"></label>
+            <button id="labelPrevFrameBtn" class="secondary-btn" disabled>◀ Prev</button>
+            <button id="labelNoballBtn" class="secondary-btn" disabled>No ball visible (space)</button>
+            <button id="labelNextFrameBtn" class="secondary-btn" disabled>Next ▶</button>
+          </div>
+          <div class="button-row" style="margin-top:6px">
+            <button id="labelMarkStartBtn" class="secondary-btn" disabled>Mark Shot Start</button>
+            <button id="labelMarkEndBtn" class="secondary-btn" disabled>Mark Shot End</button>
+            <button id="labelDownloadBtn" class="secondary-btn" disabled>Download Labels JSON</button>
+            <button id="labelExcludeBtn" class="secondary-btn" disabled>Not a valid shot (dunk, etc.)</button>
+          </div>
+          <p id="labelProgress" class="hint" style="margin:8px 0 0"></p>
+          <div id="labelFrameWrap" style="position:relative;display:inline-block;margin-top:8px"></div>
+        </div>
       </div>
-      <p id="labelProgress" class="hint" style="margin:8px 0 0"></p>
-      <div id="labelFrameWrap" style="position:relative;display:inline-block;margin-top:8px"></div>
-    </div>
+    </details>
 
-    <div class="panel">
-      <h2>Review Possible Dunks</h2>
-      <p class="hint">Close/midrange 2PT field goals logged before shots could be marked as dunks, so the ball-flight tracking work can exclude real dunks. Click Watch film to check, then Dunk or Not a dunk; either answer removes it from this list.</p>
-      <div id="dunkReview"></div>
-    </div>
-
-    <div class="panel">
-      <h2>Review Shot Types</h2>
-      <p class="hint">Shots with no type yet, oldest first. Pick a player to start with, watch the clip, and pick the type. Skip hides one until you reload. The re-check views list tagged shots worth a second look.</p>
-      <div id="shotTypeReview"></div>
-    </div>
-
-    <div class="panel">
-      <h2>Review Shots at the Same Moment</h2>
-      <p class="hint">Two shots at the exact same video time are usually a miss and its putback. Watch the film and give the putback its real time. Same moment is right hides the pair until you reload.</p>
-      <div id="sameMomentReview"></div>
-    </div>
-
-    <div class="panel">
-      <h2>Review Stopped-Early Games</h2>
-      <p class="hint">Flag any game that was cut short, since a partial game throws off per-game panels like best games and power ranking comparisons. Season totals aren't affected.</p>
-      <div id="stoppedEarlyReview"></div>
-    </div>
-
-    <div class="panel">
-      <h2>Review Rebound Battles</h2>
-      <p class="hint">Tag who was fighting for the rebound on each miss. One click tags one player; use Edit in the Shot Log for two. No contest means nobody was. Skip hides a row until you reload.</p>
-      <div id="reboundBattleReview"></div>
-    </div>
-
-    <div class="panel">
-      <h2>Data Management</h2>
-      <div class="button-row">
-        <label class="secondary-btn file-label">
-          Import JSON
-          <input type="file" id="importFileInput" accept="application/json" hidden>
-        </label>
-        <button id="startNewSeasonBtn" class="danger-btn">Start New Season</button>
-        <button id="resetDataBtn" class="danger-btn">Reset All Data</button>
+    <details class="player-section" id="export-section-dataManagement">
+      <summary><h3>Data Management</h3><span class="player-section-teaser" id="export-teaser-dataManagement"></span></summary>
+      <div class="player-section-body">
+        <div class="panel">
+          <h2>Data Management</h2>
+          <div class="button-row">
+            <label class="secondary-btn file-label">
+              Import JSON
+              <input type="file" id="importFileInput" accept="application/json" hidden>
+            </label>
+            <button id="startNewSeasonBtn" class="danger-btn">Start New Season</button>
+            <button id="resetDataBtn" class="danger-btn">Reset All Data</button>
+          </div>
+          <p class="hint" style="margin:8px 0 0">Start New Season closes the current season: its games are kept but archived (see Include Past Seasons), and videos stored in this browser are cleared. Reset All Data deletes everything, roster included. Either one saves a backup file first.</p>
+        </div>
       </div>
-      <p class="hint" style="margin:8px 0 0">Start New Season closes the current season: its games are kept but archived (see Include Past Seasons), and videos stored in this browser are cleared. Reset All Data deletes everything, roster included. Either one saves a backup file first.</p>
-    </div>
+    </details>
   </section>
 
 </main>
