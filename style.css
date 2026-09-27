@@ -230,30 +230,11 @@ main {
 .tab-body-with-sidebar.sidebar-collapsed .tab-sidebar-inner { display: none; }
 @media (max-width: 900px) {
   .tab-body-with-sidebar, .tab-body-with-sidebar.sidebar-collapsed { grid-template-columns: 1fr; }
-  /* Stacked below the main content instead of pinned beside it, so the viewport-relative
-     max-height/scroll above (needed only to keep a sticky sidebar's bottom reachable) would just
-     get in the way here — let it flow at its natural height like everything else on the page. */
-  .tab-sidebar { position: static; max-height: none; overflow-y: visible; }
-  /* Desktop's small round icon floats with nothing around it once the sidebar is no longer its
-     own sticky, pinned-beside-content strip -- it reads as an orphaned button in a gap of empty
-     space. Turned into a full-width labeled bar here instead, so it looks like the header of the
-     card stack it controls rather than a stray control floating above it. */
-  .sidebar-toggle-btn {
-    position: static;
-    align-self: stretch;
-    width: 100%;
-    height: auto;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    background: var(--panel-bg);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-size: 0.85rem;
-  }
-  .sidebar-toggle-btn .sidebar-toggle-label { display: inline; }
+  /* A "sidebar" pinned beside the main content only means anything on desktop -- once it can no
+     longer sit beside anything, it's just Standings/Recent Games (or Highlights) repeated at the
+     very bottom of an already-long scroll, by request removed outright here rather than kept as
+     dead weight under a name ("Quick Reference") that no longer describes where it is. */
+  .tab-sidebar { display: none; }
 }
 
 /* Compact standings widget (renderStandingsSidebar() in app.js) — tighter than the main
@@ -696,16 +677,36 @@ button:disabled {
 
 /* Bigger than the base .icon-btn (which stays compact for inline table use elsewhere): these two
    are the only tap targets on a whole game-card row that AREN'T the card's own click-to-open, so
-   there's real room to make them thumb-sized without cramping anything. */
+   there's real room to make them thumb-sized without cramping anything. Actual pill chips now
+   (border + fill), not plain unstyled text -- everything else on a card already reads as a
+   distinct control (badges, the accent edge), so these were the one thing that looked unfinished. */
 .game-card .game-share-btn,
 .game-card .game-delete-btn {
   min-width: 44px;
   min-height: 40px;
   padding: 8px 14px;
   font-size: 0.85rem;
-  border-radius: var(--radius-sm);
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--text);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
-.game-card .game-share-btn:hover { background: var(--surface-hover); color: var(--text); }
+.game-card .game-share-btn:hover { background: var(--surface-muted-hover); border-color: var(--accent); color: var(--accent); }
+.game-card .game-share-btn:active,
+.game-card .game-delete-btn:active { transform: scale(0.95); }
+/* Outlined in the danger color rather than solid-filled -- it's the one destructive action on
+   the card and shouldn't visually dominate every row, but should still read as "different from
+   Share". A solid red fill on hover made the border (also red) disappear into it -- a faint tint
+   instead keeps border and text legible against the background rather than merging into one
+   red mass. */
+.game-card .game-delete-btn {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  color: var(--danger);
+}
+.game-card .game-delete-btn:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); border-color: var(--danger); color: var(--danger); }
 
 .stat-entry-header {
   display: flex;
