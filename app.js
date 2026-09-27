@@ -896,7 +896,7 @@ function renderPlayers() {
     row.innerHTML = `<span class="roster-row-name">${renderPlayerAvatar(p)}${playerLink(p.id, p.name, false)}${tagsHtml}</span>`;
 
     const editBtn = document.createElement("button");
-    editBtn.className = "icon-btn";
+    editBtn.className = "icon-btn roster-edit-btn";
     editBtn.textContent = editingPhysicalProfileId === p.id ? "Close" : "Edit Tags";
     editBtn.addEventListener("click", () => {
       editingPhysicalProfileId = editingPhysicalProfileId === p.id ? null : p.id;
@@ -905,7 +905,7 @@ function renderPlayers() {
     row.appendChild(editBtn);
 
     const delBtn = document.createElement("button");
-    delBtn.className = "icon-btn";
+    delBtn.className = "icon-btn roster-remove-btn";
     delBtn.textContent = "Remove";
     delBtn.addEventListener("click", () => {
       if (!confirm(`Remove ${p.name} from the roster? Their recorded stats stay in past games.`)) return;
@@ -1361,26 +1361,26 @@ function renderGames() {
     // long filtered list doesn't leave the last cards visibly waiting their turn.
     card.style.animationDelay = `${Math.min(i, 10) * 30}ms`;
     const hasKnownVideo = !!(game.videoUrl || game.masterVideoId);
-    const videoBadge = hasKnownVideo ? ' <span class="badge badge-video">🎥 Video</span>' : '<span class="video-badge-slot"></span>';
+    const videoBadge = hasKnownVideo ? ' <span class="badge badge-video"><span class="emoji-icon">🎥</span> Video</span>' : '<span class="video-badge-slot"></span>';
     const needsReview = game.scoringEvents.length === 0;
     // "Needs Review" only means anything once there's actually a video to review — a game with
     // no video at all just hasn't reached that point yet, not fallen behind. Local-video-only
     // games don't know their video status synchronously, so they get a slot too (resolved
     // alongside the video badge itself in markGamesWithLocalVideo).
     const reviewBadge = hasKnownVideo && needsReview
-      ? ' <span class="badge badge-review">📝 Needs Review</span>'
+      ? ' <span class="badge badge-review"><span class="emoji-icon">📝</span> Needs Review</span>'
       : (needsReview ? '<span class="review-badge-slot"></span>' : '');
     const imbalancedBadge = isBalancedGame(game)
       ? ""
-      : ` <span class="badge badge-imbalanced" title="Team A has ${game.teamA.length}, Team B has ${game.teamB.length}. Excluded from Leaderboard rates and every other computed comparison unless the Include Imbalanced Games toggle on the Leaderboard is on.">⚖️ ${game.teamA.length}v${game.teamB.length}</span>`;
+      : ` <span class="badge badge-imbalanced" title="Team A has ${game.teamA.length}, Team B has ${game.teamB.length}. Excluded from Leaderboard rates and every other computed comparison unless the Include Imbalanced Games toggle on the Leaderboard is on."><span class="emoji-icon">⚖️</span> ${game.teamA.length}v${game.teamB.length}</span>`;
     const pastSeasonBadge = isCurrentSeasonGame(game)
       ? ""
-      : ` <span class="badge badge-past-season" title="From a season closed out before this one. Excluded from Leaderboard rates and every other computed comparison unless the Include Past Seasons toggle on the Leaderboard is on. See Closed Seasons in This App on each player's page for that season's final numbers.">📅 Past Season</span>`;
+      : ` <span class="badge badge-past-season" title="From a season closed out before this one. Excluded from Leaderboard rates and every other computed comparison unless the Include Past Seasons toggle on the Leaderboard is on. See Closed Seasons in This App on each player's page for that season's final numbers."><span class="emoji-icon">📅</span> Past Season</span>`;
     const liveBadge = game.liveInProgress
-      ? ' <span class="badge badge-review" title="Being scored live right now.">📣 Live now</span>'
-      : liveOnly ? ' <span class="badge badge-review" title="Only who scored was tracked live. Log it from film in Stat Entry for it to count toward stats.">📣 Live score only</span>' : "";
+      ? ' <span class="badge badge-review" title="Being scored live right now."><span class="emoji-icon">📣</span> Live now</span>'
+      : liveOnly ? ' <span class="badge badge-review" title="Only who scored was tracked live. Log it from film in Stat Entry for it to count toward stats."><span class="emoji-icon">📣</span> Live score only</span>' : "";
     const stoppedEarlyBadge = game.stoppedEarly
-      ? ` <span class="badge badge-lowlight" title="This game ended early. Not comparable to a complete game -- excluded from Best/Worst Games, Power Ranking vs. Performance, Shot Attempt Differential, Pace/PPP, and Win Shares. Season-total rates still include it.">🛑 Stopped Early</span>`
+      ? ` <span class="badge badge-lowlight" title="This game ended early. Not comparable to a complete game -- excluded from Best/Worst Games, Power Ranking vs. Performance, Shot Attempt Differential, Pace/PPP, and Win Shares. Season-total rates still include it."><span class="emoji-icon">🛑</span> Stopped Early</span>`
       : "";
     // Best/worst-of-the-game badge — same Two-Way score Best & Worst Individual Games ranks by
     // (Off Rating + Def Rating for that one game, not a per-20 rate or season number), just
@@ -1402,9 +1402,9 @@ function renderGames() {
       if (performances.length >= 2) {
         const best = performances.reduce((a, b) => b.twoWay > a.twoWay ? b : a);
         const worst = performances.reduce((a, b) => b.twoWay < a.twoWay ? b : a);
-        starBadge = ` <span class="badge badge-highlight" title="Best individual performance this game by Two-Way score.">🔥 ${playerLink(best.player.id, best.player.name)} ${best.twoWay >= 0 ? "+" : ""}${best.twoWay.toFixed(1)}</span>`;
+        starBadge = ` <span class="badge badge-highlight" title="Best individual performance this game by Two-Way score."><span class="emoji-icon">🔥</span> ${playerLink(best.player.id, best.player.name)} ${best.twoWay >= 0 ? "+" : ""}${best.twoWay.toFixed(1)}</span>`;
         if (worst.player.id !== best.player.id) {
-          coldBadge = ` <span class="badge badge-lowlight" title="Worst individual performance this game by Two-Way score.">👎 ${playerLink(worst.player.id, worst.player.name)} ${worst.twoWay >= 0 ? "+" : ""}${worst.twoWay.toFixed(1)}</span>`;
+          coldBadge = ` <span class="badge badge-lowlight" title="Worst individual performance this game by Two-Way score."><span class="emoji-icon">👎</span> ${playerLink(worst.player.id, worst.player.name)} ${worst.twoWay >= 0 ? "+" : ""}${worst.twoWay.toFixed(1)}</span>`;
         }
       }
     }
@@ -1454,9 +1454,9 @@ async function markGamesWithLocalVideo() {
     const card = document.querySelector(`.game-card[data-game-id="${gameId}"]`);
     if (!card) return;
     const videoSlot = card.querySelector(".video-badge-slot");
-    if (videoSlot) videoSlot.outerHTML = ' <span class="badge badge-video">🎥 Video</span>';
+    if (videoSlot) videoSlot.outerHTML = ' <span class="badge badge-video"><span class="emoji-icon">🎥</span> Video</span>';
     const reviewSlot = card.querySelector(".review-badge-slot");
-    if (reviewSlot) reviewSlot.outerHTML = ' <span class="badge badge-review">📝 Needs Review</span>';
+    if (reviewSlot) reviewSlot.outerHTML = ' <span class="badge badge-review"><span class="emoji-icon">📝</span> Needs Review</span>';
   });
 }
 
@@ -4551,8 +4551,8 @@ function renderScoringLog(game) {
     const blocker = ev.blockerId ? state.players.find(p => p.id === ev.blockerId) : null;
     const rebounder = ev.rebounderId ? state.players.find(p => p.id === ev.rebounderId) : null;
     let resultBadge = made
-      ? '<span class="badge badge-highlight">✅ Make</span>'
-      : '<span class="badge badge-lowlight">❌ Miss</span>';
+      ? '<span class="badge badge-highlight"><span class="emoji-icon">✅</span> Make</span>'
+      : '<span class="badge badge-lowlight"><span class="emoji-icon">❌</span> Miss</span>';
     if (blocker) resultBadge += ` <span class="badge">Blocked: ${playerLink(blocker.id, blocker.name)}</span>`;
     if (ev.turnoverEventId) resultBadge += ' <span class="badge">Out of bounds → TOV</span>';
     if (rebounder) {
@@ -15154,7 +15154,20 @@ updateLiveNavIndicator();
 // Works offline once it's been opened with a connection (see sw.js). Needs https, or localhost
 // for testing; the files this page already loaded are handed over so the first visit counts.
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
-  navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).then(reg => {
+  // A phone reopening an installed/home-screen PWA often just resumes the same suspended tab
+  // instead of doing a real reload, so a new deploy could otherwise sit unseen indefinitely even
+  // though sw.js itself is "network first" -- the page never re-requests its own <link>/<script>
+  // tags to notice. Reload once, automatically, the moment a new worker actually takes over.
+  let swRefreshedOnce = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (swRefreshedOnce) return;
+    swRefreshedOnce = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register("sw.js").then(reg => {
+    reg.update().catch(() => {});
+    return navigator.serviceWorker.ready.then(() => reg);
+  }).then(reg => {
     const urls = performance.getEntriesByType("resource").map(e => e.name)
       .filter(u => !/\.(mp4|mov|webm|m4v)(\?|$)/i.test(u));
     reg.active?.postMessage({ cacheUrls: [location.href.split("#")[0], ...urls] });

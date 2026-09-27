@@ -2,7 +2,7 @@
 // soon as there's a connection; when there isn't, the last copy this phone saw is used instead.
 // Caches this site's own files plus Google Fonts. Never videos: they're huge, and they're
 // fetched in byte ranges that don't cache cleanly.
-const CACHE = "poolean-offline-v1";
+const CACHE = "poolean-offline-v2";
 const FONT_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];
 
 self.addEventListener("install", event => {

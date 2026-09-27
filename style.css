@@ -88,6 +88,10 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  /* These are icon buttons whose whole content is one emoji glyph -- filtering the button itself
+     (rather than wrapping the glyph in its own span) is safe here since the button's own chrome
+     (a muted neutral background/border) barely shifts under the same mild desaturation. */
+  filter: saturate(0.7) sepia(0.25) brightness(0.94);
 }
 .theme-toggle-btn:hover { background: var(--surface-muted-hover); }
 
@@ -625,12 +629,49 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 9px 2px;
-  border-top: 1px solid var(--surface-muted);
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  /* --surface-tint sits only a couple of points off --bg in light mode, so the "card" barely
+     separated from the page at all there (worked fine in dark mode, where the two are further
+     apart) -- --panel-bg gives real contrast against the page in both themes. */
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
   font-weight: 500;
+  animation: cardIn 0.25s ease both;
 }
+@media (prefers-reduced-motion: reduce) { .roster-row { animation: none; } }
+.roster-row:last-child { margin-bottom: 0; }
 
-.roster-row:first-child { border-top: none; }
+/* Real pill buttons instead of plain unstyled .icon-btn text -- same treatment as the game-card
+   Share/Delete buttons, so a roster row reads as a finished row of controls rather than bare
+   text floating next to a name. */
+/* .icon-btn.<x> (not plain .<x>) -- both buttons carry the base .icon-btn class too, and .icon-btn
+   is declared later in this file, so at equal specificity it was silently winning the cascade and
+   overriding these back to plain transparent/muted text (only obvious in light mode, where that
+   read as no button at all rather than just low contrast). */
+.icon-btn.roster-edit-btn,
+.icon-btn.roster-remove-btn {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--text);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.icon-btn.roster-edit-btn:hover { background: var(--surface-muted-hover); border-color: var(--accent); color: var(--accent); }
+.icon-btn.roster-edit-btn:active,
+.icon-btn.roster-remove-btn:active { transform: scale(0.95); }
+.icon-btn.roster-remove-btn {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  color: var(--danger);
+}
+.icon-btn.roster-remove-btn:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); border-color: var(--danger); }
 
 .icon-btn {
   background: none;
@@ -1711,7 +1752,16 @@ button:disabled {
   border-radius: 999px;
   font-size: 0.78rem;
   font-weight: 700;
+  animation: cardIn 0.2s ease both;
 }
+@media (prefers-reduced-motion: reduce) { .badge { animation: none; } }
+/* Native color emoji carry their own platform colors (bright candy-red, sky-blue, etc.) that sit
+   outside this palette entirely and can't be recolored like text -- a mild warm desaturation
+   tones them down enough to feel like part of this theme instead of a sticker dropped on top of
+   it, without going so far that a 🔥 stops reading as fire or a checkmark stops reading as green.
+   Wrap an emoji in this span wherever it's serving as a small UI icon (badges, nav icons, header
+   buttons); free-standing emoji in body text are left alone. */
+.emoji-icon { filter: saturate(0.7) sepia(0.25) brightness(0.94); }
 .badge-highlight {
   background: var(--success-light);
   color: var(--success);
@@ -2864,7 +2914,7 @@ body.live-open { overflow: hidden; }
   text-overflow: ellipsis;
 }
 .bottom-tab-btn.active { color: var(--primary-dark); background: var(--surface-muted); }
-.bottom-tab-icon { font-size: 1.3rem; line-height: 1; position: relative; }
+.bottom-tab-icon { font-size: 1.3rem; line-height: 1; position: relative; filter: saturate(0.7) sepia(0.25) brightness(0.94); }
 
 /* Live Game's own bottom-bar button: not a real tab (no data-tab, doesn't get the generic
    .tab-btn click wiring or active-state), just a dedicated shortcut into it from anywhere. The

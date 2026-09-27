@@ -44,9 +44,12 @@
   /* Player-profile role tags (Players tab) — one hue per role so a roster scan reads by color,
      not just label text. role-player deliberately stays neutral (the --surface-tint/--muted
      pairing everything else on the page already uses) since it's the "nothing stands out"
-     catch-all, not a real specialization. */
-  --tag-scorer-bg: #fde6d0;
-  --tag-scorer-text: #9a5412;
+     catch-all, not a real specialization. Scorer was amber, which the orange accent (see
+     --primary above) sat close enough to that a "Scorer" tag just blended into every other
+     orange thing on the page instead of standing apart from it -- moved to pink/magenta, a hue
+     none of the other four roles or semantic colors (accent, danger, success, warning) use. */
+  --tag-scorer-bg: #fbe0ec;
+  --tag-scorer-text: #b8215f;
   --tag-defender-bg: #dbe9fb;
   --tag-defender-text: #1f5599;
   --tag-physical-bg: #ede2fb;
@@ -110,8 +113,8 @@
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.22), 0 4px 14px rgba(0, 0, 0, 0.30);
     --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.30), 0 14px 32px rgba(0, 0, 0, 0.42);
     --header-bg-translucent: rgba(20, 17, 13, 0.72);
-    --tag-scorer-bg: #3a2712;
-    --tag-scorer-text: #f2ad5c;
+    --tag-scorer-bg: #3a1a2e;
+    --tag-scorer-text: #f2739e;
     --tag-defender-bg: #16283f;
     --tag-defender-text: #7fb4f2;
     --tag-physical-bg: #2a1f3f;
@@ -148,8 +151,8 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.22), 0 4px 14px rgba(0, 0, 0, 0.30);
   --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.30), 0 14px 32px rgba(0, 0, 0, 0.42);
   --header-bg-translucent: rgba(20, 17, 13, 0.72);
-  --tag-scorer-bg: #3a2712;
-  --tag-scorer-text: #f2ad5c;
+  --tag-scorer-bg: #3a1a2e;
+  --tag-scorer-text: #f2739e;
   --tag-defender-bg: #16283f;
   --tag-defender-text: #7fb4f2;
   --tag-physical-bg: #2a1f3f;
