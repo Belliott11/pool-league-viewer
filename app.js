@@ -147,6 +147,109 @@ document.getElementById("shareSiteBtn").addEventListener("click", function () {
 
 applyTheme();
 
+// ---------- Jump search ----------
+// One flat, searchable index of every top-level tab plus every section-nav pill (Leaderboard,
+// Games, Export -- not the Player page, whose sections only mean anything once a specific player
+// is already open, so they'd be dead ends here). Built fresh every time the search opens rather
+// than cached once: which tabs/pills are even visible can change (Players/Export hidden for a
+// viewer guest, "Me" only shown once signed in), and this is cheap enough not to bother caching.
+const JUMP_SECTION_ID_PREFIX = { leaderboard: "lb-section-", games: "games-section-", export: "export-section-" };
+
+function buildJumpSearchIndex() {
+  const items = [];
+  // Every tab exists as both a top-nav button (desktop) and a bottom-tab-bar button (phone),
+  // and depending on viewport width exactly one of those two is actually display:none at any
+  // moment -- checking only one copy would make the index go empty at whichever width hides it,
+  // or wrongly include a tab neither copy shows (Players/Export for a viewer guest, Stat Entry).
+  // So: look at every copy, keep a tab if ANY copy of it is currently visible.
+  const visibleTabs = new Map();
+  document.querySelectorAll(".tab-btn[data-tab]").forEach(btn => {
+    const tab = btn.dataset.tab;
+    if (visibleTabs.has(tab) || getComputedStyle(btn).display === "none") return;
+    const labelEl = btn.querySelector(".bottom-tab-label");
+    const label = (labelEl ? labelEl.textContent : btn.textContent).trim();
+    if (label) visibleTabs.set(tab, label);
+  });
+  visibleTabs.forEach((label, tab) => items.push({ label, tab, section: null, tabLabel: label }));
+  Object.keys(JUMP_SECTION_ID_PREFIX).forEach(scope => {
+    document.querySelectorAll(`.player-section-nav[data-nav-scope="${scope}"] .player-section-nav-link`).forEach(btn => {
+      items.push({ label: btn.textContent.trim(), tab: scope, section: btn.dataset.section, tabLabel: visibleTabs.get(scope) || scope });
+    });
+  });
+  return items;
+}
+
+function jumpSearchGo(item) {
+  closeJumpSearch();
+  showTab(item.tab);
+  if (!item.section) return;
+  // The section's own panel content (and the nav pill it corresponds to) only exists once
+  // showTab has run its per-tab render calls above, which happens synchronously -- but give the
+  // DOM a tick anyway since a couple of those render paths append markup asynchronously.
+  setTimeout(() => {
+    const prefix = JUMP_SECTION_ID_PREFIX[item.tab];
+    const section = prefix && document.getElementById(`${prefix}${item.section}`);
+    const navBtn = document.querySelector(`.player-section-nav[data-nav-scope="${item.tab}"] .player-section-nav-link[data-section="${item.section}"]`);
+    if (!section || !navBtn) return;
+    section.open = true;
+    scrollBelowStickyNav(section, navBtn);
+  }, 50);
+}
+
+function renderJumpSearchResults(query) {
+  const results = document.getElementById("jumpSearchResults");
+  if (!results) return;
+  const items = buildJumpSearchIndex();
+  const q = query.trim().toLowerCase();
+  const matches = q ? items.filter(it => it.label.toLowerCase().includes(q)) : items;
+  results.innerHTML = matches.length
+    ? matches.map((it, i) => `<button type="button" class="jump-search-result" data-jump-idx="${i}">${escapeHtml(it.label)}${it.section ? ` <span class="jump-search-sub">in ${escapeHtml(it.tabLabel)}</span>` : ""}</button>`).join("")
+    : `<p class="empty-state">No matches.</p>`;
+  results.querySelectorAll("[data-jump-idx]").forEach(btn => {
+    btn.addEventListener("click", () => jumpSearchGo(matches[Number(btn.dataset.jumpIdx)]));
+  });
+}
+
+function jumpSearchKeydown(e) {
+  if (e.key === "Escape") closeJumpSearch();
+}
+
+function closeJumpSearch() {
+  const el = document.getElementById("jumpSearchOverlay");
+  if (el) { el.hidden = true; el.innerHTML = ""; }
+  document.removeEventListener("keydown", jumpSearchKeydown);
+}
+
+function openJumpSearch() {
+  let el = document.getElementById("jumpSearchOverlay");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "jumpSearchOverlay";
+    el.className = "jump-search-overlay";
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-label", "Jump to a tab or section");
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `
+    <div class="jump-search-inner">
+      <div class="jump-search-top">
+        <input type="text" id="jumpSearchInput" placeholder="Jump to a tab or section…" autocomplete="off">
+        <button type="button" class="icon-btn" data-jump-close>Close</button>
+      </div>
+      <div id="jumpSearchResults" class="jump-search-results"></div>
+    </div>`;
+  el.hidden = false;
+  el.addEventListener("click", e => { if (e.target === el) closeJumpSearch(); });
+  el.querySelector("[data-jump-close]").addEventListener("click", closeJumpSearch);
+  const input = document.getElementById("jumpSearchInput");
+  input.addEventListener("input", () => renderJumpSearchResults(input.value));
+  renderJumpSearchResults("");
+  input.focus();
+  document.addEventListener("keydown", jumpSearchKeydown);
+}
+
+document.getElementById("jumpSearchBtn")?.addEventListener("click", openJumpSearch);
+
 // ---------- Scroll-fade cue ----------
 // A wide table or a swipeable pill row otherwise just looks cut off at the edge, with nothing
 // telling you there's more to scroll to. Toggled by class rather than baked into a screenshot-time
