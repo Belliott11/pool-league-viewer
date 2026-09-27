@@ -2317,10 +2317,14 @@ button:disabled {
 }
 .player-section-nav-link:hover { border-color: var(--accent); color: var(--accent); }
 .player-section-nav-link:active { transform: scale(0.95); }
+/* Solid fill + white text, not accent-colored text on an accent-tinted background -- that was
+   the same red-on-red problem as the game-card Delete button (text and background too close in
+   hue to read clearly), just here on every section-nav pill row (Leaderboard, Games, Export,
+   Player) whenever a section is open, so far more visible than one button. */
 .player-section-nav-link.player-section-nav-active {
-  background: color-mix(in srgb, var(--accent) 22%, var(--panel-bg));
+  background: var(--accent);
   border-color: var(--accent);
-  color: var(--accent);
+  color: #fff;
 }
 .player-section-expand-all {
   flex: 0 0 auto;
