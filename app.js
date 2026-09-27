@@ -1247,13 +1247,16 @@ function renderGames() {
     list.innerHTML = '<p class="empty-state">No games match that filter.</p>';
     return;
   }
-  filtered.forEach(game => {
+  filtered.forEach((game, i) => {
     const liveOnly = isLiveScoreOnly(game);
     const scoreA = liveOnly ? liveScoreOf(game, game.teamA) : teamScore(game, game.teamA);
     const scoreB = liveOnly ? liveScoreOf(game, game.teamB) : teamScore(game, game.teamB);
     const card = document.createElement("div");
     card.className = "game-card";
     card.dataset.gameId = game.id;
+    // A quick staggered entrance instead of the whole list just appearing at once -- capped so a
+    // long filtered list doesn't leave the last cards visibly waiting their turn.
+    card.style.animationDelay = `${Math.min(i, 10) * 30}ms`;
     const hasKnownVideo = !!(game.videoUrl || game.masterVideoId);
     const videoBadge = hasKnownVideo ? ' <span class="badge badge-video">🎥 Video</span>' : '<span class="video-badge-slot"></span>';
     const needsReview = game.scoringEvents.length === 0;
@@ -2011,6 +2014,28 @@ function predictRealMatchup(teamA, teamB) {
   const factors = x.map((v, k) => ({ label: REAL_MATCHUP_FACTOR_LABELS[k], lean: (sigmoid(model.w[k] * v) - 0.5) * 100 }));
   const unranked = [...teamA, ...teamB].filter(id => !L.hasPct(id));
   return { pA, factors, unranked, model };
+}
+
+// Live Game: win probability that actually moves with the score, not just the pre-game power-
+// ranking read (predictRealMatchup never sees a game's live score at all). Blends the pre-game
+// pick with the current margin, expressed as a fraction of the target score so a 2-point lead in
+// a game to 21 means much less than the same 2-point lead in a game to 5 -- and lets the score's
+// own weight grow as either team closes in on the target, since a late lead is far more decisive
+// than an early one. No real-matchup model yet (not enough games) just starts the read at 50/50
+// and lets the score alone carry it, rather than refusing to show anything.
+function liveWinProbability(game) {
+  const target = Math.max(1, game.liveTarget || 21);
+  const a = liveScoreOf(game, game.teamA), b = liveScoreOf(game, game.teamB);
+  if (a >= target && a > b) return { pA: 0.99, pregame: predictRealMatchup(game.teamA, game.teamB) };
+  if (b >= target && b > a) return { pA: 0.01, pregame: predictRealMatchup(game.teamA, game.teamB) };
+  const pred = predictRealMatchup(game.teamA, game.teamB);
+  const pregameA = pred ? pred.pA : 0.5;
+  const progress = Math.min(1, Math.max(a, b) / target);
+  const marginFrac = (a - b) / target;
+  const k = 5 * (0.4 + 0.6 * progress);
+  const logit0 = Math.log(pregameA / (1 - pregameA));
+  const pA = Math.min(0.99, Math.max(0.01, sigmoid(logit0 + k * marginFrac)));
+  return { pA, pregame: pred };
 }
 
 function realMatchupAccuracyText(model) {
@@ -2779,7 +2804,8 @@ function renderLiveGameOverlay() {
   updateLiveNavIndicator();
   if (!el || !game) { closeLiveGameOverlay(); return; }
   const score = { A: liveScoreOf(game, game.teamA), B: liveScoreOf(game, game.teamB) };
-  const pred = predictRealMatchup(game.teamA, game.teamB);
+  const live = liveWinProbability(game);
+  const liveA = Math.round(live.pA * 100);
   const reached = score.A >= game.liveTarget || score.B >= game.liveTarget;
   const line = pid => {
     const pts = liveScoreOf(game, [pid]);
@@ -2798,13 +2824,14 @@ function renderLiveGameOverlay() {
     <div class="live-inner">
       <div class="live-top">
         <button type="button" class="secondary-btn" data-live-close>Hide</button>
-        <span class="live-meta">Game to ${game.liveTarget}${pred ? ` · tip-off odds ${Math.round(pred.pA * 100)}% / ${100 - Math.round(pred.pA * 100)}%` : ""}</span>
+        <span class="live-meta">Game to ${game.liveTarget} · win prob. ${liveA}% / ${100 - liveA}%</span>
       </div>
       <div class="live-score">
         <div class="live-side live-side-a"><span class="live-side-label">Team A</span><span class="live-side-score">${score.A}</span></div>
         <span class="live-dash">–</span>
         <div class="live-side live-side-b"><span class="live-side-label">Team B</span><span class="live-side-score">${score.B}</span></div>
       </div>
+      <div class="live-prob-bar"><div class="live-prob-fill" style="width:${liveA}%"></div></div>
       ${reached ? `<p class="live-reached">Someone hit ${game.liveTarget}. Tap Finish when the game's over.</p>` : ""}
       <div class="live-team live-team-a">${game.teamA.map(line).join("")}</div>
       <div class="live-team live-team-b">${game.teamB.map(line).join("")}</div>
@@ -2847,8 +2874,7 @@ function renderLiveGamePanel() {
     // this is the first thing anyone lands on mid-party -- the score should read at a glance, not
     // just confirm a game exists. Whole card is one button; see .live-hero-card in style.css.
     const a = liveScoreOf(live, live.teamA), b = liveScoreOf(live, live.teamB);
-    const pred = predictRealMatchup(live.teamA, live.teamB);
-    const oddsA = pred ? Math.round(pred.pA * 100) : null;
+    const liveOddsA = Math.round(liveWinProbability(live).pA * 100);
     wrap.innerHTML = `<button type="button" class="live-hero-card" id="liveHeroCard">
       <div class="live-hero-top">
         <span class="live-hero-dot"></span>
@@ -2866,8 +2892,9 @@ function renderLiveGamePanel() {
           <span class="live-hero-pts">${b}</span>
         </div>
       </div>
+      <div class="live-prob-bar"><div class="live-prob-fill" style="width:${liveOddsA}%"></div></div>
       <div class="live-hero-bottom">
-        <span class="live-hero-odds">${oddsA !== null ? `Tip-off odds ${oddsA}% / ${100 - oddsA}%` : ""}</span>
+        <span class="live-hero-odds">Win prob. ${liveOddsA}% / ${100 - liveOddsA}%</span>
         <span class="live-hero-cta">Jump back in &rarr;</span>
       </div>
     </button>`;

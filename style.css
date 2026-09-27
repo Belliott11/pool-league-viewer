@@ -138,6 +138,38 @@ main {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* A live score digit is a fresh element every time it's redrawn (this whole codebase re-renders
+   via innerHTML rather than patching in place), which is actually convenient here: an animation
+   (as opposed to a transition, which needs an existing element to change) just plays on its own
+   every time a new score lands, no extra JS to retrigger it. */
+@keyframes scorePop {
+  0% { transform: scale(0.75); opacity: 0.3; }
+  65% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); }
+}
+@keyframes barSettle {
+  from { transform: scaleX(0.85); opacity: 0; }
+  to { transform: scaleX(1); opacity: 1; }
+}
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Live win probability, as an actual bar (not just the percentage text next to it) -- the split
+   between the two teams' shares reads faster as a length than as two numbers you have to compare. */
+.live-prob-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-muted);
+  transform-origin: left;
+  animation: barSettle 0.3s ease;
+}
+.live-prob-fill { height: 100%; background: var(--primary); }
+@media (prefers-reduced-motion: reduce) { .live-prob-bar { animation: none; } }
+
 /* Two-column layout (main content + a standings sidebar) for the Games and Leaderboard tabs —
    both have grown into a long single-column stack of panels; a sticky sidebar gives an
    always-visible "how's everyone doing" reference without scrolling back up to it. Collapsible
@@ -630,12 +662,15 @@ button:disabled {
   cursor: pointer;
   box-shadow: var(--shadow-sm), inset 0 1px 0 color-mix(in srgb, white 6%, transparent);
   transition: box-shadow 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  animation: cardIn 0.3s ease both;
 }
+@media (prefers-reduced-motion: reduce) { .game-card { animation: none; } }
 .game-card:hover {
   border-color: var(--accent);
   box-shadow: var(--shadow-md);
   transform: translateY(-1px);
 }
+.game-card:active { transform: scale(0.99); }
 
 .game-card .matchup-line {
   font-family: var(--font-display);
@@ -797,8 +832,10 @@ button:disabled {
 
 .stat-cell .stat-value {
   font-family: var(--font-display);
-  font-size: 1.25rem;
-  font-weight: 700;
+  font-size: 1.4rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
   margin: 3px 0;
 }
 
@@ -965,13 +1002,17 @@ button:disabled {
   background: var(--success-light);
   color: var(--success);
   font-weight: 700;
-  border-radius: var(--radius-sm);
+  /* A fixed small radius, not var(--radius-sm) -- these cells are only ~35-40px tall, and the
+     shared token (bumped for the rest of the app's "less flat" pass) got big enough relative to
+     that height that two adjacent same-tinted cells showed a visible gap at their shared edge
+     instead of sitting flush, reading as a stray vertical line cutting through the row. */
+  border-radius: 5px;
 }
 .leaderboard-worst-cell {
   background: var(--danger-light);
   color: var(--danger);
   font-weight: 700;
-  border-radius: var(--radius-sm);
+  border-radius: 5px;
 }
 .profile-tags {
   display: inline-flex;
@@ -2260,8 +2301,10 @@ button:disabled {
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 .player-section-nav-link:hover { border-color: var(--accent); color: var(--accent); }
+.player-section-nav-link:active { transform: scale(0.95); }
 .player-section-nav-link.player-section-nav-active {
   background: color-mix(in srgb, var(--accent) 22%, var(--panel-bg));
   border-color: var(--accent);
@@ -2300,8 +2343,10 @@ button:disabled {
   color: var(--muted);
   font-size: 0.8rem;
   order: -1;
+  display: inline-block;
+  transition: transform 0.18s ease;
 }
-.player-section[open] > summary::before { content: "▾"; }
+.player-section[open] > summary::before { transform: rotate(90deg); }
 .player-section > summary h3 { margin: 0; font-size: 1.05rem; }
 .player-section-teaser {
   color: var(--muted);
@@ -2310,6 +2355,21 @@ button:disabled {
 }
 .player-section-body {
   padding: 0 16px 16px;
+}
+/* Newly-revealed section content fades/slides in instead of just snapping into view -- native
+   <details> can't animate its own open/close height reliably cross-browser, so this leaves that
+   part alone and only animates the content once it's already shown. No-op (content just appears
+   normally) in a browser without @starting-style support. */
+@starting-style {
+  .player-section[open] > .player-section-body {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.player-section[open] > .player-section-body {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 .player-section-body .panel {
   background: color-mix(in srgb, var(--panel-bg) 88%, var(--fg) 12%);
@@ -2549,7 +2609,8 @@ button:disabled {
 .live-hero-side { display: flex; flex-direction: column; gap: 3px; }
 .live-hero-side-b { align-items: flex-end; text-align: right; }
 .live-hero-name { font-size: 0.82rem; font-weight: 700; }
-.live-hero-pts { font-family: var(--font-display); font-size: 1.9rem; font-weight: 800; line-height: 1; }
+.live-hero-pts { font-family: var(--font-display); font-size: 1.9rem; font-weight: 800; line-height: 1; animation: scorePop 0.3s ease; }
+@media (prefers-reduced-motion: reduce) { .live-hero-pts { animation: none; } }
 .live-hero-dash { font-size: 1.1rem; color: var(--muted); padding: 0 4px; }
 .live-hero-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.8rem; }
 .live-hero-odds { color: var(--muted); }
@@ -2620,9 +2681,10 @@ body.live-open { overflow: hidden; }
 .live-side-a { background: var(--primary-light); }
 .live-side-b { background: var(--warning-light); }
 .live-side-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
-.live-side-score { font-size: 3.4rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.live-side-score { font-size: 3.4rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; animation: scorePop 0.3s ease; }
 .live-side-a .live-side-score { color: var(--primary-dark); }
 .live-side-b .live-side-score { color: var(--warning); }
+@media (prefers-reduced-motion: reduce) { .live-side-score { animation: none; } }
 .live-dash { font-size: 2rem; color: var(--muted); }
 .live-reached { margin: 0; text-align: center; font-weight: 700; color: var(--success); }
 .live-team { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
