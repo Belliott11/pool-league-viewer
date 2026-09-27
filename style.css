@@ -2260,12 +2260,10 @@ button:disabled {
   position: sticky;
   top: var(--header-h, 84px);
   z-index: 5;
-  /* A frosted blur here sampled whatever colorful table content was scrolling underneath it and
-     averaged out to a washed-out grey band -- switched to an opaque bar instead, and still does
-     its job (covering content scrolling up under it) without that artifact. Flat var(--bg) was
-     its own problem though: as one large plain swatch of the neutral with nothing else nearby, it
-     just reads as grey -- a faint wash of the accent keeps it from ever looking unstyled. */
-  background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+  /* Transparent, by request -- the pills and Expand all button carry their own backgrounds, so
+     the bar itself doesn't need one. Sticky, sitting right below the opaque header, so there's
+     still nothing showing through here while scrolling despite having no fill of its own. */
+  background: transparent;
   padding: 8px 0;
 }
 .player-section-nav-scroll {
