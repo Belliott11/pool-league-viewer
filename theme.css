@@ -4,27 +4,29 @@
  * stylesheet after this one that redefines the same variable names on :root).
  * See INTEGRATION.md → "Theming" for what each token controls.
  *
- * This is Ben's own working palette (navy + a single warm-orange accent, kept deliberately
- * restrained), not a Poolean brand mandate — swap it freely to match the live site.
+ * This is Ben's own working palette: a strictly achromatic black/white base (no warm or cool
+ * cast baked into the neutral scale) with one warm-orange accent as the only real color in the
+ * room, plus the semantic/team colors below -- a tuxedo, not a mood board. Not a Poolean brand
+ * mandate — swap it freely to match the live site.
  */
 
 :root {
   /* Surfaces */
-  --bg: #f2f6f5;
+  --bg: #ffffff;
   --panel-bg: #ffffff;
-  --border: #d7e2e0;
-  --surface-muted: #e7f1ef;
-  --surface-muted-hover: #d9ece8;
-  --surface-tint: #f8fbfa;
-  --surface-hover: #eef6f4;
-  --disabled-bg: #dbe4e0;
+  --border: #dcdcdc;
+  --surface-muted: #f0f0f0;
+  --surface-muted-hover: #e4e4e4;
+  --surface-tint: #f7f7f7;
+  --surface-hover: #f2f2f2;
+  --disabled-bg: #e8e8e8;
 
   /* Text */
-  --text: #0f211d;
-  --muted: #5c7570;
+  --text: #0a0a0a;
+  --muted: #6b6b6b;
 
-  /* Brand + semantic colors — one accent hue (a warm basketball-orange, not teal) used
-     everywhere, not split across two */
+  /* Brand + semantic colors — one accent hue used everywhere (see the --data-accent="…" choices
+     further down for the picker), not split across two */
   --primary: #d9601a;
   --primary-dark: #a8480f;
   --primary-light: #fdece0;
@@ -74,27 +76,32 @@
   --font-body: "Archivo", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-display: "Sora", "Archivo", var(--font-body);
   --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  /* A soft glow on a few hero/display moments (the header title, the live score) -- off by
+     default (light mode: a glow behind dark text on a white page just reads as a smudge), a real
+     "edge-lit on black" effect once dark mode turns it on below. currentColor so white text
+     glows white and the orange accent word glows its own color, from one token. */
+  --text-glow: none;
 }
 
 /* Dark mode: system preference by default, overridden by the header toggle (data-theme) */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    /* Warm charcoal instead of navy -- a blue-tinted base was fighting the orange accent (a
-       literal complementary clash: orange sits almost opposite blue on the wheel). A hue-neutral
-       warm dark lets the accent be the only strong color in the room instead of competing with
-       one baked into the background. Panel/border still pulled clearly lighter than the page. */
-    --bg: #14110d;
-    --panel-bg: #221c15;
-    --border: #3d3224;
-    --surface-muted: #1a1610;
-    --surface-muted-hover: #2b2318;
-    --surface-tint: #1d1811;
-    --surface-hover: #241d15;
-    --disabled-bg: #2c2419;
-    --text: #f8f3ea;
-    --muted: #a89a86;
-    /* Warm basketball-orange -- now the only strong hue on the page, since the background no
-       longer carries one of its own. */
+    /* Strictly achromatic black now, not a warm-tinted charcoal -- no hue of its own left to
+       compete with the accent at all (a tuxedo, not a mood board). Panel gets a real lift off
+       true black (fill difference, not just a border) since a hairline border alone is much
+       harder to read on near-black than it is on near-white. */
+    --bg: #050505;
+    --panel-bg: #141414;
+    --border: #2e2e2e;
+    --surface-muted: #101010;
+    --surface-muted-hover: #1c1c1c;
+    --surface-tint: #0d0d0d;
+    --surface-hover: #181818;
+    --disabled-bg: #1e1e1e;
+    --text: #ffffff;
+    --muted: #9a9a9a;
+    /* The one strong hue in the room. */
     --primary: #ff6a4d;
     --primary-dark: #ff9678;
     --primary-light: #3a1f16;
@@ -110,9 +117,10 @@
        the page -- see body's background in style.css. */
     --glow-1: rgba(255, 106, 77, 0.11);
     --glow-2: rgba(255, 154, 110, 0.07);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.22), 0 4px 14px rgba(0, 0, 0, 0.30);
-    --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.30), 0 14px 32px rgba(0, 0, 0, 0.42);
-    --header-bg-translucent: rgba(20, 17, 13, 0.72);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 14px rgba(0, 0, 0, 0.6);
+    --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.55), 0 14px 32px rgba(0, 0, 0, 0.7);
+    --header-bg-translucent: rgba(5, 5, 5, 0.72);
+    --text-glow: 0 0 18px color-mix(in srgb, currentColor 55%, transparent);
     --tag-scorer-bg: #3a1a2e;
     --tag-scorer-text: #f2739e;
     --tag-defender-bg: #16283f;
@@ -125,16 +133,16 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #14110d;
-  --panel-bg: #221c15;
-  --border: #3d3224;
-  --surface-muted: #1a1610;
-  --surface-muted-hover: #2b2318;
-  --surface-tint: #1d1811;
-  --surface-hover: #241d15;
-  --disabled-bg: #2c2419;
-  --text: #f8f3ea;
-  --muted: #a89a86;
+  --bg: #050505;
+  --panel-bg: #141414;
+  --border: #2e2e2e;
+  --surface-muted: #101010;
+  --surface-muted-hover: #1c1c1c;
+  --surface-tint: #0d0d0d;
+  --surface-hover: #181818;
+  --disabled-bg: #1e1e1e;
+  --text: #ffffff;
+  --muted: #9a9a9a;
   --primary: #ff6a4d;
   --primary-dark: #ff9678;
   --primary-light: #3a1f16;
@@ -148,9 +156,10 @@
   --warning-light: #3a3012;
   --glow-1: rgba(255, 106, 77, 0.11);
   --glow-2: rgba(255, 154, 110, 0.07);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.22), 0 4px 14px rgba(0, 0, 0, 0.30);
-  --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.30), 0 14px 32px rgba(0, 0, 0, 0.42);
-  --header-bg-translucent: rgba(20, 17, 13, 0.72);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 14px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.55), 0 14px 32px rgba(0, 0, 0, 0.7);
+  --header-bg-translucent: rgba(5, 5, 5, 0.72);
+  --text-glow: 0 0 18px color-mix(in srgb, currentColor 55%, transparent);
   --tag-scorer-bg: #3a1a2e;
   --tag-scorer-text: #f2739e;
   --tag-defender-bg: #16283f;
@@ -159,4 +168,100 @@
   --tag-physical-text: #c9a3f2;
   --tag-playmaker-bg: #14301c;
   --tag-playmaker-text: #6fdb8a;
+}
+
+/* Accent color picker (applyAccent() in app.js, the header's palette button) -- orange above is
+   the default look with no data-accent attribute; these five are additive overrides. Each needs
+   its own light AND dark variant (a color that reads well on white doesn't always read well on
+   black), so every choice gets the same three-block pattern the base palette above uses: a plain
+   light block, a system-dark block, and an explicit-toggle dark block. --glow-1/--glow-2 shift
+   too so the page's own background glow always matches whichever accent is picked. */
+:root[data-accent="blue"] {
+  --primary: #0277bd; --primary-dark: #01579b; --primary-light: #e1f4fd;
+  --accent: #0277bd; --accent-light: #e1f4fd;
+  --glow-1: #e1f4fd; --glow-2: #eaf7fb;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="blue"]:not([data-theme="light"]) {
+    --primary: #4fc3f7; --primary-dark: #81d4fa; --primary-light: #0d3a4d;
+    --accent: #4fc3f7; --accent-light: #0d3a4d;
+    --glow-1: rgba(79, 195, 247, 0.11); --glow-2: rgba(129, 212, 250, 0.07);
+  }
+}
+:root[data-theme="dark"][data-accent="blue"] {
+  --primary: #4fc3f7; --primary-dark: #81d4fa; --primary-light: #0d3a4d;
+  --accent: #4fc3f7; --accent-light: #0d3a4d;
+  --glow-1: rgba(79, 195, 247, 0.11); --glow-2: rgba(129, 212, 250, 0.07);
+}
+
+:root[data-accent="green"] {
+  --primary: #0f9d63; --primary-dark: #0b7a4d; --primary-light: #e3f7ee;
+  --accent: #0f9d63; --accent-light: #e3f7ee;
+  --glow-1: #e3f7ee; --glow-2: #ecf9f2;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="green"]:not([data-theme="light"]) {
+    --primary: #34d399; --primary-dark: #6ee7b7; --primary-light: #0d3324;
+    --accent: #34d399; --accent-light: #0d3324;
+    --glow-1: rgba(52, 211, 153, 0.11); --glow-2: rgba(110, 231, 183, 0.07);
+  }
+}
+:root[data-theme="dark"][data-accent="green"] {
+  --primary: #34d399; --primary-dark: #6ee7b7; --primary-light: #0d3324;
+  --accent: #34d399; --accent-light: #0d3324;
+  --glow-1: rgba(52, 211, 153, 0.11); --glow-2: rgba(110, 231, 183, 0.07);
+}
+
+:root[data-accent="red"] {
+  --primary: #c81e4a; --primary-dark: #9c1638; --primary-light: #fbe3ea;
+  --accent: #c81e4a; --accent-light: #fbe3ea;
+  --glow-1: #fbe3ea; --glow-2: #fdeef2;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="red"]:not([data-theme="light"]) {
+    --primary: #ff5470; --primary-dark: #ff8fa3; --primary-light: #3d0f1c;
+    --accent: #ff5470; --accent-light: #3d0f1c;
+    --glow-1: rgba(255, 84, 112, 0.11); --glow-2: rgba(255, 143, 163, 0.07);
+  }
+}
+:root[data-theme="dark"][data-accent="red"] {
+  --primary: #ff5470; --primary-dark: #ff8fa3; --primary-light: #3d0f1c;
+  --accent: #ff5470; --accent-light: #3d0f1c;
+  --glow-1: rgba(255, 84, 112, 0.11); --glow-2: rgba(255, 143, 163, 0.07);
+}
+
+:root[data-accent="purple"] {
+  --primary: #7c3aed; --primary-dark: #5b21b6; --primary-light: #efe6fd;
+  --accent: #7c3aed; --accent-light: #efe6fd;
+  --glow-1: #efe6fd; --glow-2: #f4edfc;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="purple"]:not([data-theme="light"]) {
+    --primary: #b794f6; --primary-dark: #d6bcfa; --primary-light: #2e1a47;
+    --accent: #b794f6; --accent-light: #2e1a47;
+    --glow-1: rgba(183, 148, 246, 0.11); --glow-2: rgba(214, 188, 250, 0.07);
+  }
+}
+:root[data-theme="dark"][data-accent="purple"] {
+  --primary: #b794f6; --primary-dark: #d6bcfa; --primary-light: #2e1a47;
+  --accent: #b794f6; --accent-light: #2e1a47;
+  --glow-1: rgba(183, 148, 246, 0.11); --glow-2: rgba(214, 188, 250, 0.07);
+}
+
+:root[data-accent="gold"] {
+  --primary: #a3620f; --primary-dark: #7a480a; --primary-light: #faeed9;
+  --accent: #a3620f; --accent-light: #faeed9;
+  --glow-1: #faeed9; --glow-2: #fcf4e6;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="gold"]:not([data-theme="light"]) {
+    --primary: #f2c94c; --primary-dark: #f7dd8a; --primary-light: #3a2f10;
+    --accent: #f2c94c; --accent-light: #3a2f10;
+    --glow-1: rgba(242, 201, 76, 0.11); --glow-2: rgba(247, 221, 138, 0.07);
+  }
+}
+:root[data-theme="dark"][data-accent="gold"] {
+  --primary: #f2c94c; --primary-dark: #f7dd8a; --primary-light: #3a2f10;
+  --accent: #f2c94c; --accent-light: #3a2f10;
+  --glow-1: rgba(242, 201, 76, 0.11); --glow-2: rgba(247, 221, 138, 0.07);
 }

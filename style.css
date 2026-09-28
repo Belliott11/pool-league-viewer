@@ -21,10 +21,11 @@ body {
 /* Was frosted-glass (translucent + blurred), iOS-style, so page content stayed faintly visible
    sliding underneath -- but that blur samples whatever's scrolling under it (game cards, colored
    badges, table cells) and averages toward a washed-out grey, same bug as the section-nav had.
-   Opaque bar instead, with the same faint accent wash as the section-nav so a large plain swatch
-   of the neutral doesn't just read as grey. */
+   Plain opaque var(--bg) now -- a strict black/white base is a deliberate, bold choice on its
+   own; the accent-tinted wash this used to need to avoid looking like unstyled grey doesn't
+   apply once the neutral itself is true black or true white rather than a middling tone. */
 .app-header {
-  background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -60,6 +61,10 @@ body {
   align-items: center;
   gap: 10px;
   letter-spacing: -0.01em;
+  /* --text-glow is none in light mode; dark mode gives it a real value, and text-shadow is an
+     inherited property whose currentColor resolves per descendant, so the white word and the
+     accent-colored word below each glow their own color without needing two separate rules. */
+  text-shadow: var(--text-glow);
 }
 .app-header h1 em {
   font-style: normal;
@@ -2675,7 +2680,7 @@ button:disabled {
 .live-hero-side { display: flex; flex-direction: column; gap: 3px; }
 .live-hero-side-b { align-items: flex-end; text-align: right; }
 .live-hero-name { font-size: 0.82rem; font-weight: 700; }
-.live-hero-pts { font-family: var(--font-display); font-size: 1.9rem; font-weight: 800; line-height: 1; animation: scorePop 0.3s ease; }
+.live-hero-pts { font-family: var(--font-display); font-size: 1.9rem; font-weight: 800; line-height: 1; animation: scorePop 0.3s ease; text-shadow: var(--text-glow); }
 @media (prefers-reduced-motion: reduce) { .live-hero-pts { animation: none; } }
 .live-hero-dash { font-size: 1.1rem; color: var(--muted); padding: 0 4px; }
 .live-hero-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.8rem; }
@@ -2782,6 +2787,36 @@ button:disabled {
 .jump-search-result:hover, .jump-search-result:focus-visible { background: var(--surface-muted); }
 .jump-search-sub { font-weight: 400; color: var(--muted); font-size: 0.82rem; }
 
+.accent-picker-inner { max-width: 340px; max-height: none; }
+.accent-picker-title { font-weight: 700; flex: 1 1 auto; }
+.accent-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding: 12px;
+}
+.accent-swatch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-weight: 600;
+}
+.accent-swatch:hover, .accent-swatch:focus-visible { background: var(--surface-hover); }
+.accent-swatch.selected { border-color: var(--swatch); box-shadow: 0 0 0 1px var(--swatch); }
+.accent-swatch-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--swatch) 70%, transparent);
+  flex: none;
+}
+
 /* Live Game: full-screen phone scoreboard */
 body.live-open { overflow: hidden; }
 .live-overlay {
@@ -2799,7 +2834,7 @@ body.live-open { overflow: hidden; }
 .live-side-a { background: var(--primary-light); }
 .live-side-b { background: var(--warning-light); }
 .live-side-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
-.live-side-score { font-size: 3.4rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; animation: scorePop 0.3s ease; }
+.live-side-score { font-size: 3.4rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; animation: scorePop 0.3s ease; text-shadow: var(--text-glow); }
 .live-side-a .live-side-score { color: var(--primary-dark); }
 .live-side-b .live-side-score { color: var(--warning); }
 @media (prefers-reduced-motion: reduce) { .live-side-score { animation: none; } }
@@ -2887,10 +2922,10 @@ body.live-open { overflow: hidden; }
   bottom: 0;
   z-index: 30;
   gap: 2px;
-  /* Plain opaque bar, not frosted-blur -- same washed-out-grey artifact as the header/section-nav
-     otherwise, and this one sits over the live mini bar and game cards constantly. Same faint
-     accent wash as those two, for the same reason. */
-  background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+  /* Plain opaque var(--bg) -- was frosted-blur, same washed-out-grey artifact as the header/
+     section-nav otherwise. True black/white doesn't need the accent-tinted wash those two used
+     to lean on either, for the same reason noted on .app-header above. */
+  background: var(--bg);
   border-top: 1px solid var(--border);
   padding: 4px max(4px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
 }

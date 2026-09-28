@@ -5,6 +5,15 @@
 
 const STORAGE_KEY = "poolLeagueStatTracker";
 const THEME_KEY = "poolLeagueTheme"; // "light" | "dark" — absent means "follow system"
+const ACCENT_KEY = "poolLeagueAccent"; // "orange" (default) | "blue" | "green" | "red" | "purple" | "gold"
+const ACCENT_CHOICES = [
+  { key: "orange", label: "Orange", swatch: "#ff6a4d" },
+  { key: "blue", label: "Blue", swatch: "#4fc3f7" },
+  { key: "green", label: "Green", swatch: "#34d399" },
+  { key: "red", label: "Red", swatch: "#ff5470" },
+  { key: "purple", label: "Purple", swatch: "#b794f6" },
+  { key: "gold", label: "Gold", swatch: "#f2c94c" }
+];
 const UI_STATE_KEY = "poolLeagueUiState"; // last tab + game/player in view, so a reload lands back where you were
 // By the time you've reacted and clicked to log a play, playback is already a few seconds past
 // it — so every captured timestamp is backed up this many seconds, landing Jump a beat before
@@ -136,6 +145,65 @@ document.getElementById("themeToggleBtn").addEventListener("click", () => {
   localStorage.setItem(THEME_KEY, effectiveTheme() === "dark" ? "light" : "dark");
   applyTheme();
 });
+
+// ---------- Accent color picker ----------
+// "orange" (the default look baked into theme.css's bare :root/dark blocks) never needs its own
+// attribute -- only the other five choices are ever written to data-accent, so someone who's
+// never touched the picker gets exactly the same page a fresh install would, no localStorage
+// lookup required to explain what they're seeing.
+function effectiveAccent() {
+  const stored = localStorage.getItem(ACCENT_KEY);
+  return ACCENT_CHOICES.some(a => a.key === stored) ? stored : "orange";
+}
+function applyAccent() {
+  const accent = effectiveAccent();
+  if (accent === "orange") document.documentElement.removeAttribute("data-accent");
+  else document.documentElement.setAttribute("data-accent", accent);
+}
+applyAccent();
+
+function accentPickerKeydown(e) { if (e.key === "Escape") closeAccentPicker(); }
+function closeAccentPicker() {
+  const el = document.getElementById("accentPickerOverlay");
+  if (el) { el.hidden = true; el.innerHTML = ""; }
+  document.removeEventListener("keydown", accentPickerKeydown);
+}
+function openAccentPicker() {
+  let el = document.getElementById("accentPickerOverlay");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "accentPickerOverlay";
+    el.className = "jump-search-overlay accent-picker-overlay";
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-label", "Choose an accent color");
+    document.body.appendChild(el);
+  }
+  const current = effectiveAccent();
+  el.innerHTML = `
+    <div class="jump-search-inner accent-picker-inner">
+      <div class="jump-search-top">
+        <span class="accent-picker-title">Accent color</span>
+        <button type="button" class="icon-btn" data-accent-close>Close</button>
+      </div>
+      <div class="accent-picker-grid">
+        ${ACCENT_CHOICES.map(a => `<button type="button" class="accent-swatch${a.key === current ? " selected" : ""}" data-accent-key="${escapeHtml(a.key)}" style="--swatch:${a.swatch}">
+          <span class="accent-swatch-dot"></span>${escapeHtml(a.label)}
+        </button>`).join("")}
+      </div>
+    </div>`;
+  el.hidden = false;
+  el.addEventListener("click", e => { if (e.target === el) closeAccentPicker(); });
+  el.querySelector("[data-accent-close]").addEventListener("click", closeAccentPicker);
+  el.querySelectorAll("[data-accent-key]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      localStorage.setItem(ACCENT_KEY, btn.dataset.accentKey);
+      applyAccent();
+      closeAccentPicker();
+    });
+  });
+  document.addEventListener("keydown", accentPickerKeydown);
+}
+document.getElementById("accentPickerBtn")?.addEventListener("click", openAccentPicker);
 
 document.getElementById("shareSiteBtn").addEventListener("click", function () {
   shareOrCopy({
