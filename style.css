@@ -450,6 +450,30 @@ main {
   margin-top: 10px;
 }
 
+/* The 4 toggle switches used to sit fully exposed above the table at all times -- a plain text
+   disclosure (not a card, this already lives inside the open Season Rates panel) keeps them one
+   tap away without adding to what's visible by default. */
+.toolbar-collapse { margin: 6px 0 2px; }
+.toolbar-collapse > summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  user-select: none;
+}
+.toolbar-collapse > summary::-webkit-details-marker { display: none; }
+.toolbar-collapse > summary::before {
+  content: "▸";
+  font-size: 0.72rem;
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+.toolbar-collapse[open] > summary::before { transform: rotate(90deg); }
+.toolbar-collapse > summary:hover { color: var(--accent); }
 .leaderboard-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -458,6 +482,7 @@ main {
   gap: 16px;
   margin: 10px 0;
 }
+.toolbar-collapse .leaderboard-toolbar { margin-top: 10px; }
 /* Below the width where these 4 switches stop fitting on one line, flex-wrap drops each one onto
    its own line -- but flex-end then right-hugs every one of those compact, content-sized rows
    individually, so each label starts at a different, seemingly random x position depending on its
@@ -1227,21 +1252,29 @@ button:disabled {
   color: var(--primary-dark);
 }
 
-/* Players tab role filter — reuses .profile-tag-<kind>'s own colors (so a chip's color always
-   matches the tag it filters for) but sized as a real tap target, dimmed until picked so an
-   all-off "showing everyone" state doesn't read as five different active filters. */
+/* Players tab role filter — an outline chip at rest (not the solid tag fill .profile-tag-<kind>
+   would otherwise give it), so hovering just picks out that role's own color on the border and
+   text -- a highlight, not a color-block filling in -- and only actually picking a filter adds a
+   soft matching tint, so "showing everyone" doesn't read as five different active filters. */
 .role-filter-chip {
   cursor: pointer;
   padding: 6px 14px;
   font-size: 0.78rem;
-  opacity: 0.5;
-  transition: opacity 0.15s;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
-.role-filter-chip:hover { opacity: 0.75; }
-.role-filter-chip.active {
-  opacity: 1;
-  box-shadow: 0 0 0 2px var(--primary-dark) inset;
-}
+.role-filter-chip.profile-tag-scorer:is(:hover, .active) { border-color: var(--tag-scorer-text); color: var(--tag-scorer-text); }
+.role-filter-chip.profile-tag-defender:is(:hover, .active) { border-color: var(--tag-defender-text); color: var(--tag-defender-text); }
+.role-filter-chip.profile-tag-physical:is(:hover, .active) { border-color: var(--tag-physical-text); color: var(--tag-physical-text); }
+.role-filter-chip.profile-tag-playmaker:is(:hover, .active) { border-color: var(--tag-playmaker-text); color: var(--tag-playmaker-text); }
+.role-filter-chip:is(:hover, .active) { border-color: var(--text); color: var(--text); }
+.role-filter-chip.active.profile-tag-scorer { background: var(--tag-scorer-bg); }
+.role-filter-chip.active.profile-tag-defender { background: var(--tag-defender-bg); }
+.role-filter-chip.active.profile-tag-physical { background: var(--tag-physical-bg); }
+.role-filter-chip.active.profile-tag-playmaker { background: var(--tag-playmaker-bg); }
+.role-filter-chip.active { background: var(--surface-tint); }
 .balance-controls {
   display: flex;
   align-items: center;

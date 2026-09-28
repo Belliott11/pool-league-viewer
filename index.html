@@ -565,24 +565,27 @@
     <div class="panel">
       <h2>Season Rates (Individual)</h2>
       <p class="hint">Each stat is per 20 combined points, so 16- and 21-point games compare fairly. Only fully logged, even-sided games count. Two-Way is offense plus defense in one number. Click a name for their page, or a column to sort. Turning off Outlier Games drops each player's most extreme nights (needs 4+ games).</p>
-      <div class="leaderboard-toolbar">
-        <label class="ios-switch-row">
-          <span>Include Imbalanced Games</span>
-          <span class="ios-switch"><input type="checkbox" id="toggleImbalancedGamesBtn"><span class="ios-switch-track"><span class="ios-switch-knob"></span></span></span>
-        </label>
-        <label class="ios-switch-row">
-          <span>Include Past Seasons</span>
-          <span class="ios-switch"><input type="checkbox" id="togglePastSeasonsBtn"><span class="ios-switch-track"><span class="ios-switch-knob"></span></span></span>
-        </label>
-        <label class="ios-switch-row">
-          <span>Include Outlier Games</span>
-          <span class="ios-switch"><input type="checkbox" id="toggleOutlierGamesBtn"><span class="ios-switch-track"><span class="ios-switch-knob"></span></span></span>
-        </label>
-        <label class="ios-switch-row">
-          <span>Show Advanced % Columns</span>
-          <span class="ios-switch"><input type="checkbox" id="toggleAdvancedColsBtn"><span class="ios-switch-track"><span class="ios-switch-knob"></span></span></span>
-        </label>
-      </div>
+      <details class="toolbar-collapse">
+        <summary>Filters</summary>
+        <div class="leaderboard-toolbar">
+          <label class="ios-switch-row">
+            <span>Include Imbalanced Games</span>
+            <span class="ios-switch"><input type="checkbox" id="toggleImbalancedGamesBtn"><span class="ios-switch-track"><span class="ios-switch-knob"></span></span></span>
+          </label>
+          <label class="ios-switch-row">
+            <span>Include Past Seasons</span>
+            <span class="ios-switch"><input type="checkbox" id="togglePastSeasonsBtn"><span class="ios-switch-track"><span class="ios-switch-knob"></span></span></span>
+          </label>
+          <label class="ios-switch-row">
+            <span>Include Outlier Games</span>
+            <span class="ios-switch"><input type="checkbox" id="toggleOutlierGamesBtn"><span class="ios-switch-track"><span class="ios-switch-knob"></span></span></span>
+          </label>
+          <label class="ios-switch-row">
+            <span>Show Advanced % Columns</span>
+            <span class="ios-switch"><input type="checkbox" id="toggleAdvancedColsBtn"><span class="ios-switch-track"><span class="ios-switch-knob"></span></span></span>
+          </label>
+        </div>
+      </details>
       <div class="table-scroll">
         <table class="matchup-table" id="leaderboardTable">
           <thead><tr id="leaderboardHeaderRow"></tr></thead>
@@ -1093,78 +1096,78 @@
     <details class="player-section" id="section-shooting">
       <summary><h3>Shooting</h3><span class="player-section-teaser" id="teaser-shooting"></span></summary>
       <div class="player-section-body">
-    <div class="panel">
-      <h2>Stat Trend</h2>
+    <details class="panel" open>
+      <summary><h2>Stat Trend</h2></summary>
       <p class="hint">Pick a stat to see it game by game, against this player's average (dashed) and the league's. The line stays faded until there are 5 games.</p>
       <label class="stat-trend-picker">Stat <select id="playerStatTrendSelect"></select></label>
       <p id="playerStatTrendNote" class="hint" style="margin:6px 0 10px"></p>
       <div id="playerStatTrend"></div>
-    </div>
-    <div class="panel">
-      <h2>Shot Types</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Shot Types</h2></summary>
       <p class="hint">How this player's field goals were created and how each type has gone. Efficiency only shows once a type has at least 5 tagged attempts.</p>
       <div id="playerShotTypes"></div>
-    </div>
-    <div class="panel">
-      <h2>Shot Arc</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Shot Arc</h2></summary>
       <p class="hint">The shape of this player's shots, from the ones followed on film from release to the hoop. It describes how the player shoots and does not predict whether a shot goes in. Needs 8 followed shots before it shows.</p>
       <div id="playerShotArc"></div>
-    </div>
-    <div class="panel">
-      <h2>Shot Chart</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Shot Chart</h2></summary>
       <p class="hint">Every marked shot at its spot on the court: green make, red miss. Shape shows shot type: circle catch-and-shoot, square drive, triangle deep heave, diamond move, faint circle not tagged yet.</p>
       <div id="playerShotChart"></div>
-    </div>
-    <div class="panel">
-      <h2>Shot Heatmap</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Shot Heatmap</h2></summary>
       <p class="hint">Every marked field goal this player has taken, bucketed by court zone. Color is FG% in that zone (red low, green high), the number is attempts. Only shots with a marked location are included.</p>
       <div id="playerHeatmap"></div>
-    </div>
-    <div class="panel">
-      <h2>Shooting by Direction</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Shooting by Direction</h2></summary>
       <p class="hint">Shooting split by which hoop this player's team faced, to check whether the sun costs shots. Needs the direction set in Stat Entry and 5+ attempts per side.</p>
       <div id="playerShootingByDirection"></div>
-    </div>
+    </details>
       </div>
     </details>
 
     <details class="player-section" id="section-passing">
       <summary><h3>Passing & Ball Security</h3><span class="player-section-teaser" id="teaser-passing"></span></summary>
       <div class="player-section-body">
-    <div class="panel">
-      <h2>Assisted By</h2>
+    <details class="panel" open>
+      <summary><h2>Assisted By</h2></summary>
       <p class="hint">How many of this player's made shots were set up by someone else, and how good those passers are. Free throws aren't counted.</p>
       <div id="playerAssistedBy"></div>
-    </div>
+    </details>
       </div>
     </details>
 
     <details class="player-section" id="section-defense">
       <summary><h3>Defense</h3><span class="player-section-teaser" id="teaser-defense"></span></summary>
       <div class="player-section-body">
-    <div class="panel">
-      <h2>Defensive Heatmap</h2>
+    <details class="panel" open>
+      <summary><h2>Defensive Heatmap</h2></summary>
       <p class="hint">Shots this player defended, by court zone. Color is opponents' FG% (green is good defense). Shows whether their defense holds up at every distance.</p>
       <div id="playerDefensiveHeatmap"></div>
-    </div>
-    <div class="panel">
-      <h2>Defensive Load</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Defensive Load</h2></summary>
       <p class="hint">How much of the team's defending this player does: 1.0 is an even share, and above is more. The note beside it reads this together with their other defensive numbers, since a low share alone could mean several things.</p>
       <div id="defensiveLoad"></div>
-    </div>
+    </details>
       </div>
     </details>
 
     <details class="player-section" id="section-matchups">
       <summary><h3>Matchups</h3><span class="player-section-teaser" id="teaser-matchups"></span></summary>
       <div class="player-section-body">
-    <div class="panel">
-      <h2>Notable Matchups</h2>
+    <details class="panel" open>
+      <summary><h2>Notable Matchups</h2></summary>
       <p class="hint">The biggest shooting swings involving this player, as scorer or defender, with film links. Needs 5+ shots against that opponent and a 15-point swing.</p>
       <div id="playerNotableMatchups"></div>
-    </div>
-    <div class="panel">
-      <h2>Head-to-Head: As Scorer</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Head-to-Head: As Scorer</h2></summary>
       <p class="hint">Shooting against each defender who has been tagged guarding this player's shots, across the season.</p>
       <div class="table-scroll">
         <table class="matchup-table" id="h2hScorerTable">
@@ -1172,9 +1175,9 @@
           <tbody id="h2hScorerBody"></tbody>
         </table>
       </div>
-    </div>
-    <div class="panel">
-      <h2>Head-to-Head: As Defender</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Head-to-Head: As Defender</h2></summary>
       <p class="hint">Shooting allowed to each scorer this player has been tagged defending, across the season.</p>
       <div class="table-scroll">
         <table class="matchup-table" id="h2hDefenderTable">
@@ -1182,25 +1185,25 @@
           <tbody id="h2hDefenderBody"></tbody>
         </table>
       </div>
-    </div>
-    <div class="panel">
-      <h2>Offensive Matchup Difficulty</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Offensive Matchup Difficulty</h2></summary>
       <p class="hint">How good the defenders guarding this player's shots have been, game by game. The dashed line is the season average.</p>
       <div id="playerOffensiveMatchupDifficulty"></div>
-    </div>
-    <div class="panel">
-      <h2>Defensive Matchup Difficulty</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Defensive Matchup Difficulty</h2></summary>
       <p class="hint">How good the scorers this player guarded have been, game by game, to show whether they get the tough assignments. The dashed line is the season average.</p>
       <div id="playerDefensiveMatchupDifficulty"></div>
-    </div>
+    </details>
       </div>
     </details>
 
     <details class="player-section" id="section-team">
       <summary><h3>Team Context</h3><span class="player-section-teaser" id="teaser-team"></span></summary>
       <div class="player-section-body">
-    <div class="panel">
-      <h2>Teammate Synergy (With/Without)</h2>
+    <details class="panel" open>
+      <summary><h2>Teammate Synergy (With/Without)</h2></summary>
       <p class="hint">This player's numbers in games with each teammate versus without them. A dash means no games in that group yet, and a few games means it's noisy.</p>
       <div class="table-scroll">
         <table class="matchup-table" id="teammateSynergyTable">
@@ -1208,65 +1211,65 @@
           <tbody id="teammateSynergyBody"></tbody>
         </table>
       </div>
-    </div>
-    <div class="panel">
-      <h2>Teammate Quality</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Teammate Quality</h2></summary>
       <p class="hint">How good this player's teammates are on offense, game by game. The dashed line is the season average.</p>
       <div id="playerTeammateQuality"></div>
-    </div>
+    </details>
       </div>
     </details>
 
     <details class="player-section" id="section-trends">
       <summary><h3>Trends & History</h3><span class="player-section-teaser" id="teaser-trends"></span></summary>
       <div class="player-section-body">
-    <div class="panel">
-      <h2>Two-Way Trend</h2>
+    <details class="panel" open>
+      <summary><h2>Two-Way Trend</h2></summary>
       <p class="hint">This player's Two-Way/20 game by game. The dashed line is their season average; recent games above it mean they're trending up.</p>
       <div id="playerTwoWayTrend"></div>
-    </div>
-    <div class="panel">
-      <h2>Flake %</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Flake %</h2></summary>
       <p class="hint">Of the dates this player said they were coming (and games were played), how many they missed.</p>
       <div id="playerFlakeStats"></div>
-    </div>
-    <div class="panel">
-      <h2>Closed Seasons in This App</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Closed Seasons in This App</h2></summary>
       <p class="hint">This player's final numbers from each season closed in this app (Start New Season in Export), from logged games. Real Site Seasons above has the real site's numbers. Turn on Include Past Seasons to blend them into the current numbers instead.</p>
       <label class="ios-switch-row" style="margin-bottom:10px">
         <span>Include Past Seasons</span>
         <span class="ios-switch"><input type="checkbox" id="togglePastSeasonsBtnPlayer"><span class="ios-switch-track"><span class="ios-switch-knob"></span></span></span>
       </label>
       <div id="playerSeasonHistory"></div>
-    </div>
-    <div class="panel">
-      <h2>Real Game Record <span class="real-data-tag">Real site data</span></h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Real Game Record <span class="real-data-tag">Real site data</span></h2></summary>
       <p class="hint">This player's win-loss from every real game, next to the smaller set logged in detail from film in this app.</p>
       <div id="playerRealRecord"></div>
-    </div>
-    <div class="panel">
-      <h2>Real Partners & Matchups <span class="real-data-tag">Real site data</span></h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Real Partners & Matchups <span class="real-data-tag">Real site data</span></h2></summary>
       <p class="hint">Best and worst teammate, and best and worst opponent, from the real Poolean site's full game history (not just what's logged in this app), needing at least 3 real games together or against to count.</p>
       <div id="playerRealPartners"></div>
-    </div>
-    <div class="panel">
-      <h2>Streaks <span class="real-data-tag">Real site data</span></h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Streaks <span class="real-data-tag">Real site data</span></h2></summary>
       <p class="hint">Current and longest real win/losing streaks, from the real Poolean site's full game log in play order.</p>
       <div id="playerStreaks"></div>
-    </div>
-    <div class="panel">
-      <h2>Attendance Streak <span class="real-data-tag">Real site data</span></h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Attendance Streak <span class="real-data-tag">Real site data</span></h2></summary>
       <p class="hint">Consecutive real parties attended without missing one, from the real Poolean site's full attendance history.</p>
       <div id="playerAttendanceStreak"></div>
-    </div>
+    </details>
       </div>
     </details>
 
     <details class="player-section" id="section-media">
       <summary><h3>Media & Log</h3><span class="player-section-teaser" id="teaser-media"></span></summary>
       <div class="player-section-body">
-    <div class="panel">
-      <h2>Game Log</h2>
+    <details class="panel" open>
+      <summary><h2>Game Log</h2></summary>
       <p class="hint">Every game this player was in, most recent first.</p>
       <div class="table-scroll">
         <table class="matchup-table" id="playerGameLogTable">
@@ -1274,9 +1277,9 @@
           <tbody id="playerGameLogBody"></tbody>
         </table>
       </div>
-    </div>
-    <div class="panel">
-      <h2>Highlights &amp; Lowlights</h2>
+    </details>
+    <details class="panel">
+      <summary><h2>Highlights &amp; Lowlights</h2></summary>
       <p class="hint">Every clip tagged to this player, across all games. Tag a clip to a player from the Highlight / Lowlight Reel table in Stat Entry.</p>
       <div class="table-scroll">
         <table class="matchup-table" id="playerReelTable">
@@ -1284,7 +1287,7 @@
           <tbody id="playerReelBody"></tbody>
         </table>
       </div>
-    </div>
+    </details>
       </div>
     </details>
   </section>
