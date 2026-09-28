@@ -51,7 +51,14 @@ const ICONS = {
   trendingUp: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
   star: '<path d="M12 3l2.6 5.9 6.4.6-4.8 4.3 1.4 6.2L12 16.9 6.4 20l1.4-6.2L3 9.5l6.4-.6Z"/>',
   medal: '<circle cx="12" cy="15" r="5"/><path d="M9 11 6 3M15 11l3-8"/>',
-  sadface: '<circle cx="12" cy="12" r="9"/><path d="M8 15c1.2-1 2.8-1 4 0M9 9h.01M15 9h.01"/>'
+  sadface: '<circle cx="12" cy="12" r="9"/><path d="M8 15c1.2-1 2.8-1 4 0M9 9h.01M15 9h.01"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>',
+  crown: '<path d="M4 18h16l-1.5-9-4 4-2.5-6-2.5 6-4-4L4 18Z"/>',
+  dice: '<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="8.5" cy="8.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15.5" r="1.2" fill="currentColor" stroke="none"/>',
+  warning: '<path d="M12 3 22 20H2Z"/><path d="M12 9v5"/><circle cx="12" cy="17" r="1" fill="currentColor" stroke="none"/>',
+  snowflake: '<path d="M12 2v20M4.2 7l15.6 10M4.2 17l15.6-10"/>',
+  pin: '<path d="M12 21s7-7.5 7-12a7 7 0 1 0-14 0c0 4.5 7 12 7 12Z"/><circle cx="12" cy="9" r="2.5"/>',
+  film: '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 6v4M12 6v4M17 6v4"/>'
 };
 function icon(name, extraClass) {
   const body = ICONS[name];
@@ -780,14 +787,14 @@ function renderLeaderboardHighlights() {
     .filter(r => r.delta > 0.5)
     .sort((a, b) => b.delta - a.delta)[0];
   if (hotStreak) {
-    cards.push({ icon: "🔥", label: "Hot Streak", player: hotStreak.player,
+    cards.push({ icon: icon("flame"), label: "Hot Streak", player: hotStreak.player,
       detail: `${hotStreak.last5.toFixed(1)} Two-Way/20 over their last 5, up from ${hotStreak.season.toFixed(1)} on the season` });
   }
 
   // Same ranking as the full Consistency panel, just the #1 surfaced here.
   const consistent = computeConsistencyStandings()[0];
   if (consistent) {
-    cards.push({ icon: "🧊", label: "Most Consistent", player: consistent.player,
+    cards.push({ icon: icon("target"), label: "Most Consistent", player: consistent.player,
       detail: `±${consistent.stdDev.toFixed(1)} Two-Way/20 std dev across ${consistent.gp} games` });
   }
 
@@ -795,7 +802,7 @@ function renderLeaderboardHighlights() {
   // combined FGA+FTA in those games so one hot make doesn't read as a real clutch performer.
   const clutch = computeCloseGameShooting().filter(r => r.attempts >= 5).sort((a, b) => b.ts - a.ts)[0];
   if (clutch) {
-    cards.push({ icon: "🧯", label: "Clutch", player: clutch.player,
+    cards.push({ icon: icon("gem"), label: "Clutch", player: clutch.player,
       detail: `${clutch.ts}% TS in ${clutch.gp} close game${clutch.gp === 1 ? "" : "s"} (${clutch.attempts} att)` });
   }
 
@@ -803,7 +810,7 @@ function renderLeaderboardHighlights() {
   // Assist Connections panel, just its #1 row surfaced here.
   const topDuo = computeAssistConnections()[0];
   if (topDuo) {
-    cards.push({ icon: "🤝", label: "Top Assist Duo", player: topDuo.passer,
+    cards.push({ icon: icon("link"), label: "Top Assist Duo", player: topDuo.passer,
       detail: `${topDuo.count} assist${topDuo.count === 1 ? "" : "s"} to ${playerLink(topDuo.scorer.id, topDuo.scorer.name)}` });
   }
 
@@ -814,7 +821,7 @@ function renderLeaderboardHighlights() {
     .map(r => ({ player: r.player, defRating: defensiveRating(r.rate, r.rateDefense) }))
     .sort((a, b) => b.defRating - a.defRating)[0];
   if (bestDefender) {
-    cards.push({ icon: "🛡️", label: "Best Defender", player: bestDefender.player,
+    cards.push({ icon: icon("shield"), label: "Best Defender", player: bestDefender.player,
       detail: `${bestDefender.defRating.toFixed(1)} Def Rating/20` });
   }
 
@@ -5724,10 +5731,10 @@ function renderSuggestedPlays(game) {
   }
   wrap.innerHTML = `<ul class="player-tips-list">${suggestions.map((s, i) => {
     const player = state.players.find(p => p.id === s.playerId);
-    const icon = s.type === "highlight" ? "🔥" : "👎";
+    const iconHtml = s.type === "highlight" ? icon("flame") : icon("lowlight");
     const label = s.type === "highlight" ? "Add as Highlight" : "Add as Lowlight";
     return `<li>
-      <span class="player-tip-icon">${icon}</span>
+      <span class="player-tip-icon">${iconHtml}</span>
       <span>${escapeHtml(player ? player.name : "?")}: ${escapeHtml(s.reason)} (${formatTime(s.videoTime)})
       <div class="player-tip-watch" data-jump-index="${i}"><button type="button" class="icon-btn secondary-btn suggested-play-add-btn" data-index="${i}">${label}</button></div>
       </span>
@@ -5819,8 +5826,8 @@ function renderReel(game) {
 
     const typeTd = document.createElement("td");
     typeTd.innerHTML = play.type === "highlight"
-      ? '<span class="badge badge-highlight">🔥 Highlight</span>'
-      : '<span class="badge badge-lowlight">👎 Lowlight</span>';
+      ? `<span class="badge badge-highlight">${icon("flame")} Highlight</span>`
+      : `<span class="badge badge-lowlight">${icon("lowlight")} Lowlight</span>`;
     tr.appendChild(typeTd);
 
     const startTd = document.createElement("td");
@@ -7493,10 +7500,10 @@ function renderPartyRecap() {
   const recap = computePartyRecap(select.value || dates[0]);
   if (!recap) { wrap.innerHTML = '<p class="empty-state">No games that night.</p>'; return; }
   const standingsHtml = recap.standings.map(r => `<li>${poolPlayerLink(r.slug)} <span class="hint" style="margin:0">${r.w}-${r.l}</span></li>`).join("");
-  const upsetsHtml = recap.upsets.length === 0 ? "" : `<p class="hint" style="margin:10px 0 0">🎲 ${recap.upsets.length} upset${recap.upsets.length === 1 ? "" : "s"} that night.</p>`;
+  const upsetsHtml = recap.upsets.length === 0 ? "" : `<p class="hint" style="margin:10px 0 0">${icon("dice")} ${recap.upsets.length} upset${recap.upsets.length === 1 ? "" : "s"} that night.</p>`;
   const nightMilestones = computeMilestones().filter(m => m.date === recap.date);
-  const milestoneHtml = nightMilestones.length ? `<p class="hint" style="margin:6px 0 0">${nightMilestones.map(m => `${m.icon} ${poolPlayerLink(m.slug)} ${escapeHtml(m.text)}`).join("<br>")}</p>` : "";
-  const climberHtml = recap.climber ? `<p class="hint" style="margin:6px 0 0">📈 Biggest climber: ${poolPlayerLink(recap.climber.slug)}, #${recap.climber.from} to #${recap.climber.to} in the season power rankings.</p>` : "";
+  const milestoneHtml = nightMilestones.length ? `<p class="hint" style="margin:6px 0 0">${nightMilestones.map(m => `${m.iconSvg} ${poolPlayerLink(m.slug)} ${escapeHtml(m.text)}`).join("<br>")}</p>` : "";
+  const climberHtml = recap.climber ? `<p class="hint" style="margin:6px 0 0">${icon("trendingUp")} Biggest climber: ${poolPlayerLink(recap.climber.slug)}, #${recap.climber.from} to #${recap.climber.to} in the season power rankings.</p>` : "";
   wrap.innerHTML = `<p class="hint" style="margin:0 0 10px">${recap.games} game${recap.games === 1 ? "" : "s"} that night.</p>
     <ul class="player-tips-list" style="display:block">${standingsHtml}</ul>${upsetsHtml}${climberHtml}${milestoneHtml}`;
 }
@@ -7858,12 +7865,12 @@ function computeMilestones() {
       ["a", "b"].forEach(side => g[side].forEach(slug => {
         const won = g.w === side.toUpperCase();
         games[slug] = (games[slug] || 0) + 1;
-        if (MILESTONE_GAMES.includes(games[slug])) out.push({ slug, date: g.date, icon: "🎯", text: `played real game #${games[slug]}` });
+        if (MILESTONE_GAMES.includes(games[slug])) out.push({ slug, date: g.date, icon: icon("target"), iconSvg: icon("target"), text: `played real game #${games[slug]}` });
         if (won) {
           wins[slug] = (wins[slug] || 0) + 1;
           streak[slug] = (streak[slug] || 0) + 1;
-          if (MILESTONE_WINS.includes(wins[slug])) out.push({ slug, date: g.date, icon: "🏅", text: `won real game #${wins[slug]}` });
-          if (MILESTONE_STREAKS.includes(streak[slug])) out.push({ slug, date: g.date, icon: "🔥", text: `won ${streak[slug]} in a row` });
+          if (MILESTONE_WINS.includes(wins[slug])) out.push({ slug, date: g.date, icon: "🏅", iconSvg: icon("medal"), text: `won real game #${wins[slug]}` });
+          if (MILESTONE_STREAKS.includes(streak[slug])) out.push({ slug, date: g.date, icon: icon("flame"), iconSvg: icon("flame"), text: `won ${streak[slug]} in a row` });
         } else {
           streak[slug] = 0;
         }
@@ -7876,10 +7883,10 @@ function computeMilestones() {
       Object.keys(run).forEach(slug => { if (!here.has(slug)) run[slug] = 0; });
       n.players.forEach(p => {
         run[p.slug] = (run[p.slug] || 0) + 1;
-        if (MILESTONE_ATTENDANCE.includes(run[p.slug])) out.push({ slug: p.slug, date: n.date, icon: "📅", text: `made ${run[p.slug]} parties in a row` });
+        if (MILESTONE_ATTENDANCE.includes(run[p.slug])) out.push({ slug: p.slug, date: n.date, icon: "📅", iconSvg: icon("calendar"), text: `made ${run[p.slug]} parties in a row` });
         if (p.rank === 1) {
           crowns[p.slug] = (crowns[p.slug] || 0) + 1;
-          if (MILESTONE_CROWNS.includes(crowns[p.slug])) out.push({ slug: p.slug, date: n.date, icon: "👑", text: crowns[p.slug] === 1 ? "finished a night #1 for the first time" : `finished #1 for the ${ordinal(crowns[p.slug])} time` });
+          if (MILESTONE_CROWNS.includes(crowns[p.slug])) out.push({ slug: p.slug, date: n.date, icon: "👑", iconSvg: icon("crown"), text: crowns[p.slug] === 1 ? "finished a night #1 for the first time" : `finished #1 for the ${ordinal(crowns[p.slug])} time` });
         }
       });
     });
@@ -7893,7 +7900,7 @@ function renderPlayerMilestones(playerId) {
   if (!wrap) return;
   const list = computeMilestones().filter(m => m.slug === playerId).sort((a, b) => b.date.localeCompare(a.date));
   wrap.innerHTML = list.length
-    ? `<ul class="player-tips-list" style="display:block">${list.map(m => `<li>${m.icon} ${escapeHtml(m.text.charAt(0).toUpperCase() + m.text.slice(1))} <span class="hint" style="margin:0">${escapeHtml(formatDateDisplay(m.date))}</span></li>`).join("")}</ul>`
+    ? `<ul class="player-tips-list" style="display:block">${list.map(m => `<li>${m.iconSvg} ${escapeHtml(m.text.charAt(0).toUpperCase() + m.text.slice(1))} <span class="hint" style="margin:0">${escapeHtml(formatDateDisplay(m.date))}</span></li>`).join("")}</ul>`
     : '<p class="empty-state">No milestones yet.</p>';
 }
 
@@ -8216,8 +8223,8 @@ function renderSeasonTimeline() {
     <li class="season-timeline-item">
       <span class="season-timeline-date">${escapeHtml(formatDateDisplay(e.date))}</span>
       <span class="season-timeline-body">
-        ${e.crownSlug ? `👑 ${poolPlayerLink(e.crownSlug)} took the crown (${e.fieldSize} ranked)` : `${e.fieldSize} players ranked`}
-        ${e.upsets.length > 0 ? `<br><span class="hint" style="margin:0">🎲 ${e.upsets.length} upset${e.upsets.length === 1 ? "" : "s"} that night</span>` : ""}
+        ${e.crownSlug ? `${icon("crown")} ${poolPlayerLink(e.crownSlug)} took the crown (${e.fieldSize} ranked)` : `${e.fieldSize} players ranked`}
+        ${e.upsets.length > 0 ? `<br><span class="hint" style="margin:0">${icon("dice")} ${e.upsets.length} upset${e.upsets.length === 1 ? "" : "s"} that night</span>` : ""}
       </span>
     </li>`).join("")}</ul>`;
 }
@@ -8947,7 +8954,7 @@ function renderPlayerRankPill(playerId) {
       ? `<span class="player-rank-pill-up">▲${rank.delta}</span>` : `<span class="player-rank-pill-down">▼${Math.abs(rank.delta)}</span>`;
     parts.push(`<span class="player-rank-pill-main" title="Real site power ranking for the ${escapeHtml(String(selectedPooleanSeason))} season, among the ${rank.fieldSize} players with ${rank.min}+ parties. The arrow is the move from the latest party night.">#${rank.rank} of ${rank.fieldSize}</span>${arrow}`);
   }
-  if (summary) parts.push(`<span class="player-rank-pill-attendance">📅 ${summary.of} part${summary.of === 1 ? "y" : "ies"} this season</span>`);
+  if (summary) parts.push(`<span class="player-rank-pill-attendance">${icon("calendar")} ${summary.of} part${summary.of === 1 ? "y" : "ies"} this season</span>`);
   wrap.innerHTML = parts.join("");
 }
 
@@ -10892,7 +10899,7 @@ function computePlayerTips(playerId) {
   // Turnovers: how often they turn it over relative to their own scoring opportunities.
   const avgTov = leagueAvg(r => r.tovPct);
   if (avgTov !== null && row.tovPct - avgTov >= 4) {
-    candidates.push({ diff: row.tovPct - avgTov, icon: "🎯", text: `Ball security: your turnover rate (${formatPct(row.tovPct)}) is running ${(row.tovPct - avgTov).toFixed(0)} points above the league average (${formatPct(avgTov)}). Tightening decisions with the ball is probably the single fastest way to add value right now.` });
+    candidates.push({ diff: row.tovPct - avgTov, icon: icon("target"), text: `Ball security: your turnover rate (${formatPct(row.tovPct)}) is running ${(row.tovPct - avgTov).toFixed(0)} points above the league average (${formatPct(avgTov)}). Tightening decisions with the ball is probably the single fastest way to add value right now.` });
   }
 
   // Defense: opponent shooting % against them, only once they've actually been tagged enough to
@@ -10906,9 +10913,9 @@ function computePlayerTips(playerId) {
   if (defAttempts >= 5) {
     const oppFg = pct(row.defense.timesBeaten, defAttempts);
     if (avgOppFg !== null && oppFg - avgOppFg >= 8) {
-      candidates.push({ diff: oppFg - avgOppFg, icon: "🛡️", text: `Defense: opponents are shooting ${formatPct(oppFg)} against you, well above the ${formatPct(avgOppFg)} league average allowed. Tighter closeouts or picking your defensive matchups more carefully could close that gap.` });
+      candidates.push({ diff: oppFg - avgOppFg, icon: icon("shield"), text: `Defense: opponents are shooting ${formatPct(oppFg)} against you, well above the ${formatPct(avgOppFg)} league average allowed. Tighter closeouts or picking your defensive matchups more carefully could close that gap.` });
     } else if (avgOppFg !== null && avgOppFg - oppFg >= 8) {
-      candidates.push({ diff: avgOppFg - oppFg, icon: "🛡️", text: `Defense: opponents are shooting just ${formatPct(oppFg)} against you, well below the ${formatPct(avgOppFg)} league average. Whatever you're doing on that end is working: real strength, not a fluke at ${row.gp} games.` });
+      candidates.push({ diff: avgOppFg - oppFg, icon: icon("shield"), text: `Defense: opponents are shooting just ${formatPct(oppFg)} against you, well below the ${formatPct(avgOppFg)} league average. Whatever you're doing on that end is working: real strength, not a fluke at ${row.gp} games.` });
     }
   }
 
@@ -10923,13 +10930,13 @@ function computePlayerTips(playerId) {
     const worstPct = pct(worst.fgm, worst.fga);
     if (ownFgPct - worstPct >= 15) {
       const name = state.players.find(p => p.id === worst.defenderId)?.name || "?";
-      candidates.push({ diff: ownFgPct - worstPct, icon: "⚠️", text: `Matchup to watch: ${name} has held you to ${formatPct(worstPct)} shooting (${worst.fga} attempts), well under your own ${formatPct(ownFgPct)} overall. Worth a different look (a different spot on the floor, a screen, anything) when they're the one on you.`, games: gamesForMatchup(playerId, worst.defenderId) });
+      candidates.push({ diff: ownFgPct - worstPct, icon: icon("warning"), text: `Matchup to watch: ${name} has held you to ${formatPct(worstPct)} shooting (${worst.fga} attempts), well under your own ${formatPct(ownFgPct)} overall. Worth a different look (a different spot on the floor, a screen, anything) when they're the one on you.`, games: gamesForMatchup(playerId, worst.defenderId) });
     }
     const best = scorerMatchups.reduce((a, b) => pct(b.fgm, b.fga) > pct(a.fgm, a.fga) ? b : a);
     const bestPct = pct(best.fgm, best.fga);
     if (bestPct - ownFgPct >= 15 && best.defenderId !== worst.defenderId) {
       const name = state.players.find(p => p.id === best.defenderId)?.name || "?";
-      candidates.push({ diff: bestPct - ownFgPct, icon: "✅", text: `Favorable matchup: you're shooting ${formatPct(bestPct)} against ${name} (${best.fga} attempts), well above your own ${formatPct(ownFgPct)} overall. Worth hunting that matchup, or at least not shying away from it, when you get the chance.`, games: gamesForMatchup(playerId, best.defenderId) });
+      candidates.push({ diff: bestPct - ownFgPct, icon: icon("check"), text: `Favorable matchup: you're shooting ${formatPct(bestPct)} against ${name} (${best.fga} attempts), well above your own ${formatPct(ownFgPct)} overall. Worth hunting that matchup, or at least not shying away from it, when you get the chance.`, games: gamesForMatchup(playerId, best.defenderId) });
     }
   }
 
@@ -10941,7 +10948,7 @@ function computePlayerTips(playerId) {
     const worstAllowed = pct(worst.fgm, worst.fga);
     if (worstAllowed - avgOppFg >= 15) {
       const name = state.players.find(p => p.id === worst.scorerId)?.name || "?";
-      candidates.push({ diff: worstAllowed - avgOppFg, icon: "⚠️", text: `Defensive matchup to watch: ${name} is shooting ${formatPct(worstAllowed)} against you specifically (${worst.fga} attempts), well above what you allow overall. Extra help on that matchup, or a different defender entirely, might be worth it.`, games: gamesForMatchup(worst.scorerId, playerId) });
+      candidates.push({ diff: worstAllowed - avgOppFg, icon: icon("warning"), text: `Defensive matchup to watch: ${name} is shooting ${formatPct(worstAllowed)} against you specifically (${worst.fga} attempts), well above what you allow overall. Extra help on that matchup, or a different defender entirely, might be worth it.`, games: gamesForMatchup(worst.scorerId, playerId) });
     }
   }
 
@@ -10952,9 +10959,9 @@ function computePlayerTips(playerId) {
   const ownTs = trueShootingPct(row.totals.pts, row.shooting.fga, row.shooting.fta);
   if (avgTs !== null && avgFga !== null && ownTs !== null) {
     if (row.rateShooting.fga - avgFga >= 2 && avgTs - ownTs >= 8) {
-      candidates.push({ diff: (avgTs - ownTs) + (row.rateShooting.fga - avgFga), icon: "🎯", text: `Shot selection: you're taking more shots per 20 than most (${row.rateShooting.fga.toFixed(1)} vs. ${avgFga.toFixed(1)} average) at a below-average TS% (${formatPct(ownTs)} vs. ${formatPct(avgTs)}). A more selective diet could raise the efficiency without giving up much volume.` });
+      candidates.push({ diff: (avgTs - ownTs) + (row.rateShooting.fga - avgFga), icon: icon("target"), text: `Shot selection: you're taking more shots per 20 than most (${row.rateShooting.fga.toFixed(1)} vs. ${avgFga.toFixed(1)} average) at a below-average TS% (${formatPct(ownTs)} vs. ${formatPct(avgTs)}). A more selective diet could raise the efficiency without giving up much volume.` });
     } else if (avgFga - row.rateShooting.fga >= 2 && ownTs - avgTs >= 8) {
-      candidates.push({ diff: (ownTs - avgTs) + (avgFga - row.rateShooting.fga), icon: "🎯", text: `Shot selection: you're shooting ${formatPct(ownTs)} TS%, well above the ${formatPct(avgTs)} average, on fewer attempts than most (${row.rateShooting.fga.toFixed(1)} vs. ${avgFga.toFixed(1)} per 20). There's real room to take (and make) more without your efficiency needing to hold up on its own; it already has.` });
+      candidates.push({ diff: (ownTs - avgTs) + (avgFga - row.rateShooting.fga), icon: icon("target"), text: `Shot selection: you're shooting ${formatPct(ownTs)} TS%, well above the ${formatPct(avgTs)} average, on fewer attempts than most (${row.rateShooting.fga.toFixed(1)} vs. ${avgFga.toFixed(1)} per 20). There's real room to take (and make) more without your efficiency needing to hold up on its own; it already has.` });
     }
   }
 
@@ -10976,17 +10983,17 @@ function computePlayerTips(playerId) {
     });
     const favorite = zoneStats.reduce((a, b) => b.attempts > a.attempts ? b : a);
     if (favorite.share >= 35) {
-      candidates.push({ diff: favorite.share / 10, icon: "📍", text: `Shot profile: ${formatPct(favorite.share)} of their field goal attempts come from ${favorite.zone.label} (${favorite.attempts} attempts). That's their go-to spot, worth knowing whether you're setting up to feed them there or trying to take it away.` });
+      candidates.push({ diff: favorite.share / 10, icon: icon("pin"), text: `Shot profile: ${formatPct(favorite.share)} of their field goal attempts come from ${favorite.zone.label} (${favorite.attempts} attempts). That's their go-to spot, worth knowing whether you're setting up to feed them there or trying to take it away.` });
     }
     const meaningfulZones = zoneStats.filter(z => z.attempts >= 5 && z.leagueZoneFg !== null);
     if (meaningfulZones.length > 0) {
       const best = meaningfulZones.reduce((a, b) => (b.fgPct - b.leagueZoneFg) > (a.fgPct - a.leagueZoneFg) ? b : a);
       if (best.fgPct - best.leagueZoneFg >= 12) {
-        candidates.push({ diff: best.fgPct - best.leagueZoneFg, icon: "🔥", text: `Strength: ${formatPct(best.fgPct)} from ${best.zone.label} (${best.attempts} attempts), well above the ${formatPct(best.leagueZoneFg)} league average from there. A real weapon from that range, worth respecting, not sagging off.`, games: gamesForZoneShots(playerId, best.zone.key, true) });
+        candidates.push({ diff: best.fgPct - best.leagueZoneFg, icon: icon("flame"), text: `Strength: ${formatPct(best.fgPct)} from ${best.zone.label} (${best.attempts} attempts), well above the ${formatPct(best.leagueZoneFg)} league average from there. A real weapon from that range, worth respecting, not sagging off.`, games: gamesForZoneShots(playerId, best.zone.key, true) });
       }
       const worst = meaningfulZones.reduce((a, b) => (a.fgPct - a.leagueZoneFg) > (b.fgPct - b.leagueZoneFg) ? b : a);
       if (worst.leagueZoneFg - worst.fgPct >= 12) {
-        candidates.push({ diff: worst.leagueZoneFg - worst.fgPct, icon: "❄️", text: `Weakness: just ${formatPct(worst.fgPct)} from ${worst.zone.label} (${worst.attempts} attempts), well under the ${formatPct(worst.leagueZoneFg)} league average from there. Sagging off there and daring that shot is a defensible bet.`, games: gamesForZoneShots(playerId, worst.zone.key, false) });
+        candidates.push({ diff: worst.leagueZoneFg - worst.fgPct, icon: icon("snowflake"), text: `Weakness: just ${formatPct(worst.fgPct)} from ${worst.zone.label} (${worst.attempts} attempts), well under the ${formatPct(worst.leagueZoneFg)} league average from there. Sagging off there and daring that shot is a defensible bet.`, games: gamesForZoneShots(playerId, worst.zone.key, false) });
       }
     }
   }
@@ -10997,13 +11004,13 @@ function computePlayerTips(playerId) {
   // Rebounding share, both boards combined.
   const avgTreb = leagueAvg(r => r.trebPct);
   if (avgTreb !== null && avgTreb - row.trebPct >= 8) {
-    candidates.push({ diff: avgTreb - row.trebPct, icon: "🏀", text: `Rebounding: your share of available boards (${formatPct(row.trebPct)}) sits well under the ${formatPct(avgTreb)} league average. Boxing out on both ends is free extra possessions nobody has to pass you the ball for.` });
+    candidates.push({ diff: avgTreb - row.trebPct, icon: icon("basketball"), text: `Rebounding: your share of available boards (${formatPct(row.trebPct)}) sits well under the ${formatPct(avgTreb)} league average. Boxing out on both ends is free extra possessions nobody has to pass you the ball for.` });
   }
 
   // Playmaking: assist share of their own team's assists.
   const avgAst = leagueAvg(r => r.astPct);
   if (avgAst !== null && avgAst - row.astPct >= 10 && (avgTov === null || row.tovPct - avgTov < 4)) {
-    candidates.push({ diff: avgAst - row.astPct, icon: "🤝", text: `Playmaking: your share of your team's assists (${formatPct(row.astPct)}) is below the ${formatPct(avgAst)} average. Looking to set up a teammate one extra pass earlier could open up easier looks for everyone, yours included.` });
+    candidates.push({ diff: avgAst - row.astPct, icon: icon("link"), text: `Playmaking: your share of your team's assists (${formatPct(row.astPct)}) is below the ${formatPct(avgAst)} average. Looking to set up a teammate one extra pass earlier could open up easier looks for everyone, yours included.` });
   }
 
   candidates.sort((a, b) => b.diff - a.diff);
@@ -11378,9 +11385,9 @@ function renderAreasToWorkOn(playerId) {
       const watchLinks = watchFilmLinksHtml(r.games);
       const clipLabel = AREA_CLIP_CATEGORY_LABELS[r.key];
       const clipBtn = clipLabel
-        ? `<div class="player-tip-watch"><button type="button" class="icon-btn area-clip-export-btn" data-player-id="${playerId}" data-category-key="${r.key}" data-category-label="${escapeHtml(clipLabel)}">🎬 Watch these clips</button></div>`
+        ? `<div class="player-tip-watch"><button type="button" class="icon-btn area-clip-export-btn" data-player-id="${playerId}" data-category-key="${r.key}" data-category-label="${escapeHtml(clipLabel)}">${icon("film")} Watch these clips</button></div>`
         : "";
-      return `<li><span class="player-tip-icon">${r.isWeak ? "❄️" : "🔥"}</span><span>${r.text}${watchLinks}${clipBtn}</span></li>`;
+      return `<li><span class="player-tip-icon">${r.isWeak ? icon("snowflake") : icon("flame")}</span><span>${r.text}${watchLinks}${clipBtn}</span></li>`;
     }).join("")}</ul>
   `;
   wrap.innerHTML = section("Areas to work on", weaknesses) + section("Real strengths", strengths);
@@ -12522,7 +12529,7 @@ function renderPlayerReel(playerId) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${formatDateDisplay(clip.gameDate)}</td>
-      <td>${clip.type === "highlight" ? '<span class="badge badge-highlight">🔥 Highlight</span>' : '<span class="badge badge-lowlight">👎 Lowlight</span>'}</td>
+      <td>${clip.type === "highlight" ? `<span class="badge badge-highlight">${icon("flame")} Highlight</span>` : `<span class="badge badge-lowlight">${icon("lowlight")} Lowlight</span>`}</td>
       <td>${formatTime(clip.start)}–${formatTime(clip.end)}</td>
       <td>${escapeHtml(clip.note || "")}</td>
     `;
@@ -12676,7 +12683,7 @@ function renderLeagueHighlights() {
     tr.innerHTML = `
       <td>${formatDateDisplay(clip.gameDate)}</td>
       <td>${playerLink(clip.player.id, clip.player.name)}</td>
-      <td>${clip.type === "highlight" ? '<span class="badge badge-highlight">🔥 Highlight</span>' : '<span class="badge badge-lowlight">👎 Lowlight</span>'}</td>
+      <td>${clip.type === "highlight" ? `<span class="badge badge-highlight">${icon("flame")} Highlight</span>` : `<span class="badge badge-lowlight">${icon("lowlight")} Lowlight</span>`}</td>
       <td>${formatTime(clip.start)}–${formatTime(clip.end)}</td>
       <td>${escapeHtml(clip.note || "")}</td>
     `;
@@ -13038,12 +13045,12 @@ function renderPlayerGameLog(playerId) {
   rows.forEach(r => {
     const tr = document.createElement("tr");
     const twoWayBadge = r.game.id === bestGameId
-      ? ' <span class="badge badge-highlight" title="Best individual game this season by Two-Way score.">🔥</span>'
+      ? ` <span class="badge badge-highlight" title="Best individual game this season by Two-Way score.">${icon("flame")}</span>`
       : r.game.id === worstGameId
-        ? ' <span class="badge badge-lowlight" title="Worst individual game this season by Two-Way score.">👎</span>'
+        ? ` <span class="badge badge-lowlight" title="Worst individual game this season by Two-Way score.">${icon("lowlight")}</span>`
         : "";
     const stoppedEarlyBadge = r.game.stoppedEarly
-      ? ' <span class="badge badge-lowlight" title="This game ended early. Not comparable to a complete game -- excluded from Best/Worst Games, Power Ranking vs. Performance, Shot Attempt Differential, Pace/PPP, and Win Shares.">🛑</span>'
+      ? ` <span class="badge badge-lowlight" title="This game ended early. Not comparable to a complete game -- excluded from Best/Worst Games, Power Ranking vs. Performance, Shot Attempt Differential, Pace/PPP, and Win Shares.">${icon("stop")}</span>`
       : "";
     tr.innerHTML = `
       <td><button type="button" class="icon-btn game-log-date-btn" data-game-id="${r.game.id}" style="padding:0;font-weight:600;color:var(--accent)">${formatDateDisplay(r.game.date)}</button>${stoppedEarlyBadge}</td>
@@ -13169,13 +13176,13 @@ function renderNotableMatchups(playerId) {
   }
   wrap.innerHTML = `<ul class="notable-matchups-list">${rows.map(r => {
     const suppressed = r.deviation < 0;
-    const icon = suppressed ? "⚠️" : "✅";
+    const iconHtml = suppressed ? icon("warning") : icon("check");
     const verb = suppressed ? "is being held to" : "is shooting";
     const compare = suppressed ? "under" : "above";
     const games = gamesForMatchup(r.scorer.id, r.defender.id);
     const watchLinks = watchFilmLinksHtml(games);
     return `<li>
-      <span class="player-tip-icon">${icon}</span>
+      <span class="player-tip-icon">${iconHtml}</span>
       <span><button type="button" class="icon-btn notable-matchup-player-btn" data-player-id="${r.scorer.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.scorer.name)}</button> ${verb} ${formatPct(r.fgPct)} against
       <button type="button" class="icon-btn notable-matchup-player-btn" data-player-id="${r.defender.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.defender.name)}</button>
       (${r.fgm}/${r.fga}), ${Math.abs(r.deviation).toFixed(0)} points ${compare} their own ${formatPct(r.ownFgPct)} overall.${watchLinks}</span>
@@ -14094,9 +14101,9 @@ function shotTypeTipCandidates(playerId) {
     if (b.a < SHOT_TYPE_MIN_ATTEMPTS || l.a < SHOT_TYPE_MIN_ATTEMPTS * 3) return;
     const gap = ts(b) - ts(l);
     if (gap >= 15) {
-      out.push({ diff: gap, icon: "🔥", text: `Shot type: your ${t.label.toLowerCase()} shots are going ${formatPct(Math.round(ts(b)))} TS (${b.a} attempts), well above the league's ${formatPct(Math.round(ts(l)))} on that kind of shot. Worth creating more of them.`, games: gamesForShotType(playerId, t.key, true) });
+      out.push({ diff: gap, icon: icon("flame"), text: `Shot type: your ${t.label.toLowerCase()} shots are going ${formatPct(Math.round(ts(b)))} TS (${b.a} attempts), well above the league's ${formatPct(Math.round(ts(l)))} on that kind of shot. Worth creating more of them.`, games: gamesForShotType(playerId, t.key, true) });
     } else if (gap <= -15) {
-      out.push({ diff: -gap, icon: "❄️", text: `Shot type: your ${t.label.toLowerCase()} shots are only ${formatPct(Math.round(ts(b)))} TS (${b.a} attempts), well under the league's ${formatPct(Math.round(ts(l)))} on that kind of shot. Worth practicing, or taking fewer of them until it improves.`, games: gamesForShotType(playerId, t.key, false) });
+      out.push({ diff: -gap, icon: icon("snowflake"), text: `Shot type: your ${t.label.toLowerCase()} shots are only ${formatPct(Math.round(ts(b)))} TS (${b.a} attempts), well under the league's ${formatPct(Math.round(ts(l)))} on that kind of shot. Worth practicing, or taking fewer of them until it improves.`, games: gamesForShotType(playerId, t.key, false) });
     }
   });
   const heave = mine.types.deepHeave;
@@ -14106,7 +14113,7 @@ function shotTypeTipCandidates(playerId) {
     const otherPts = TAGGABLE_SHOT_TYPES.reduce((s, t) => s + (t.key === "deepHeave" ? 0 : mine.types[t.key].pts), 0);
     const otherTs = (otherPts / (2 * otherA)) * 100;
     if (otherTs - ts(heave) >= 8) {
-      out.push({ diff: (otherTs - ts(heave)) / 2, icon: "🎯", text: `Shot selection: ${formatPct(Math.round((heave.a / noDunkTagged) * 100))} of your tagged shots (not counting dunks) are deep heaves off a check or rebound, at ${formatPct(Math.round(ts(heave)))} TS against ${formatPct(Math.round(otherTs))} on everything else. Letting the possession develop before shooting could raise the efficiency.`, games: gamesForShotType(playerId, "deepHeave", false) });
+      out.push({ diff: (otherTs - ts(heave)) / 2, icon: icon("target"), text: `Shot selection: ${formatPct(Math.round((heave.a / noDunkTagged) * 100))} of your tagged shots (not counting dunks) are deep heaves off a check or rebound, at ${formatPct(Math.round(ts(heave)))} TS against ${formatPct(Math.round(otherTs))} on everything else. Letting the possession develop before shooting could raise the efficiency.`, games: gamesForShotType(playerId, "deepHeave", false) });
     }
   }
   return out;
