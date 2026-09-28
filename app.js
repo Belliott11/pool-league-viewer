@@ -14,6 +14,43 @@ const ACCENT_CHOICES = [
   { key: "purple", label: "Purple", swatch: "#b794f6" },
   { key: "gold", label: "Gold", swatch: "#f2c94c" }
 ];
+// ---------- Icon set ----------
+// A small monochrome line-icon kit standing in for the color emoji this app used to lean on for
+// its own chrome (header buttons, bottom tabs, game-list badges). Color emoji render as
+// full-color platform glyphs no matter what theme is active, which fights a deliberately
+// black/white/one-accent palette -- these use stroke="currentColor" instead, so they always match
+// whatever text color surrounds them (same trick --text-glow uses). Narrative emoji sprinkled
+// inside generated sentences (milestone feed text, hint copy) are left alone; this kit only
+// covers the repeated, componentized icon spots.
+const ICONS = {
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  palette: '<circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="7.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="16" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="10" cy="15" r="1.1" fill="currentColor" stroke="none"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.4 1.4"/><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4 7 7 0 0 0 20 14.5Z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2 12h2.5M19.5 12H22M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/>',
+  user: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.9 3.1-6 7-6s7 2.1 7 6"/>',
+  basketball: '<circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/><path d="M5.6 5.6a12.7 12.7 0 0 1 0 12.8M18.4 5.6a12.7 12.7 0 0 0 0 12.8"/>',
+  timer: '<circle cx="12" cy="13" r="8"/><path d="M12 13l3-2M9 2h6"/>',
+  chart: '<line x1="4" y1="20" x2="4" y2="11"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="20" y1="20" x2="20" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/>',
+  users: '<circle cx="8.5" cy="8" r="3.2"/><path d="M2.3 19c0-3.4 2.8-5.2 6.2-5.2s6.2 1.8 6.2 5.2"/><circle cx="17" cy="9" r="2.6"/><path d="M15.2 13.7c2.7.3 4.8 2.1 4.8 5.3"/>',
+  upload: '<path d="M12 15V4M8 8l4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
+  video: '<rect x="2" y="6" width="13" height="12" rx="2"/><path d="M15 10.3 21.5 7v10L15 13.7"/>',
+  pencil: '<path d="M4 20l.9-4L15.8 5.1a2 2 0 0 1 2.8 0l.3.3a2 2 0 0 1 0 2.8L8 19l-4 1Z"/>',
+  scale: '<line x1="12" y1="3" x2="12" y2="21"/><line x1="7" y1="21" x2="17" y2="21"/><line x1="5" y1="7" x2="19" y2="7"/><path d="M2 15a3 3 0 0 0 6 0L5 7Z"/><path d="M16 15a3 3 0 0 0 6 0L19 7Z"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  megaphone: '<path d="M3 10v4a1 1 0 0 0 1 1h2l9 4V5L6 9H4a1 1 0 0 0-1 1Z"/><path d="M17 9.5a3.5 3.5 0 0 1 0 5"/>',
+  stop: '<path d="M8 3h8l5 5v8l-5 5H8l-5-5V8Z"/>',
+  flame: '<path d="M12 22c4 0 6.5-2.7 6.5-6.2 0-3-2-4.9-3-7.3-.6 1.6-1.6 2.4-2.4 1.6-1-1-1-3.3-.5-5.1-3 2-5.6 5.9-5.6 9.3C7 19.3 8.5 22 12 22Z"/>',
+  lowlight: '<circle cx="12" cy="12" r="9"/><path d="M12 8v6M9 11l3 3 3-3"/>',
+  check: '<path d="M4 12l6 6L20 6"/>',
+  x: '<path d="M5 5l14 14M19 5 5 19"/>'
+};
+function icon(name, extraClass) {
+  const body = ICONS[name];
+  if (!body) return "";
+  return `<svg class="icon${extraClass ? " " + extraClass : ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+}
+
 const UI_STATE_KEY = "poolLeagueUiState"; // last tab + game/player in view, so a reload lands back where you were
 // By the time you've reacted and clicked to log a play, playback is already a few seconds past
 // it — so every captured timestamp is backed up this many seconds, landing Jump a beat before
@@ -138,7 +175,7 @@ function effectiveTheme() {
 function applyTheme() {
   document.documentElement.setAttribute("data-theme", effectiveTheme());
   const btn = document.getElementById("themeToggleBtn");
-  if (btn) btn.textContent = effectiveTheme() === "dark" ? "☀️" : "🌙";
+  if (btn) btn.innerHTML = effectiveTheme() === "dark" ? icon("sun") : icon("moon");
 }
 
 document.getElementById("themeToggleBtn").addEventListener("click", () => {
@@ -1429,26 +1466,26 @@ function renderGames() {
     // long filtered list doesn't leave the last cards visibly waiting their turn.
     card.style.animationDelay = `${Math.min(i, 10) * 30}ms`;
     const hasKnownVideo = !!(game.videoUrl || game.masterVideoId);
-    const videoBadge = hasKnownVideo ? ' <span class="badge badge-video"><span class="emoji-icon">🎥</span> Video</span>' : '<span class="video-badge-slot"></span>';
+    const videoBadge = hasKnownVideo ? ` <span class="badge badge-video">${icon("video")} Video</span>` : '<span class="video-badge-slot"></span>';
     const needsReview = game.scoringEvents.length === 0;
     // "Needs Review" only means anything once there's actually a video to review — a game with
     // no video at all just hasn't reached that point yet, not fallen behind. Local-video-only
     // games don't know their video status synchronously, so they get a slot too (resolved
     // alongside the video badge itself in markGamesWithLocalVideo).
     const reviewBadge = hasKnownVideo && needsReview
-      ? ' <span class="badge badge-review"><span class="emoji-icon">📝</span> Needs Review</span>'
+      ? ` <span class="badge badge-review">${icon("pencil")} Needs Review</span>`
       : (needsReview ? '<span class="review-badge-slot"></span>' : '');
     const imbalancedBadge = isBalancedGame(game)
       ? ""
-      : ` <span class="badge badge-imbalanced" title="Team A has ${game.teamA.length}, Team B has ${game.teamB.length}. Excluded from Leaderboard rates and every other computed comparison unless the Include Imbalanced Games toggle on the Leaderboard is on."><span class="emoji-icon">⚖️</span> ${game.teamA.length}v${game.teamB.length}</span>`;
+      : ` <span class="badge badge-imbalanced" title="Team A has ${game.teamA.length}, Team B has ${game.teamB.length}. Excluded from Leaderboard rates and every other computed comparison unless the Include Imbalanced Games toggle on the Leaderboard is on.">${icon("scale")} ${game.teamA.length}v${game.teamB.length}</span>`;
     const pastSeasonBadge = isCurrentSeasonGame(game)
       ? ""
-      : ` <span class="badge badge-past-season" title="From a season closed out before this one. Excluded from Leaderboard rates and every other computed comparison unless the Include Past Seasons toggle on the Leaderboard is on. See Closed Seasons in This App on each player's page for that season's final numbers."><span class="emoji-icon">📅</span> Past Season</span>`;
+      : ` <span class="badge badge-past-season" title="From a season closed out before this one. Excluded from Leaderboard rates and every other computed comparison unless the Include Past Seasons toggle on the Leaderboard is on. See Closed Seasons in This App on each player's page for that season's final numbers.">${icon("calendar")} Past Season</span>`;
     const liveBadge = game.liveInProgress
-      ? ' <span class="badge badge-review" title="Being scored live right now."><span class="emoji-icon">📣</span> Live now</span>'
-      : liveOnly ? ' <span class="badge badge-review" title="Only who scored was tracked live. Log it from film in Stat Entry for it to count toward stats."><span class="emoji-icon">📣</span> Live score only</span>' : "";
+      ? ` <span class="badge badge-review" title="Being scored live right now.">${icon("megaphone")} Live now</span>`
+      : liveOnly ? ` <span class="badge badge-review" title="Only who scored was tracked live. Log it from film in Stat Entry for it to count toward stats.">${icon("megaphone")} Live score only</span>` : "";
     const stoppedEarlyBadge = game.stoppedEarly
-      ? ` <span class="badge badge-lowlight" title="This game ended early. Not comparable to a complete game -- excluded from Best/Worst Games, Power Ranking vs. Performance, Shot Attempt Differential, Pace/PPP, and Win Shares. Season-total rates still include it."><span class="emoji-icon">🛑</span> Stopped Early</span>`
+      ? ` <span class="badge badge-lowlight" title="This game ended early. Not comparable to a complete game -- excluded from Best/Worst Games, Power Ranking vs. Performance, Shot Attempt Differential, Pace/PPP, and Win Shares. Season-total rates still include it.">${icon("stop")} Stopped Early</span>`
       : "";
     // Best/worst-of-the-game badge — same Two-Way score Best & Worst Individual Games ranks by
     // (Off Rating + Def Rating for that one game, not a per-20 rate or season number), just
@@ -1470,9 +1507,9 @@ function renderGames() {
       if (performances.length >= 2) {
         const best = performances.reduce((a, b) => b.twoWay > a.twoWay ? b : a);
         const worst = performances.reduce((a, b) => b.twoWay < a.twoWay ? b : a);
-        starBadge = ` <span class="badge badge-highlight" title="Best individual performance this game by Two-Way score."><span class="emoji-icon">🔥</span> ${playerLink(best.player.id, best.player.name)} ${best.twoWay >= 0 ? "+" : ""}${best.twoWay.toFixed(1)}</span>`;
+        starBadge = ` <span class="badge badge-highlight" title="Best individual performance this game by Two-Way score.">${icon('flame')} ${playerLink(best.player.id, best.player.name)} ${best.twoWay >= 0 ? "+" : ""}${best.twoWay.toFixed(1)}</span>`;
         if (worst.player.id !== best.player.id) {
-          coldBadge = ` <span class="badge badge-lowlight" title="Worst individual performance this game by Two-Way score."><span class="emoji-icon">👎</span> ${playerLink(worst.player.id, worst.player.name)} ${worst.twoWay >= 0 ? "+" : ""}${worst.twoWay.toFixed(1)}</span>`;
+          coldBadge = ` <span class="badge badge-lowlight" title="Worst individual performance this game by Two-Way score.">${icon('lowlight')} ${playerLink(worst.player.id, worst.player.name)} ${worst.twoWay >= 0 ? "+" : ""}${worst.twoWay.toFixed(1)}</span>`;
         }
       }
     }
@@ -1522,9 +1559,9 @@ async function markGamesWithLocalVideo() {
     const card = document.querySelector(`.game-card[data-game-id="${gameId}"]`);
     if (!card) return;
     const videoSlot = card.querySelector(".video-badge-slot");
-    if (videoSlot) videoSlot.outerHTML = ' <span class="badge badge-video"><span class="emoji-icon">🎥</span> Video</span>';
+    if (videoSlot) videoSlot.outerHTML = ` <span class="badge badge-video">${icon("video")} Video</span>`;
     const reviewSlot = card.querySelector(".review-badge-slot");
-    if (reviewSlot) reviewSlot.outerHTML = ' <span class="badge badge-review"><span class="emoji-icon">📝</span> Needs Review</span>';
+    if (reviewSlot) reviewSlot.outerHTML = ` <span class="badge badge-review">${icon("pencil")} Needs Review</span>`;
   });
 }
 
@@ -4619,8 +4656,8 @@ function renderScoringLog(game) {
     const blocker = ev.blockerId ? state.players.find(p => p.id === ev.blockerId) : null;
     const rebounder = ev.rebounderId ? state.players.find(p => p.id === ev.rebounderId) : null;
     let resultBadge = made
-      ? '<span class="badge badge-highlight"><span class="emoji-icon">✅</span> Make</span>'
-      : '<span class="badge badge-lowlight"><span class="emoji-icon">❌</span> Miss</span>';
+      ? `<span class="badge badge-highlight">${icon("check")} Make</span>`
+      : `<span class="badge badge-lowlight">${icon("x")} Miss</span>`;
     if (blocker) resultBadge += ` <span class="badge">Blocked: ${playerLink(blocker.id, blocker.name)}</span>`;
     if (ev.turnoverEventId) resultBadge += ' <span class="badge">Out of bounds → TOV</span>';
     if (rebounder) {

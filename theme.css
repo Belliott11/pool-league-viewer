@@ -11,15 +11,21 @@
  */
 
 :root {
-  /* Surfaces */
-  --bg: #ffffff;
+  /* Surfaces — dark mode gets its lift by making panel-bg LIGHTER than bg (near-black page,
+     less-black card); white can't go any lighter, so light mode gets the same "panel is the
+     brightest thing in the room" relationship the other way around: a soft grey canvas with
+     true-white cards sitting up off it. Making bg and panel-bg both literally #ffffff (the old
+     version) gave every card zero fill separation from the page and left borders doing all the
+     work alone -- exactly what a flat "invert colors" filter run on the dark theme would produce.
+     This isn't a warm/cool tint, just a value step, so it still reads as "white," not "cream." */
+  --bg: #f4f4f4;
   --panel-bg: #ffffff;
-  --border: #dcdcdc;
-  --surface-muted: #f0f0f0;
-  --surface-muted-hover: #e4e4e4;
-  --surface-tint: #f7f7f7;
+  --border: #e2e2e2;
+  --surface-muted: #eeeeee;
+  --surface-muted-hover: #e2e2e2;
+  --surface-tint: #fafafa;
   --surface-hover: #f2f2f2;
-  --disabled-bg: #e8e8e8;
+  --disabled-bg: #ececec;
 
   /* Text */
   --text: #0a0a0a;
@@ -39,9 +45,11 @@
   --warning: #a3620f;
   --warning-light: #fbeedc;
 
-  /* Decorative background glow (behind the whole page) */
-  --glow-1: #fdece0;
-  --glow-2: #fbf1e4;
+  /* Decorative background glow (behind the whole page) -- translucent over the grey canvas, same
+     technique dark mode uses, instead of a flat pale hex that used to all but disappear against a
+     white-on-white page. */
+  --glow-1: rgba(217, 96, 26, 0.07);
+  --glow-2: rgba(217, 96, 26, 0.045);
 
   /* Player-profile role tags (Players tab) — one hue per role so a roster scan reads by color,
      not just label text. role-player deliberately stays neutral (the --surface-tint/--muted
@@ -64,8 +72,8 @@
      boxes) — badges/pills stay full-round regardless of this token, see .badge in style.css */
   --radius: 20px;
   --radius-sm: 14px;
-  --shadow-sm: 0 1px 2px rgba(15, 33, 29, 0.04), 0 4px 14px rgba(15, 33, 29, 0.06);
-  --shadow-md: 0 4px 10px rgba(15, 33, 29, 0.06), 0 12px 28px rgba(15, 33, 29, 0.10);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 14px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.07), 0 14px 32px rgba(0, 0, 0, 0.10);
 
   /* Translucent panel-bg for the sticky header's frosted-glass look (backdrop-filter blur) */
   --header-bg-translucent: rgba(255, 255, 255, 0.72);
@@ -179,7 +187,7 @@
 :root[data-accent="blue"] {
   --primary: #0277bd; --primary-dark: #01579b; --primary-light: #e1f4fd;
   --accent: #0277bd; --accent-light: #e1f4fd;
-  --glow-1: #e1f4fd; --glow-2: #eaf7fb;
+  --glow-1: rgba(2, 119, 189, 0.07); --glow-2: rgba(2, 119, 189, 0.045);
 }
 @media (prefers-color-scheme: dark) {
   :root[data-accent="blue"]:not([data-theme="light"]) {
@@ -197,7 +205,7 @@
 :root[data-accent="green"] {
   --primary: #0f9d63; --primary-dark: #0b7a4d; --primary-light: #e3f7ee;
   --accent: #0f9d63; --accent-light: #e3f7ee;
-  --glow-1: #e3f7ee; --glow-2: #ecf9f2;
+  --glow-1: rgba(15, 157, 99, 0.07); --glow-2: rgba(15, 157, 99, 0.045);
 }
 @media (prefers-color-scheme: dark) {
   :root[data-accent="green"]:not([data-theme="light"]) {
@@ -215,7 +223,7 @@
 :root[data-accent="red"] {
   --primary: #c81e4a; --primary-dark: #9c1638; --primary-light: #fbe3ea;
   --accent: #c81e4a; --accent-light: #fbe3ea;
-  --glow-1: #fbe3ea; --glow-2: #fdeef2;
+  --glow-1: rgba(200, 30, 74, 0.07); --glow-2: rgba(200, 30, 74, 0.045);
 }
 @media (prefers-color-scheme: dark) {
   :root[data-accent="red"]:not([data-theme="light"]) {
@@ -233,7 +241,7 @@
 :root[data-accent="purple"] {
   --primary: #7c3aed; --primary-dark: #5b21b6; --primary-light: #efe6fd;
   --accent: #7c3aed; --accent-light: #efe6fd;
-  --glow-1: #efe6fd; --glow-2: #f4edfc;
+  --glow-1: rgba(124, 58, 237, 0.07); --glow-2: rgba(124, 58, 237, 0.045);
 }
 @media (prefers-color-scheme: dark) {
   :root[data-accent="purple"]:not([data-theme="light"]) {
@@ -251,7 +259,7 @@
 :root[data-accent="gold"] {
   --primary: #a3620f; --primary-dark: #7a480a; --primary-light: #faeed9;
   --accent: #a3620f; --accent-light: #faeed9;
-  --glow-1: #faeed9; --glow-2: #fcf4e6;
+  --glow-1: rgba(163, 98, 15, 0.07); --glow-2: rgba(163, 98, 15, 0.045);
 }
 @media (prefers-color-scheme: dark) {
   :root[data-accent="gold"]:not([data-theme="light"]) {

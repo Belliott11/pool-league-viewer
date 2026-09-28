@@ -93,11 +93,8 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  /* These are icon buttons whose whole content is one emoji glyph -- filtering the button itself
-     (rather than wrapping the glyph in its own span) is safe here since the button's own chrome
-     (a muted neutral background/border) barely shifts under the same mild desaturation. */
-  filter: saturate(0.7) sepia(0.25) brightness(0.94);
 }
+.theme-toggle-btn .icon { width: 18px; height: 18px; }
 .theme-toggle-btn:hover { background: var(--surface-muted-hover); }
 
 /* iOS segmented control: a rounded pill-shaped track holding the tab buttons, with the active
@@ -1760,13 +1757,11 @@ button:disabled {
   animation: cardIn 0.2s ease both;
 }
 @media (prefers-reduced-motion: reduce) { .badge { animation: none; } }
-/* Native color emoji carry their own platform colors (bright candy-red, sky-blue, etc.) that sit
-   outside this palette entirely and can't be recolored like text -- a mild warm desaturation
-   tones them down enough to feel like part of this theme instead of a sticker dropped on top of
-   it, without going so far that a 🔥 stops reading as fire or a checkmark stops reading as green.
-   Wrap an emoji in this span wherever it's serving as a small UI icon (badges, nav icons, header
-   buttons); free-standing emoji in body text are left alone. */
-.emoji-icon { filter: saturate(0.7) sepia(0.25) brightness(0.94); }
+/* The badge/nav/header icon kit (icon() in app.js): plain inline SVGs using stroke="currentColor",
+   so they always match whatever text color surrounds them -- unlike the color emoji they replace,
+   which carry their own fixed platform colors no theme setting can touch. */
+.icon { width: 1em; height: 1em; vertical-align: -0.15em; }
+.badge .icon { width: 0.95em; height: 0.95em; vertical-align: -0.12em; }
 .badge-highlight {
   background: var(--success-light);
   color: var(--success);
@@ -2949,7 +2944,8 @@ body.live-open { overflow: hidden; }
   text-overflow: ellipsis;
 }
 .bottom-tab-btn.active { color: var(--primary-dark); background: var(--surface-muted); }
-.bottom-tab-icon { font-size: 1.3rem; line-height: 1; position: relative; filter: saturate(0.7) sepia(0.25) brightness(0.94); }
+.bottom-tab-icon { font-size: 1.3rem; line-height: 1; position: relative; display: inline-flex; }
+.bottom-tab-icon .icon { width: 22px; height: 22px; }
 
 /* Live Game's own bottom-bar button: not a real tab (no data-tab, doesn't get the generic
    .tab-btn click wiring or active-state), just a dedicated shortcut into it from anywhere. The
