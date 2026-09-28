@@ -52,6 +52,16 @@ body {
   flex-shrink: 0;
 }
 
+/* Same ring+ball motif as the favicon/app icon/og-image -- a real mark next to the wordmark
+   instead of leaving the header as plain text, tying the tab, the home screen icon, and the page
+   itself back to one shape. currentColor keeps the ring in the text color; the ball stays the
+   accent so it still pops if the accent picker changes. */
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 45%, transparent));
+}
 .app-header h1 {
   margin: 0;
   font-family: var(--font-display);
