@@ -11508,7 +11508,7 @@ const PLAYER_TREND_STATS = [
       return { value: pctOrNull(tov, den), n: den };
     } },
   { key: "wideOpen", label: "Wide-Open Shooting TS%", unit: "%", decimals: 0, minN: 2,
-    about: "True Shooting % on shots with no defender tagged. Needs at least 2 wide-open shots in a game to count that game.",
+    about: "True Shooting % on shots with no defender/open. Needs at least 2 wide-open shots in a game to count that game.",
     compute: (pid, games) => {
       let pts = 0, fga = 0;
       games.forEach(g => g.scoringEvents.forEach(ev => {
@@ -14570,7 +14570,7 @@ function renderShotTypeReview() {
     const hasTime = ev.videoTime !== null && ev.videoTime !== undefined;
     const watchLinks = watchFilmLinksHtml(hasTime ? [{ id: game.id, date: game.date, videoTime: ev.videoTime }] : []);
     const band = ev.shotLocation ? ` · ${escapeHtml(({ close: "close", mid: "midrange", arc: "at the line", deep: "deep" })[shotBand(ev.shotLocation, ev.points)])}` : "";
-    const guarded = (ev.defenderIds || []).length > 0 ? " · guarded" : " · no defender tagged";
+    const guarded = (ev.defenderIds || []).length > 0 ? " · guarded" : " · no defender/open";
     return `<li data-event-id="${ev.id}">
       <span>${scorer ? playerLink(scorer.id, scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt${band}${recheck ? guarded : ""}, ${escapeHtml(formatDateDisplay(game.date))})${recheck ? ` · currently ${escapeHtml(shotTypeLabel(ev.shotType))}` : ""}${watchLinks}</span>
       <div class="button-row" style="margin-top:4px">
