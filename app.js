@@ -43,7 +43,15 @@ const ICONS = {
   flame: '<path d="M12 22c4 0 6.5-2.7 6.5-6.2 0-3-2-4.9-3-7.3-.6 1.6-1.6 2.4-2.4 1.6-1-1-1-3.3-.5-5.1-3 2-5.6 5.9-5.6 9.3C7 19.3 8.5 22 12 22Z"/>',
   lowlight: '<circle cx="12" cy="12" r="9"/><path d="M12 8v6M9 11l3 3 3-3"/>',
   check: '<path d="M4 12l6 6L20 6"/>',
-  x: '<path d="M5 5l14 14M19 5 5 19"/>'
+  x: '<path d="M5 5l14 14M19 5 5 19"/>',
+  trophy: '<path d="M8 3h8v5a4 4 0 0 1-8 0V3Z"/><path d="M8 5H5a3 3 0 0 0 3 3M16 5h3a3 3 0 0 1-3 3"/><path d="M12 12v4"/><path d="M8 20h8"/><path d="M10 20a2 2 0 0 1 2-2 2 2 0 0 1 2 2"/>',
+  shield: '<path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6Z"/>',
+  wall: '<rect x="4" y="5" width="16" height="4"/><rect x="4" y="10" width="7" height="4"/><rect x="13" y="10" width="7" height="4"/><rect x="4" y="15" width="16" height="4"/>',
+  gem: '<path d="M12 3l9 9-9 9-9-9Z"/>',
+  trendingUp: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  star: '<path d="M12 3l2.6 5.9 6.4.6-4.8 4.3 1.4 6.2L12 16.9 6.4 20l1.4-6.2L3 9.5l6.4-.6Z"/>',
+  medal: '<circle cx="12" cy="15" r="5"/><path d="M9 11 6 3M15 11l3-8"/>',
+  sadface: '<circle cx="12" cy="12" r="9"/><path d="M8 15c1.2-1 2.8-1 4 0M9 9h.01M15 9h.01"/>'
 };
 function icon(name, extraClass) {
   const body = ICONS[name];
@@ -7023,10 +7031,19 @@ const AWARD_NOT_FOUND_TEXT = {
   teammateLift: "Not enough With/Without games logged yet"
 };
 
+// Emoji glyphs, kept for the one consumer that has no choice but a real character: the Trading
+// Card export draws its badge row onto an HTML canvas (ctx.fillText), which can only render an
+// actual font glyph, never the SVG icon kit below. Every other (DOM) consumer uses awardIconSvg().
 const AWARD_ICONS = {
   mvp: "🏆", "best-player": "🛡️", dpoy: "🧱", clutch: "🧊", "mip-season": "📈", "mip-yoy": "📊",
   teammate: "🤝", "first-team": "⭐", "second-team": "🥈", "best-duo": "🔥", "worst-duo": "🥴"
 };
+const AWARD_ICON_KEYS = {
+  mvp: "trophy", "best-player": "shield", dpoy: "wall", clutch: "gem", "mip-season": "trendingUp",
+  "mip-yoy": "chart", teammate: "link", "first-team": "star", "second-team": "medal",
+  "best-duo": "flame", "worst-duo": "sadface"
+};
+function awardIconSvg(key) { return icon(AWARD_ICON_KEYS[key] || "trophy"); }
 
 // Poolean Awards UI spec: three real tiers (gold/silver/bronze) plus one deliberately untiered
 // house award (Worst Duo — stays visible everywhere an award shows, just never gold/silver/bronze
@@ -7063,7 +7080,7 @@ function computePlayerAwardBadges(playerId) {
       : null;
     const partnerId = pairSlugs ? pairSlugs.find(id => id !== playerId) || null : null;
     return {
-      key: award.key, label: award.label, icon: AWARD_ICONS[award.key] || "🏅", season: award.season,
+      key: award.key, label: award.label, icon: AWARD_ICONS[award.key] || "🏅", iconSvg: awardIconSvg(award.key), season: award.season,
       isWinner, tier: AWARD_TIER[award.key] || null, color: AWARD_TIER_COLOR[AWARD_TIER[award.key]] || null,
       placementLabel: isWinner ? String(award.season) : `${AWARD_PLACEMENT_LABEL[placementIndex]} ${award.season}`,
       partnerName: partnerId ? poolNameOf(partnerId) : null, partnerId
@@ -7165,7 +7182,7 @@ function renderPlayerRealSeasons(playerId) {
       <td>${Math.round(r.card.powerPct)}%${delta(r.powerDelta)}</td>
       <td>${r.card.crowns}</td>
       <td>${r.card.bestRank ? ordinal(r.card.bestRank) : "-"}</td>
-      <td>${r.wins.map(a => `<span title="${escapeHtml(a.label)}">${AWARD_ICONS[a.key] || "🏅"}</span>`).join(" ") || "-"}</td>
+      <td>${r.wins.map(a => `<span title="${escapeHtml(a.label)}">${awardIconSvg(a.key)}</span>`).join(" ") || "-"}</td>
     </tr>`).join("");
   wrap.innerHTML = `<div class="table-scroll"><table class="matchup-table">
     <thead><tr><th>Season</th><th>Record</th><th>Win %</th><th>Power %</th><th>#1 nights</th><th>Best rank</th><th>Awards won</th></tr></thead>
@@ -7186,7 +7203,7 @@ function computeSeasonRecap() {
   const mvp = AWARD_RESULTS.find(a => a.key === "mvp");
   const champion = mvp ? { slug: mvp.winners[0], name: poolNameOf(mvp.winners[0]) } : null;
   const awardRows = AWARD_RESULTS.map(a => ({
-    label: a.label, icon: AWARD_ICONS[a.key] || "🏅", color: AWARD_TIER_COLOR[AWARD_TIER[a.key]] || null,
+    label: a.label, icon: awardIconSvg(a.key), color: AWARD_TIER_COLOR[AWARD_TIER[a.key]] || null,
     winners: a.winners.map(slug => ({ slug, name: poolNameOf(slug) }))
   }));
   const topPower = Object.entries(POOLEAN_SEASON_CARDS)
@@ -7227,7 +7244,7 @@ function renderSeasonRecap() {
   }
   const championHtml = recap.champion ? `
     <div class="award-marquee">
-      <span class="award-marquee-icon">🏆</span>
+      <span class="award-marquee-icon">${icon("trophy")}</span>
       <span class="award-marquee-text"><strong>${escapeHtml(recap.champion.name)}</strong><span>Season Champion · ${escapeHtml(recap.mvpAward.label)}</span></span>
     </div>` : "";
   const awardsHtml = recap.awardRows.map(a => `
@@ -7740,7 +7757,7 @@ function renderAwardRace() {
     const mark = r.teamMatched !== null && !r.hit ? `${r.teamMatched} of ${r.voted.winners.length} · ` : r.hit === true ? "✓ " : r.hit === false ? "✗ " : "";
     const voted = r.voted ? `<p class="award-race-voted">${mark}Voted: ${r.voted.winners.map(poolPlayerLink).join(" + ")}</p>` : "";
     return `<div class="award-race-card${color ? ` award-race-${color}` : ""}">
-      <div class="award-race-head"><span>${AWARD_ICONS[r.key] || "🏅"}</span><strong>${escapeHtml(r.label)}</strong></div>
+      <div class="award-race-head"><span>${awardIconSvg(r.key)}</span><strong>${escapeHtml(r.label)}</strong></div>
       <span class="award-race-basis">${escapeHtml(r.basis)}${r.local ? " · logged games" : ""}</span>
       ${r.note ? `<span class="award-race-basis">${escapeHtml(r.note)}</span>` : ""}
       ${leaders}${voted}
@@ -8219,7 +8236,7 @@ function renderPlayerAwardBadges(playerId) {
   const goldWin = badges.find(b => b.isWinner && b.tier === 1 && b.season === latestAwardSeason);
   const marquee = goldWin ? `
     <div class="award-marquee">
-      <span class="award-marquee-icon">${goldWin.icon}</span>
+      <span class="award-marquee-icon">${goldWin.iconSvg}</span>
       <span class="award-marquee-text"><strong>${escapeHtml(goldWin.label)}</strong><span>${goldWin.season} · reigning</span></span>
     </div>` : "";
   const grid = badges.map(b => {
@@ -8233,7 +8250,7 @@ function renderPlayerAwardBadges(playerId) {
       sub = `${escapeHtml(b.placementLabel)} · ${withPart}`;
     }
     return `<span class="${cls}">
-      <span class="award-badge-icon">${b.icon}</span>
+      <span class="award-badge-icon">${b.iconSvg}</span>
       <span class="award-badge-label">${escapeHtml(b.label)}</span>
       <span class="award-badge-sub">${sub}</span>
     </span>`;

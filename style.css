@@ -4,6 +4,19 @@
 
 * { box-sizing: border-box; }
 
+/* A click-drag across a button (role chips especially, sitting right next to each other) can
+   trigger the browser's native text selection instead of a click -- the default OS selection
+   color (an opaque blue) then paints straight over the button's own background/text with no
+   regard for the theme underneath, which is what made a hovered/dragged role chip unreadable.
+   Buttons/labels/pills aren't text to select, so selection is turned off on them; everything
+   else keeps native selection, just recolored to fit the theme instead of the browser default. */
+::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--text); }
+button, .role-filter-chip, .profile-tag, .badge, .theme-toggle-btn, .bottom-tab-btn,
+.accent-swatch, .player-section-nav-link, label.ios-switch-row {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 body {
   margin: 0;
   font-family: var(--font-body);
