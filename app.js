@@ -537,6 +537,14 @@ function normalizeGame(game) {
       delete ev.defenderId;
     }
     if (ev.assistId === undefined) ev.assistId = null;
+    // contestLevel: how hard the tagged defender(s) actually challenged the shot -- null until
+    // reviewed (see Review Contest Levels backfill), only meaningful once defenderIds isn't empty.
+    if (ev.contestLevel === undefined) ev.contestLevel = null;
+    // passerId: who passed to the shooter on a MISS (assistId only ever gets set on makes, by
+    // design -- see the isMiss check where assistId is written during live entry). "none" is a
+    // real reviewed answer (confirmed no clear passer), distinct from null (not reviewed yet), so
+    // Review Passers on Misses knows which misses still need a look.
+    if (ev.passerId === undefined) ev.passerId = null;
     if (ev.blockerId === undefined) ev.blockerId = null;
     if (ev.turnoverEventId === undefined) ev.turnoverEventId = null;
     if (ev.rebounderId === undefined) ev.rebounderId = null;
@@ -854,7 +862,7 @@ function showTab(tab) {
   document.querySelectorAll(`.tab-btn[data-tab="${tab}"]`).forEach(b => b.classList.add("active"));
   const bottomAlias = BOTTOM_TAB_ALIAS[tab];
   if (bottomAlias) document.querySelectorAll(`.bottom-tab-btn[data-tab="${bottomAlias}"]`).forEach(b => b.classList.add("active"));
-  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderTurnoverTypeReview(); renderSameMomentReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); renderRealSiteCheck(); renderExportSectionTeasers(); }
+  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderTurnoverTypeReview(); renderContestReview(); renderPasserReview(); renderSameMomentReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); renderRealSiteCheck(); renderExportSectionTeasers(); }
   if (tab === "leaderboard") renderLeaderboard();
   if (tab === "live") renderLiveGamePanel();
   // Refreshes the attendee picker against the current roster — cheap, and a player added while
@@ -13886,6 +13894,21 @@ function turnoverTypeButtonsHtml(current, attr) {
   return TURNOVER_TYPES.map(t => `<button type="button" class="secondary-btn${current === t.key ? " selected" : ""}" data-${attr}="${t.key}" title="${escapeHtml(t.about)}">${escapeHtml(t.label)}</button>`).join("");
 }
 
+// How hard a tagged defender actually challenged the shot -- defenderIds itself only says whether
+// anyone was credited at all, not how much they affected the look.
+const CONTEST_LEVELS = [
+  { key: "light", label: "Light Contest", about: "A defender is credited nearby but didn't meaningfully affect the shot -- a late closeout, trailing the play, a hand up from a step away." },
+  { key: "medium", label: "Medium Contest", about: "A real, in-position defender with a hand up, but not draped on the shooter or altering the release." },
+  { key: "heavy", label: "Heavy Contest", about: "A hand in their face, verticality, or real physical pressure that could plausibly alter the shot." }
+];
+function contestLevelLabel(key) {
+  const t = CONTEST_LEVELS.find(x => x.key === key);
+  return t ? t.label : "No level yet";
+}
+function contestLevelButtonsHtml(current, attr) {
+  return CONTEST_LEVELS.map(t => `<button type="button" class="secondary-btn${current === t.key ? " selected" : ""}" data-${attr}="${t.key}" title="${escapeHtml(t.about)}">${escapeHtml(t.label)}</button>`).join("");
+}
+
 function computeShotTypeStats() {
   const blank = () => ({ tagged: 0, fga: 0, types: Object.fromEntries(SHOT_TYPES.map(t => [t.key, { a: 0, m: 0, pts: 0 }])) });
   const league = blank();
@@ -14680,6 +14703,193 @@ function renderTurnoverTypeReview() {
   });
   const moreBtn = wrap.querySelector("[data-turnover-type-more]");
   if (moreBtn) moreBtn.addEventListener("click", () => { turnoverTypeReviewLimit += TURNOVER_TYPE_REVIEW_PAGE; renderTurnoverTypeReview(); });
+}
+
+// ---------- Review Contest Levels (backfill) ----------
+// Same shape again: every 2/3pt shot that already has a defender tagged (defenderIds non-empty)
+// but no contestLevel yet, oldest first, a page at a time, optionally narrowed to one player.
+const CONTEST_REVIEW_PAGE = 20;
+let contestReviewLimit = CONTEST_REVIEW_PAGE;
+let contestReviewPlayer = "";
+const contestSkipped = new Set();
+
+function contestReviewMatches(ev) {
+  return (ev.points === 2 || ev.points === 3) && (ev.defenderIds || []).length > 0 && !ev.contestLevel;
+}
+
+function computeContestReviewRows() {
+  const rows = [];
+  state.games.forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (!contestReviewMatches(ev)) return;
+      if (contestReviewPlayer && ev.scorerId !== contestReviewPlayer) return;
+      if (contestSkipped.has(ev.id)) return;
+      rows.push({ game, ev });
+    });
+  });
+  return rows.sort((a, b) => (a.game.date || "").localeCompare(b.game.date || "") || (a.ev.videoTime || 0) - (b.ev.videoTime || 0));
+}
+
+function renderContestReview() {
+  const wrap = document.getElementById("contestLevelReview");
+  if (!wrap) return;
+  const all = computeContestReviewRows();
+  const shown = all.slice(0, contestReviewLimit);
+  const inMode = new Set();
+  state.games.forEach(g => g.scoringEvents.forEach(ev => { if (contestReviewMatches(ev) && !contestSkipped.has(ev.id)) inMode.add(ev.scorerId); }));
+  const playerOptions = state.players.filter(p => inMode.has(p.id) || p.id === contestReviewPlayer)
+    .map(p => `<option value="${p.id}"${p.id === contestReviewPlayer ? " selected" : ""}>${escapeHtml(p.name)}</option>`).join("");
+  const controls = `<div class="button-row" style="margin:0 0 8px;gap:10px;align-items:center">
+      <label>Player <select data-contest-review-player><option value="">Everyone</option>${playerOptions}</select></label>
+    </div>`;
+  wrap.innerHTML = `${controls}
+  ${all.length === 0 ? '<p class="empty-state">Every contested shot has a contest level.</p>' : `<p class="hint contest-review-summary" style="margin-top:0"></p>
+  <ul class="player-tips-list">${shown.map(({ game, ev }) => {
+    const scorer = state.players.find(p => p.id === ev.scorerId);
+    const hasTime = ev.videoTime !== null && ev.videoTime !== undefined;
+    const watchLinks = watchFilmLinksHtml(hasTime ? [{ id: game.id, date: game.date, videoTime: ev.videoTime }] : []);
+    return `<li data-event-id="${ev.id}">
+      <span>${scorer ? playerLink(scorer.id, scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt, guarded by ${escapeHtml(defenderNames(ev.defenderIds))}, ${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
+      <div class="button-row" style="margin-top:4px">
+        ${contestLevelButtonsHtml(null, "mark-contest-level")}
+        <button type="button" class="icon-btn" data-skip-contest="${ev.id}">Skip</button>
+      </div>
+    </li>`;
+  }).join("")}</ul>
+  ${all.length > shown.length ? '<button type="button" class="secondary-btn" data-contest-more="1">Show more</button>' : ""}`}`;
+  wireWatchFilmButtons(wrap);
+
+  wrap.querySelector("[data-contest-review-player]").addEventListener("change", e => { contestReviewPlayer = e.target.value; contestReviewLimit = CONTEST_REVIEW_PAGE; renderContestReview(); });
+  if (all.length === 0) return;
+
+  const summaryEl = wrap.querySelector(".contest-review-summary");
+  const updateSummary = () => {
+    const left = computeContestReviewRows().length;
+    summaryEl.textContent = `${left} contested shots still without a level.`;
+  };
+  updateSummary();
+  const dropRow = eventId => {
+    wrap.querySelector(`li[data-event-id="${eventId}"]`)?.remove();
+    updateSummary();
+    if (wrap.querySelectorAll("li").length === 0) renderContestReview();
+  };
+  wrap.querySelectorAll("li").forEach(li => {
+    const eventId = li.dataset.eventId;
+    li.querySelectorAll("[data-mark-contest-level]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const ev = state.games.flatMap(g => g.scoringEvents).find(e => e.id === eventId);
+        if (!ev) return;
+        ev.contestLevel = btn.dataset.markContestLevel;
+        saveState();
+        dropRow(eventId);
+      });
+    });
+    li.querySelector("[data-skip-contest]").addEventListener("click", () => {
+      contestSkipped.add(eventId);
+      dropRow(eventId);
+    });
+  });
+  const moreBtn = wrap.querySelector("[data-contest-more]");
+  if (moreBtn) moreBtn.addEventListener("click", () => { contestReviewLimit += CONTEST_REVIEW_PAGE; renderContestReview(); });
+}
+
+// ---------- Review Passers on Misses (backfill) ----------
+// Same shape again, but the picker is players (that game's teammates of the shooter, same as the
+// live "Assisted by?" buttons in Stat Entry) instead of a fixed category list. assistId only ever
+// gets set on makes by design; passerId is the same idea for misses, its own field so it can't be
+// confused with a real assist in any existing assist-counting logic. "none" (a real reviewed
+// answer: no clear passer) is written as the string "none", not null, so it stays distinct from
+// "not reviewed yet" -- the whole reason this needs a backfill queue instead of just defaulting.
+const PASSER_REVIEW_PAGE = 20;
+let passerReviewLimit = PASSER_REVIEW_PAGE;
+let passerReviewPlayer = "";
+const passerSkipped = new Set();
+
+function passerReviewMatches(ev) {
+  return (ev.points === 2 || ev.points === 3) && ev.made === false && ev.passerId === null;
+}
+
+function computePasserReviewRows() {
+  const rows = [];
+  state.games.forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (!passerReviewMatches(ev)) return;
+      if (passerReviewPlayer && ev.scorerId !== passerReviewPlayer) return;
+      if (passerSkipped.has(ev.id)) return;
+      rows.push({ game, ev });
+    });
+  });
+  return rows.sort((a, b) => (a.game.date || "").localeCompare(b.game.date || "") || (a.ev.videoTime || 0) - (b.ev.videoTime || 0));
+}
+
+function gameTeammatesOf(game, playerId) {
+  const side = game.teamA.includes(playerId) ? game.teamA : game.teamB;
+  return side.filter(id => id !== playerId).map(id => state.players.find(p => p.id === id)).filter(Boolean);
+}
+
+function renderPasserReview() {
+  const wrap = document.getElementById("passerReview");
+  if (!wrap) return;
+  const all = computePasserReviewRows();
+  const shown = all.slice(0, passerReviewLimit);
+  const inMode = new Set();
+  state.games.forEach(g => g.scoringEvents.forEach(ev => { if (passerReviewMatches(ev) && !passerSkipped.has(ev.id)) inMode.add(ev.scorerId); }));
+  const playerOptions = state.players.filter(p => inMode.has(p.id) || p.id === passerReviewPlayer)
+    .map(p => `<option value="${p.id}"${p.id === passerReviewPlayer ? " selected" : ""}>${escapeHtml(p.name)}</option>`).join("");
+  const controls = `<div class="button-row" style="margin:0 0 8px;gap:10px;align-items:center">
+      <label>Player <select data-passer-review-player><option value="">Everyone</option>${playerOptions}</select></label>
+    </div>`;
+  wrap.innerHTML = `${controls}
+  ${all.length === 0 ? '<p class="empty-state">Every missed shot has a passer reviewed.</p>' : `<p class="hint passer-review-summary" style="margin-top:0"></p>
+  <ul class="player-tips-list">${shown.map(({ game, ev }) => {
+    const scorer = state.players.find(p => p.id === ev.scorerId);
+    const teammates = gameTeammatesOf(game, ev.scorerId);
+    const hasTime = ev.videoTime !== null && ev.videoTime !== undefined;
+    const watchLinks = watchFilmLinksHtml(hasTime ? [{ id: game.id, date: game.date, videoTime: ev.videoTime }] : []);
+    return `<li data-event-id="${ev.id}">
+      <span>${scorer ? playerLink(scorer.id, scorer.name) : "?"}: Miss (${ev.points}pt, ${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
+      <div class="button-row" style="margin-top:4px">
+        <button type="button" class="secondary-btn" data-mark-passer="none">No passer</button>
+        ${teammates.map(t => `<button type="button" class="secondary-btn" data-mark-passer="${t.id}">${escapeHtml(t.name)}</button>`).join("")}
+        <button type="button" class="icon-btn" data-skip-passer="${ev.id}">Skip</button>
+      </div>
+    </li>`;
+  }).join("")}</ul>
+  ${all.length > shown.length ? '<button type="button" class="secondary-btn" data-passer-more="1">Show more</button>' : ""}`}`;
+  wireWatchFilmButtons(wrap);
+
+  wrap.querySelector("[data-passer-review-player]").addEventListener("change", e => { passerReviewPlayer = e.target.value; passerReviewLimit = PASSER_REVIEW_PAGE; renderPasserReview(); });
+  if (all.length === 0) return;
+
+  const summaryEl = wrap.querySelector(".passer-review-summary");
+  const updateSummary = () => {
+    const left = computePasserReviewRows().length;
+    summaryEl.textContent = `${left} missed shots still without a passer reviewed.`;
+  };
+  updateSummary();
+  const dropRow = eventId => {
+    wrap.querySelector(`li[data-event-id="${eventId}"]`)?.remove();
+    updateSummary();
+    if (wrap.querySelectorAll("li").length === 0) renderPasserReview();
+  };
+  wrap.querySelectorAll("li").forEach(li => {
+    const eventId = li.dataset.eventId;
+    li.querySelectorAll("[data-mark-passer]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const ev = state.games.flatMap(g => g.scoringEvents).find(e => e.id === eventId);
+        if (!ev) return;
+        ev.passerId = btn.dataset.markPasser;
+        saveState();
+        dropRow(eventId);
+      });
+    });
+    li.querySelector("[data-skip-passer]").addEventListener("click", () => {
+      passerSkipped.add(eventId);
+      dropRow(eventId);
+    });
+  });
+  const moreBtn = wrap.querySelector("[data-passer-more]");
+  if (moreBtn) moreBtn.addEventListener("click", () => { passerReviewLimit += PASSER_REVIEW_PAGE; renderPasserReview(); });
 }
 
 // ---------- Shots logged at the same moment ----------
