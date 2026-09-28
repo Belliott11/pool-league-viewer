@@ -854,7 +854,7 @@ function showTab(tab) {
   document.querySelectorAll(`.tab-btn[data-tab="${tab}"]`).forEach(b => b.classList.add("active"));
   const bottomAlias = BOTTOM_TAB_ALIAS[tab];
   if (bottomAlias) document.querySelectorAll(`.bottom-tab-btn[data-tab="${bottomAlias}"]`).forEach(b => b.classList.add("active"));
-  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderSameMomentReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); renderRealSiteCheck(); renderExportSectionTeasers(); }
+  if (tab === "export") { renderExportGameSelect(); renderMasterVideoList(); renderBrokenVideoLinks(); renderBackfillShotLocations(); renderFlaggedShotMismatches(); renderDunkReview(); renderShotTypeReview(); renderTurnoverTypeReview(); renderSameMomentReview(); renderStoppedEarlyReview(); renderReboundBattleReview(); renderRealSiteCheck(); renderExportSectionTeasers(); }
   if (tab === "leaderboard") renderLeaderboard();
   if (tab === "live") renderLiveGamePanel();
   // Refreshes the attendee picker against the current roster — cheap, and a player added while
@@ -13867,6 +13867,25 @@ function shotTypeButtonsHtml(current, attr) {
   return TAGGABLE_SHOT_TYPES.map(t => `<button type="button" class="secondary-btn${current === t.key ? " selected" : ""}" data-${attr}="${t.key}" title="${escapeHtml(t.about)}">${escapeHtml(t.label)}</button>`).join("");
 }
 
+// Same idea as SHOT_TYPES, for game.turnoverEvents (see the eventsKey mapping near the top of
+// this file) -- what actually went wrong on a turnover, not just that one happened, so the same
+// backfill workflow used for shot types/locations/dunks applies here too.
+const TURNOVER_TYPES = [
+  { key: "badPass", label: "Bad Pass", about: "Pass is inaccurate, intercepted, thrown away, or a teammate can't reasonably handle it. Tells us about passing/playmaking." },
+  { key: "lostHandle", label: "Lost Handle", about: "Dribble off the foot, lose control, or mishandle the ball without a defender directly causing it. Tells us about ball handling." },
+  { key: "stripped", label: "Stripped", about: "A defender knocks the ball away while dribbling or attacking. Tells us about ball security under pressure." },
+  { key: "driveError", label: "Drive/Finish Error", about: "Travel, offensive foul, losing the ball while gathering, or stepping out while attacking. Tells us about scoring creation." },
+  { key: "decisionError", label: "Possession/Decision Error", about: "Holding the ball too long, getting trapped with no outlet, or another clear bad decision that doesn't fit the categories above. Tells us about decision-making." },
+  { key: "other", label: "Other", about: "Anything genuinely outside the categories above." }
+];
+function turnoverTypeLabel(key) {
+  const t = TURNOVER_TYPES.find(x => x.key === key);
+  return t ? t.label : "No type yet";
+}
+function turnoverTypeButtonsHtml(current, attr) {
+  return TURNOVER_TYPES.map(t => `<button type="button" class="secondary-btn${current === t.key ? " selected" : ""}" data-${attr}="${t.key}" title="${escapeHtml(t.about)}">${escapeHtml(t.label)}</button>`).join("");
+}
+
 function computeShotTypeStats() {
   const blank = () => ({ tagged: 0, fga: 0, types: Object.fromEntries(SHOT_TYPES.map(t => [t.key, { a: 0, m: 0, pts: 0 }])) });
   const league = blank();
@@ -14576,6 +14595,91 @@ function renderShotTypeReview() {
   });
   const moreBtn = wrap.querySelector("[data-shot-type-more]");
   if (moreBtn) moreBtn.addEventListener("click", () => { shotTypeReviewLimit += SHOT_TYPE_REVIEW_PAGE; renderShotTypeReview(); });
+}
+
+// ---------- Review Turnover Types (backfill) ----------
+// Same shape as Review Shot Types just above, minus the re-check modes -- every turnoverEvent with
+// no turnoverType yet, oldest first, a page at a time, optionally narrowed to one player.
+const TURNOVER_TYPE_REVIEW_PAGE = 20;
+let turnoverTypeReviewLimit = TURNOVER_TYPE_REVIEW_PAGE;
+let turnoverTypeReviewPlayer = "";
+const turnoverTypeSkipped = new Set();
+
+function computeTurnoverTypeReviewRows() {
+  const rows = [];
+  state.games.forEach(game => {
+    game.turnoverEvents.forEach(ev => {
+      if (ev.turnoverType) return;
+      if (turnoverTypeReviewPlayer && ev.playerId !== turnoverTypeReviewPlayer) return;
+      if (turnoverTypeSkipped.has(ev.id)) return;
+      rows.push({ game, ev });
+    });
+  });
+  return rows.sort((a, b) => (a.game.date || "").localeCompare(b.game.date || "") || (a.ev.videoTime || 0) - (b.ev.videoTime || 0));
+}
+
+function renderTurnoverTypeReview() {
+  const wrap = document.getElementById("turnoverTypeReview");
+  if (!wrap) return;
+  const all = computeTurnoverTypeReviewRows();
+  const shown = all.slice(0, turnoverTypeReviewLimit);
+  const inMode = new Set();
+  state.games.forEach(g => g.turnoverEvents.forEach(ev => { if (!ev.turnoverType && !turnoverTypeSkipped.has(ev.id)) inMode.add(ev.playerId); }));
+  const playerOptions = state.players.filter(p => inMode.has(p.id) || p.id === turnoverTypeReviewPlayer)
+    .map(p => `<option value="${p.id}"${p.id === turnoverTypeReviewPlayer ? " selected" : ""}>${escapeHtml(p.name)}</option>`).join("");
+  const controls = `<div class="button-row" style="margin:0 0 8px;gap:10px;align-items:center">
+      <label>Player <select data-tov-review-player><option value="">Everyone</option>${playerOptions}</select></label>
+    </div>`;
+  wrap.innerHTML = `${controls}
+  ${all.length === 0 ? '<p class="empty-state">Every turnover has a type.</p>' : `<p class="hint turnover-type-review-summary" style="margin-top:0"></p>
+  <ul class="player-tips-list">${shown.map(({ game, ev }) => {
+    const player = state.players.find(p => p.id === ev.playerId);
+    const opponent = state.players.find(p => p.id === ev.opponentId);
+    const hasTime = ev.videoTime !== null && ev.videoTime !== undefined;
+    const watchLinks = watchFilmLinksHtml(hasTime ? [{ id: game.id, date: game.date, videoTime: ev.videoTime }] : []);
+    return `<li data-event-id="${ev.id}">
+      <span>${player ? playerLink(player.id, player.name) : "?"}${opponent ? ` · forced by ${escapeHtml(opponent.name)}` : ""} (${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
+      <div class="button-row" style="margin-top:4px">
+        ${turnoverTypeButtonsHtml(null, "mark-turnover-type")}
+        <button type="button" class="icon-btn" data-skip-turnover-type="${ev.id}">Skip</button>
+      </div>
+    </li>`;
+  }).join("")}</ul>
+  ${all.length > shown.length ? '<button type="button" class="secondary-btn" data-turnover-type-more="1">Show more</button>' : ""}`}`;
+  wireWatchFilmButtons(wrap);
+
+  wrap.querySelector("[data-tov-review-player]").addEventListener("change", e => { turnoverTypeReviewPlayer = e.target.value; turnoverTypeReviewLimit = TURNOVER_TYPE_REVIEW_PAGE; renderTurnoverTypeReview(); });
+  if (all.length === 0) return;
+
+  const summaryEl = wrap.querySelector(".turnover-type-review-summary");
+  const updateSummary = () => {
+    const left = computeTurnoverTypeReviewRows().length;
+    summaryEl.textContent = `${left} turnovers still without a type.`;
+  };
+  updateSummary();
+  const dropRow = eventId => {
+    wrap.querySelector(`li[data-event-id="${eventId}"]`)?.remove();
+    updateSummary();
+    if (wrap.querySelectorAll("li").length === 0) renderTurnoverTypeReview();
+  };
+  wrap.querySelectorAll("li").forEach(li => {
+    const eventId = li.dataset.eventId;
+    li.querySelectorAll("[data-mark-turnover-type]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const ev = state.games.flatMap(g => g.turnoverEvents).find(e => e.id === eventId);
+        if (!ev) return;
+        ev.turnoverType = btn.dataset.markTurnoverType;
+        saveState();
+        dropRow(eventId);
+      });
+    });
+    li.querySelector("[data-skip-turnover-type]").addEventListener("click", () => {
+      turnoverTypeSkipped.add(eventId);
+      dropRow(eventId);
+    });
+  });
+  const moreBtn = wrap.querySelector("[data-turnover-type-more]");
+  if (moreBtn) moreBtn.addEventListener("click", () => { turnoverTypeReviewLimit += TURNOVER_TYPE_REVIEW_PAGE; renderTurnoverTypeReview(); });
 }
 
 // ---------- Shots logged at the same moment ----------
