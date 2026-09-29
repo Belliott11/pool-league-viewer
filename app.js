@@ -14633,6 +14633,10 @@ function computeTurnoverTypeReviewRows() {
   state.games.forEach(game => {
     game.turnoverEvents.forEach(ev => {
       if (ev.turnoverType) return;
+      // A turnover auto-created from a missed shot marked out of bounds isn't a live-ball giveaway
+      // -- none of Bad Pass/Lost Handle/Stripped/etc actually describe "the rebound went out of
+      // bounds," so those never enter this queue at all rather than needing an Other on every one.
+      if (ev.missEventId) return;
       if (turnoverTypeReviewPlayer && ev.playerId !== turnoverTypeReviewPlayer) return;
       if (turnoverTypeSkipped.has(ev.id)) return;
       rows.push({ game, ev });
@@ -14647,7 +14651,7 @@ function renderTurnoverTypeReview() {
   const all = computeTurnoverTypeReviewRows();
   const shown = all.slice(0, turnoverTypeReviewLimit);
   const inMode = new Set();
-  state.games.forEach(g => g.turnoverEvents.forEach(ev => { if (!ev.turnoverType && !turnoverTypeSkipped.has(ev.id)) inMode.add(ev.playerId); }));
+  state.games.forEach(g => g.turnoverEvents.forEach(ev => { if (!ev.turnoverType && !ev.missEventId && !turnoverTypeSkipped.has(ev.id)) inMode.add(ev.playerId); }));
   const playerOptions = state.players.filter(p => inMode.has(p.id) || p.id === turnoverTypeReviewPlayer)
     .map(p => `<option value="${p.id}"${p.id === turnoverTypeReviewPlayer ? " selected" : ""}>${escapeHtml(p.name)}</option>`).join("");
   const controls = `<div class="button-row" style="margin:0 0 8px;gap:10px;align-items:center">
