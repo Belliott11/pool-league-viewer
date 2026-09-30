@@ -12978,6 +12978,7 @@ function renderLeaderboard() {
   renderTurnoverTypeMixPanel();
   renderForcedTurnoverCreditPanel();
   renderTurnoverVsShotTypePanel();
+  renderTurnoverTypeOverSeasonChart();
   renderSelfCreationFullPanel();
   renderGameWinningBucketsPanel();
   renderDefensiveLoadPanel();
@@ -14966,6 +14967,93 @@ function renderTurnoverVsShotTypePanel() {
     <td>${r.cross.duringSelfCreation}</td>
     <td>${r.cross.otherwise}</td>
   </tr>`).join("");
+}
+
+// ---------- Turnover Type Over Time (league trend) -- EARLY, see caveat in index.html ----------
+// League-wide share of each turnover type by date. Useful for exactly one thing per the spec this
+// was built from: checking whether a future on-ball contact rule change shows up here as a real
+// shift in Stripped's share (more legal, active strip attempts instead of passive contact) -- a
+// direct, checkable signal using data this system already collects. The spec that introduced this
+// stat explicitly said it "only becomes meaningful once there's enough date-range history to show
+// a real trend, not just a season's average as a flat line" -- that history doesn't exist yet
+// (single digits of game dates), so this is shipped early and clearly marked, same "asterisk, not
+// withheld" treatment as sections 10-11. A flat-looking early line here is expected, not a bug.
+function computeTurnoverTypeOverSeason() {
+  const games = [...state.games].filter(isQualifyingGame).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const dates = [...new Set(games.map(g => g.date).filter(Boolean))].sort();
+  const counts = Object.fromEntries(TURNOVER_TYPES.map(t => [t.key, 0]));
+  const series = {};
+  dates.forEach(date => {
+    games.filter(g => g.date === date).forEach(game => {
+      game.turnoverEvents.forEach(ev => {
+        if (ev.missEventId) return;
+        if (!ev.turnoverType || counts[ev.turnoverType] === undefined) return;
+        counts[ev.turnoverType]++;
+      });
+    });
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    if (total === 0) return;
+    Object.keys(counts).forEach(type => {
+      (series[type] = series[type] || []).push({ date, share: (counts[type] / total) * 100 });
+    });
+  });
+  // Only plot types that actually occur at least once -- driveError/other sitting at a permanent
+  // 0% line the whole season would just be visual noise, not a real absence worth a line for.
+  Object.keys(series).forEach(type => { if (series[type].every(p => p.share === 0)) delete series[type]; });
+  return { dates, series };
+}
+
+function renderTurnoverTypeOverSeasonChart() {
+  const wrap = document.getElementById("turnoverTypeOverSeasonChart");
+  const gateEl = document.getElementById("turnoverTypeOverSeasonGate");
+  if (!wrap) return;
+  const { dates, series } = computeTurnoverTypeOverSeason();
+  if (gateEl) {
+    gateEl.textContent = dates.length < 8
+      ? `Only ${dates.length} game date${dates.length === 1 ? "" : "s"} logged so far -- too little date-range history for a real trend yet. Read this as a placeholder for the shape the chart will take, not a signal.`
+      : `${dates.length} game dates logged.`;
+  }
+  const types = Object.keys(series);
+  if (dates.length === 0 || types.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">No tagged live-ball turnovers yet.</p>';
+    return;
+  }
+  const W = 680, H = 400, PAD_L = 40, PAD_R = 110, PAD_T = 16, PAD_B = 34;
+  const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
+  const xScale = i => dates.length === 1 ? PAD_L + plotW / 2 : PAD_L + (i / (dates.length - 1)) * plotW;
+  const yScale = share => PAD_T + (1 - share / 100) * plotH;
+  const dateIndex = {};
+  dates.forEach((d, i) => dateIndex[d] = i);
+  const colorVar = { badPass: "var(--danger)", lostHandle: "var(--warning)", decisionError: "var(--accent)", stripped: "var(--tag-defender-text)", driveError: "var(--success)", other: "var(--muted)" };
+
+  const linesSvg = types.map(type => {
+    const points = series[type];
+    const color = colorVar[type] || "var(--muted)";
+    const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"}${xScale(dateIndex[p.date])},${yScale(p.share)}`).join(" ");
+    const last = points[points.length - 1];
+    const dotsSvg = points.map(p => `<circle cx="${xScale(dateIndex[p.date])}" cy="${yScale(p.share)}" r="4" style="fill:${color}"><title>${escapeHtml(turnoverTypeLabel(type))}: ${p.share.toFixed(0)}% as of ${escapeHtml(formatDateDisplay(p.date))}</title></circle>`).join("");
+    const labelSvg = `<text x="${xScale(dateIndex[last.date]) + 12}" y="${yScale(last.share)}" dominant-baseline="central" class="rank-line-label" style="fill:${color}">${escapeHtml(turnoverTypeLabel(type))}</text>`;
+    return `<path d="${pathD}" style="stroke:${color}" class="rank-line-path" />${dotsSvg}${labelSvg}`;
+  }).join("");
+
+  const labelEvery = Math.max(1, Math.ceil(dates.length / 6));
+  const xLabelsSvg = dates.map((d, i) => (i % labelEvery !== 0 && i !== dates.length - 1) ? "" : `
+    <text x="${xScale(i)}" y="${H - PAD_B + 16}" text-anchor="middle" class="quadrant-axis-label">${escapeHtml(formatDateDisplay(d))}</text>
+  `).join("");
+  const yTicksSvg = [0, 25, 50, 75, 100].map(v =>
+    `<text x="${PAD_L - 8}" y="${yScale(v) + 3}" text-anchor="end" class="quadrant-axis-label">${v}%</text>`
+  ).join("");
+
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" class="quadrant-svg">
+      <line x1="${PAD_L}" y1="${PAD_T}" x2="${PAD_L}" y2="${H - PAD_B}" class="quadrant-axis" />
+      <line x1="${PAD_L}" y1="${H - PAD_B}" x2="${W - PAD_R}" y2="${H - PAD_B}" class="quadrant-axis" />
+      ${yTicksSvg}
+      ${linesSvg}
+      ${xLabelsSvg}
+      <text x="${PAD_L - 10}" y="${PAD_T - 4}" text-anchor="end" class="quadrant-axis-label">Share</text>
+    </svg>
+  `;
 }
 
 // ---------- Self-Creation Including Turnover Cost ----------

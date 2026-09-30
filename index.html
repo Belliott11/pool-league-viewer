@@ -942,6 +942,12 @@
       </div>
     </div>
     <div class="panel">
+      <h2>Turnover Type Over Time <span class="real-data-tag">Early / Experimental</span></h2>
+      <p class="hint">League-wide share of each turnover type by date. Useful for exactly one thing: checking whether a future rule change (e.g. around on-ball contact) shows up here as a real shift in Stripped's share -- a direct, checkable signal using data this system already collects. <strong>This only becomes meaningful once there's enough date-range history to show a real trend, not just a season's average as a flat line -- that history doesn't exist yet.</strong> Shown early anyway, for the future, not as a settled read.</p>
+      <p class="hint" id="turnoverTypeOverSeasonGate" style="margin-top:0"></p>
+      <div id="turnoverTypeOverSeasonChart"></div>
+    </div>
+    <div class="panel">
       <h2>Self-Creation Full Accounting</h2>
       <p class="hint">True Self-Creation Rate (Leaderboard, advanced columns) only counts self-created possessions that ended in a shot attempt -- a self-creation attempt that instead ends in a lost handle or bad pass just vanishes from that rate's denominator, silently flattering anyone whose creation attempts frequently end in a turnover instead of a shot. This adds every self-inflicted turnover (Bad Pass, Lost Handle, Possession/Decision Error, Drive/Finish Error) back into the denominator as a failed self-creation possession -- a stricter, more honest number worth reading alongside the shots-only rate, not instead of it, since they answer slightly different questions.</p>
       <div class="table-scroll">
