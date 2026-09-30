@@ -2328,6 +2328,18 @@ button:disabled {
 .tov-seg-decisionerror, .legend-swatch.tov-seg-decisionerror { background: var(--accent); }
 .tov-seg-stripped, .legend-swatch.tov-seg-stripped { background: var(--tag-defender-text); }
 
+/* Self-Inflicted vs. Forced Turnover Rate -- a horizontal bar per player, own row height rather
+   than reusing .shot-selection-bar, since the label and total sit alongside the bar itself here
+   instead of above/below it. */
+.tov-hbar-chart { display: flex; flex-direction: column; gap: 6px; }
+.tov-hbar-row { display: flex; align-items: center; gap: 10px; }
+.tov-hbar-label { flex: 0 0 110px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 0.86rem; }
+.tov-hbar-track { display: flex; height: 16px; border-radius: 4px; overflow: hidden; background: var(--surface-muted); min-width: 24px; }
+.tov-hbar-seg { height: 100%; }
+.tov-hbar-self, .legend-swatch.tov-hbar-self { background: var(--danger); }
+.tov-hbar-forced, .legend-swatch.tov-hbar-forced { background: var(--tag-defender-text); }
+.tov-hbar-total { flex: 0 0 auto; font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
 /* Shot Arc panel on the player page */
 .shot-arc-body { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: center; }
 .shot-arc-svg { width: min(100%, 260px); height: auto; flex: none; }

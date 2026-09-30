@@ -12974,6 +12974,10 @@ function renderLeaderboard() {
   renderSecondChanceAllowedPanel();
   renderPointsOffTakeawaysPanel();
   renderTurnoverTypeBreakdownPanel();
+  renderSelfInflictedVsForcedChart();
+  renderTurnoverTypeMixPanel();
+  renderForcedTurnoverCreditPanel();
+  renderTurnoverVsShotTypePanel();
   renderSelfCreationFullPanel();
   renderGameWinningBucketsPanel();
   renderDefensiveLoadPanel();
@@ -14691,19 +14695,42 @@ function computeTurnoverTypeBreakdown(playerId) {
 }
 
 const TURNOVER_TYPE_CSS_CLASS = { badPass: "tov-seg-badpass", lostHandle: "tov-seg-losthandle", decisionError: "tov-seg-decisionerror", stripped: "tov-seg-stripped" };
+
+// Shown on every turnover-type panel, per the spec's own honesty requirement -- the backlog isn't
+// closed yet (see Export, Review Turnover Types), so every table/chart built on this field states
+// its own tagged-sample count directly instead of quietly presenting partial data as complete.
+function computeTurnoverTypeTaggedSummary() {
+  let total = 0, tagged = 0;
+  state.games.filter(isQualifyingGame).forEach(game => {
+    game.turnoverEvents.forEach(ev => {
+      if (ev.missEventId) return;
+      total++;
+      if (ev.turnoverType) tagged++;
+    });
+  });
+  return { total, tagged, pct: pct(tagged, total) };
+}
+function turnoverTypeTaggedSummaryText() {
+  const s = computeTurnoverTypeTaggedSummary();
+  return s.total === 0 ? "No live-ball turnovers logged yet." : `${s.tagged} of ${s.total} turnovers tagged (${formatPct(s.pct)}).`;
+}
+
 const TURNOVER_TYPE_BREAKDOWN_COLUMNS = [
   { key: "player", label: "Player", accessor: r => r.player.name },
-  { key: "tagged", label: "Tagged", accessor: r => r.breakdown.tagged },
-  { key: "selfinflicted", label: "Self-Inflicted", accessor: r => r.breakdown.selfInflictedPct, display: r => r.breakdown.selfInflictedPct === null ? "—" : formatPct(r.breakdown.selfInflictedPct) },
-  { key: "forced", label: "Forced (Stripped)", accessor: r => r.breakdown.forcedPct, display: r => r.breakdown.forcedPct === null ? "—" : formatPct(r.breakdown.forcedPct) },
+  { key: "badpass", label: "Bad Pass", accessor: r => r.breakdown.counts.badPass },
+  { key: "losthandle", label: "Lost Handle", accessor: r => r.breakdown.counts.lostHandle },
+  { key: "stripped", label: "Stripped", accessor: r => r.breakdown.counts.stripped },
+  { key: "decisionerror", label: "Decision Error", accessor: r => r.breakdown.counts.decisionError },
+  { key: "tagged", label: "Total Tagged", accessor: r => r.breakdown.tagged },
+  { key: "selfinflicted", label: "Self-Inflicted %", accessor: r => r.breakdown.selfInflictedPct, display: r => r.breakdown.selfInflictedPct === null ? "—" : formatPct(r.breakdown.selfInflictedPct) },
   { key: "mix", label: "Mix", accessor: r => r.breakdown.tagged },
 ];
-let turnoverTypeBreakdownSort = { key: "tagged", dir: "desc" };
+let turnoverTypeBreakdownSort = { key: "selfinflicted", dir: "desc" };
 
 function computeTurnoverTypeBreakdownRows() {
   return state.players.map(player => {
     const breakdown = computeTurnoverTypeBreakdown(player.id);
-    if (breakdown.tagged === 0) return null;
+    if (breakdown.tagged < TURNOVER_TYPE_MIN_TAGGED) return null;
     return { player, breakdown };
   }).filter(Boolean);
 }
@@ -14712,7 +14739,9 @@ function renderTurnoverTypeBreakdownPanel() {
   const headerRow = document.getElementById("turnoverTypeBreakdownHeaderRow");
   const body = document.getElementById("turnoverTypeBreakdownBody");
   const legendWrap = document.getElementById("turnoverTypeLegend");
+  const summaryEl = document.getElementById("turnoverTypeBreakdownSummary");
   if (!body) return;
+  if (summaryEl) summaryEl.textContent = turnoverTypeTaggedSummaryText();
   if (legendWrap) {
     legendWrap.innerHTML = TURNOVER_TYPES.filter(t => t.key !== "other").map(t =>
       `<span class="legend-item"><span class="legend-swatch ${TURNOVER_TYPE_CSS_CLASS[t.key] || ""}"></span>${escapeHtml(t.label)}</span>`
@@ -14721,7 +14750,7 @@ function renderTurnoverTypeBreakdownPanel() {
   renderSortableHeader(headerRow, TURNOVER_TYPE_BREAKDOWN_COLUMNS, turnoverTypeBreakdownSort, renderTurnoverTypeBreakdownPanel);
   const rows = computeTurnoverTypeBreakdownRows();
   if (rows.length === 0) {
-    body.innerHTML = `<tr><td colspan="5" class="empty-state">No live-ball turnovers with a type tagged yet (Export, Review Turnover Types).</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" class="empty-state">No live-ball turnovers with a type tagged yet (Export, Review Turnover Types).</td></tr>`;
     return;
   }
   const sortCol = TURNOVER_TYPE_BREAKDOWN_COLUMNS.find(c => c.key === turnoverTypeBreakdownSort.key);
@@ -14732,15 +14761,211 @@ function renderTurnoverTypeBreakdownPanel() {
       const n = b.counts[t.key];
       return n === 0 ? "" : `<div class="shot-seg ${TURNOVER_TYPE_CSS_CLASS[t.key] || ""}" style="width:${(n / b.tagged) * 100}%" title="${escapeHtml(r.player.name)}: ${n} ${escapeHtml(t.label)}"></div>`;
     }).join("");
-    const thin = b.tagged < TURNOVER_TYPE_MIN_TAGGED ? ' <span class="hint" style="margin:0">too few tagged</span>' : "";
     return `<tr>
       <td>${playerLink(r.player.id, r.player.name)}</td>
-      <td>${b.tagged}${thin}</td>
-      <td>${b.selfInflictedPct === null ? "—" : `${formatPct(b.selfInflictedPct)} (${b.selfInflicted})`}</td>
-      <td>${b.forcedPct === null ? "—" : `${formatPct(b.forcedPct)} (${b.forced})`}</td>
+      <td>${b.counts.badPass}</td>
+      <td>${b.counts.lostHandle}</td>
+      <td>${b.counts.stripped}</td>
+      <td>${b.counts.decisionError}</td>
+      <td>${b.tagged}</td>
+      <td>${b.selfInflictedPct === null ? "—" : formatPct(b.selfInflictedPct)}</td>
       <td><div class="shot-selection-bar">${mix}</div></td>
     </tr>`;
   }).join("");
+}
+
+// ---------- Self-Inflicted vs. Forced Turnover Rate (league chart) ----------
+// The single clearest visual for "whose ball security problem is really theirs, and whose is
+// partly the defense's doing" -- one horizontal bar per player, split into the same self-inflicted
+// (badPass/lostHandle/decisionError/driveError) vs. forced (stripped) categories as the table
+// above, but as a chart instead of a table since the whole point is a fast visual scan across the
+// whole roster at once. Bar LENGTH reflects each player's total tagged volume (scaled against
+// whoever has the most), not just a normalized 100% split -- a player with 3 tagged turnovers and
+// one with 17 shouldn't look the same size just because both happen to be 100% self-inflicted.
+function renderSelfInflictedVsForcedChart() {
+  const wrap = document.getElementById("selfInflictedVsForcedChart");
+  const summaryEl = document.getElementById("selfInflictedVsForcedSummary");
+  if (!wrap) return;
+  if (summaryEl) summaryEl.textContent = turnoverTypeTaggedSummaryText();
+  const rows = computeTurnoverTypeBreakdownRows().sort((a, b) => b.breakdown.tagged - a.breakdown.tagged);
+  if (rows.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">No live-ball turnovers with a type tagged yet.</p>';
+    return;
+  }
+  const maxTagged = Math.max(...rows.map(r => r.breakdown.tagged));
+  wrap.innerHTML = `<div class="tov-hbar-chart">${rows.map(r => {
+    const b = r.breakdown;
+    const barWidthPct = (b.tagged / maxTagged) * 100;
+    const selfShare = b.tagged > 0 ? (b.selfInflicted / b.tagged) * 100 : 0;
+    const forcedShare = b.tagged > 0 ? (b.forced / b.tagged) * 100 : 0;
+    return `<div class="tov-hbar-row">
+      <div class="tov-hbar-label">${playerLink(r.player.id, r.player.name)}</div>
+      <div class="tov-hbar-track" style="width:${barWidthPct}%">
+        <div class="tov-hbar-seg tov-hbar-self" style="width:${selfShare}%" title="${escapeHtml(r.player.name)}: ${b.selfInflicted} self-inflicted"></div>
+        <div class="tov-hbar-seg tov-hbar-forced" style="width:${forcedShare}%" title="${escapeHtml(r.player.name)}: ${b.forced} forced (stripped)"></div>
+      </div>
+      <div class="tov-hbar-total">${b.tagged}</div>
+    </div>`;
+  }).join("")}</div>
+  <div class="shot-selection-legend" style="margin-top:10px">
+    <span class="legend-item"><span class="legend-swatch tov-hbar-self"></span>Self-Inflicted</span>
+    <span class="legend-item"><span class="legend-swatch tov-hbar-forced"></span>Forced (Stripped)</span>
+  </div>`;
+}
+
+// ---------- Turnover Type Mix ----------
+// Same shape as Shot Selection's Mix column -- what KIND of mistake a player tends to make, not
+// just how many. Mostly badPass points at a passing/decision problem; mostly lostHandle points at
+// a ball-security-under-pressure problem; these call for different fixes and shouldn't flatten
+// into one TOV number.
+const TURNOVER_TYPE_MIX_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "badpass", label: "Bad Pass %", accessor: r => pct(r.breakdown.counts.badPass, r.breakdown.tagged) },
+  { key: "losthandle", label: "Lost Handle %", accessor: r => pct(r.breakdown.counts.lostHandle, r.breakdown.tagged) },
+  { key: "stripped", label: "Stripped %", accessor: r => pct(r.breakdown.counts.stripped, r.breakdown.tagged) },
+  { key: "decisionerror", label: "Decision Error %", accessor: r => pct(r.breakdown.counts.decisionError, r.breakdown.tagged) },
+];
+let turnoverTypeMixSort = { key: "player", dir: "asc" };
+
+function renderTurnoverTypeMixPanel() {
+  const headerRow = document.getElementById("turnoverTypeMixHeaderRow");
+  const body = document.getElementById("turnoverTypeMixBody");
+  const summaryEl = document.getElementById("turnoverTypeMixSummary");
+  if (!body) return;
+  if (summaryEl) summaryEl.textContent = turnoverTypeTaggedSummaryText();
+  renderSortableHeader(headerRow, TURNOVER_TYPE_MIX_COLUMNS, turnoverTypeMixSort, renderTurnoverTypeMixPanel);
+  const rows = computeTurnoverTypeBreakdownRows();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">No live-ball turnovers with a type tagged yet.</td></tr>`;
+    return;
+  }
+  const sortCol = TURNOVER_TYPE_MIX_COLUMNS.find(c => c.key === turnoverTypeMixSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), turnoverTypeMixSort.dir));
+  body.innerHTML = rows.map(r => `<tr>
+    <td>${playerLink(r.player.id, r.player.name)}</td>
+    <td>${formatPct(pct(r.breakdown.counts.badPass, r.breakdown.tagged))}</td>
+    <td>${formatPct(pct(r.breakdown.counts.lostHandle, r.breakdown.tagged))}</td>
+    <td>${formatPct(pct(r.breakdown.counts.stripped, r.breakdown.tagged))}</td>
+    <td>${formatPct(pct(r.breakdown.counts.decisionError, r.breakdown.tagged))}</td>
+  </tr>`).join("");
+}
+
+// ---------- Forced Turnover Credit ----------
+// stripped turnovers used to carry no defensive attribution at all -- they counted against the
+// offensive player's TOV but credited no defender. Stat Entry's own turnover-logging flow asks
+// "Who forced/recovered it, if anyone?" and stores the answer as opponentId on the turnoverEvent
+// (see the TOV field config near the top of this file) -- a real, deliberately-entered answer, not
+// a guess, and not the same thing as stealEventId (which only covers the subset of forces that
+// were ALSO logged as a separate steal). Verified against real data before building this: every
+// currently-tagged "stripped" turnover has opponentId set. No minimum sample gate -- this is a
+// counting/credit stat, same treatment as Game-Winning Buckets, not a rate that needs volume to
+// mean anything.
+function computeForcedTurnoverCredit(playerId) {
+  let strips = 0, combinedPoints = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    combinedPoints += gameTotalPoints(game);
+    game.turnoverEvents.forEach(ev => {
+      if (ev.turnoverType !== "stripped") return;
+      if (ev.opponentId !== playerId) return;
+      strips++;
+    });
+  });
+  if (strips === 0) return null;
+  return { strips, stripsPer20: combinedPoints > 0 ? (strips / combinedPoints) * 20 : 0 };
+}
+
+const FORCED_TURNOVER_CREDIT_COLUMNS = [
+  { key: "player", label: "Defender", accessor: r => r.player.name },
+  { key: "strips", label: "Strips Forced", accessor: r => r.credit.strips },
+  { key: "per20", label: "Strips per 20", accessor: r => r.credit.stripsPer20, display: r => r.credit.stripsPer20.toFixed(2) },
+];
+let forcedTurnoverCreditSort = { key: "strips", dir: "desc" };
+
+function computeForcedTurnoverCreditRows() {
+  return state.players.map(player => {
+    const credit = computeForcedTurnoverCredit(player.id);
+    return credit ? { player, credit } : null;
+  }).filter(Boolean);
+}
+
+function renderForcedTurnoverCreditPanel() {
+  const headerRow = document.getElementById("forcedTurnoverCreditHeaderRow");
+  const body = document.getElementById("forcedTurnoverCreditBody");
+  const summaryEl = document.getElementById("forcedTurnoverCreditSummary");
+  if (!body) return;
+  if (summaryEl) summaryEl.textContent = turnoverTypeTaggedSummaryText();
+  renderSortableHeader(headerRow, FORCED_TURNOVER_CREDIT_COLUMNS, forcedTurnoverCreditSort, renderForcedTurnoverCreditPanel);
+  const rows = computeForcedTurnoverCreditRows();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="3" class="empty-state">No strips with a defender credited yet.</td></tr>`;
+    return;
+  }
+  const sortCol = FORCED_TURNOVER_CREDIT_COLUMNS.find(c => c.key === forcedTurnoverCreditSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), forcedTurnoverCreditSort.dir));
+  body.innerHTML = rows.map(r => `<tr>
+    <td>${playerLink(r.player.id, r.player.name)}</td>
+    <td>${r.credit.strips}</td>
+    <td>${r.credit.stripsPer20.toFixed(2)}</td>
+  </tr>`).join("");
+}
+
+// ---------- Turnover Type vs. Shot Type (self-creation cross-reference) ----------
+// Whether a player's turnovers cluster around trying to create their own offense versus simple
+// ball-security lapses unrelated to any creation attempt. Reuses the exact same definition Self-
+// Creation Including Turnover Cost already uses: a self-inflicted turnover (badPass/lostHandle/
+// decisionError/driveError) counts as "during a self-creation attempt" there, so it counts the
+// same way here for consistency -- this table is the diagnostic view behind that stat's single
+// rate number, showing the raw counts instead. "Otherwise" is stripped -- a defense-forced loss
+// isn't a self-creation failure regardless of what the player was trying to do.
+function computeTurnoverTypeVsSelfCreation(playerId) {
+  let duringSelfCreation = 0, otherwise = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.turnoverEvents.forEach(ev => {
+      if (ev.playerId !== playerId) return;
+      if (ev.missEventId) return;
+      if (!ev.turnoverType) return;
+      if (SELF_INFLICTED_TURNOVER_TYPES.has(ev.turnoverType)) duringSelfCreation++;
+      else if (FORCED_TURNOVER_TYPES.has(ev.turnoverType)) otherwise++;
+    });
+  });
+  const total = duringSelfCreation + otherwise;
+  if (total < TURNOVER_TYPE_MIN_TAGGED) return null;
+  return { duringSelfCreation, otherwise, total };
+}
+
+const TURNOVER_VS_SHOT_TYPE_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "during", label: "Turnovers During Self-Creation", accessor: r => r.cross.duringSelfCreation },
+  { key: "otherwise", label: "Turnovers Otherwise", accessor: r => r.cross.otherwise },
+];
+let turnoverVsShotTypeSort = { key: "during", dir: "desc" };
+
+function computeTurnoverVsShotTypeRows() {
+  return state.players.map(player => {
+    const cross = computeTurnoverTypeVsSelfCreation(player.id);
+    return cross ? { player, cross } : null;
+  }).filter(Boolean);
+}
+
+function renderTurnoverVsShotTypePanel() {
+  const headerRow = document.getElementById("turnoverVsShotTypeHeaderRow");
+  const body = document.getElementById("turnoverVsShotTypeBody");
+  const summaryEl = document.getElementById("turnoverVsShotTypeSummary");
+  if (!body) return;
+  if (summaryEl) summaryEl.textContent = turnoverTypeTaggedSummaryText();
+  renderSortableHeader(headerRow, TURNOVER_VS_SHOT_TYPE_COLUMNS, turnoverVsShotTypeSort, renderTurnoverVsShotTypePanel);
+  const rows = computeTurnoverVsShotTypeRows();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="3" class="empty-state">Nobody has ${TURNOVER_TYPE_MIN_TAGGED}+ tagged live-ball turnovers yet.</td></tr>`;
+    return;
+  }
+  const sortCol = TURNOVER_VS_SHOT_TYPE_COLUMNS.find(c => c.key === turnoverVsShotTypeSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), turnoverVsShotTypeSort.dir));
+  body.innerHTML = rows.map(r => `<tr>
+    <td>${playerLink(r.player.id, r.player.name)}</td>
+    <td>${r.cross.duringSelfCreation}</td>
+    <td>${r.cross.otherwise}</td>
+  </tr>`).join("");
 }
 
 // ---------- Self-Creation Including Turnover Cost ----------

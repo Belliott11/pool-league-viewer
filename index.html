@@ -892,12 +892,52 @@
     </div>
     <div class="panel">
       <h2>Turnover Type Breakdown</h2>
-      <p class="hint" id="turnoverTypeBreakdownCaveat">Every turnover currently counts the same toward TOV/20, whether it was a careless bad pass or a genuinely forced strip by good defense. Bad Pass, Lost Handle, and Possession/Decision Error are self-inflicted; Stripped is defense-forced. Only live-ball turnovers with a type tagged count here (Export, Review Turnover Types) -- a turnover that's really just a missed shot going out of bounds is excluded entirely, not counted as either. Needs 5+ tagged turnovers to show a rate; below that it's flagged too thin to read.</p>
+      <p class="hint" id="turnoverTypeBreakdownCaveat">Bad Pass, Lost Handle, and Possession/Decision Error are self-inflicted -- the player's own execution or decision caused it. Stripped is the one genuinely defense-forced category: credit belongs at least partly to the defender, not solely a mark against the offensive player. Only live-ball turnovers with a type tagged count here (Export, Review Turnover Types) -- a turnover that's really just a missed shot going out of bounds is excluded entirely. Sorted by Self-Inflicted % (worst ball security first). Needs 5+ tagged turnovers to show a row.</p>
+      <p class="hint" id="turnoverTypeBreakdownSummary" style="margin-top:0"></p>
       <div class="shot-selection-legend" id="turnoverTypeLegend" style="margin-bottom:10px"></div>
       <div class="table-scroll">
         <table class="matchup-table" id="turnoverTypeBreakdownTable">
           <thead><tr id="turnoverTypeBreakdownHeaderRow"></tr></thead>
           <tbody id="turnoverTypeBreakdownBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Self-Inflicted vs. Forced Turnover Rate</h2>
+      <p class="hint">Same self-inflicted/forced split as Turnover Type Breakdown above, as one bar per player instead of a table -- the fastest way to scan the whole roster for whose ball-security problem is really theirs, and whose is partly the defense's doing. Bar length reflects total tagged volume, not just the self-inflicted/forced split, so a player with a handful of turnovers and one with many don't look the same size just because both happen to split the same way. Sorted by total turnovers, most first.</p>
+      <p class="hint" id="selfInflictedVsForcedSummary" style="margin-top:0"></p>
+      <div id="selfInflictedVsForcedChart"></div>
+    </div>
+    <div class="panel">
+      <h2>Turnover Type Mix</h2>
+      <p class="hint">Same shape as Shot Selection's Mix column -- what KIND of mistake a player tends to make, not just how many. Mostly Bad Pass points at a passing/decision problem; mostly Lost Handle points at a ball-security-under-pressure problem. These call for different fixes and shouldn't flatten into one TOV number.</p>
+      <p class="hint" id="turnoverTypeMixSummary" style="margin-top:0"></p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="turnoverTypeMixTable">
+          <thead><tr id="turnoverTypeMixHeaderRow"></tr></thead>
+          <tbody id="turnoverTypeMixBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Forced Turnover Credit</h2>
+      <p class="hint">Stripped turnovers used to carry no defensive attribution at all -- they counted against the offensive player's TOV but credited no defender. Stat Entry's own turnover-logging flow asks who forced or recovered it, so this is a real, deliberately-entered answer, not a guess: the same treatment Rebound Battle Record already gives contested rebounds. No minimum sample -- this is a counting/credit stat like Game-Winning Buckets, not a rate that needs volume to mean something.</p>
+      <p class="hint" id="forcedTurnoverCreditSummary" style="margin-top:0"></p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="forcedTurnoverCreditTable">
+          <thead><tr id="forcedTurnoverCreditHeaderRow"></tr></thead>
+          <tbody id="forcedTurnoverCreditBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Turnover Type vs. Shot Type</h2>
+      <p class="hint">Whether a player's turnovers cluster around trying to create their own offense versus simple ball-security lapses unrelated to any creation attempt. Uses the same definition as Self-Creation Full Accounting: a self-inflicted turnover (Bad Pass, Lost Handle, Possession/Decision Error, Drive/Finish Error) counts as happening during a self-creation attempt; a Stripped turnover doesn't, since a defense-forced loss isn't a self-creation failure regardless of what the player was trying to do. This is the raw-count diagnostic behind that stat's single rate number.</p>
+      <p class="hint" id="turnoverVsShotTypeSummary" style="margin-top:0"></p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="turnoverVsShotTypeTable">
+          <thead><tr id="turnoverVsShotTypeHeaderRow"></tr></thead>
+          <tbody id="turnoverVsShotTypeBody"></tbody>
         </table>
       </div>
     </div>
