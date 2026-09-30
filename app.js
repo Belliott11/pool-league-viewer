@@ -6624,6 +6624,10 @@ function computeDefensiveLoadPanelRows() {
       const defRtg = defensiveRating(r.rate, r.rateDefense);
       return {
         player: r.player, load: r.defensiveLoad, oppFgPct, defRtg,
+        // Real Contested Opp FG% (medium/heavy contestLevel only) is now the headline number --
+        // see computeRealContestedDefense() -- with the old any-tag oppFgPct kept alongside it
+        // only as a labeled "vs. old methodology" comparison for this first release.
+        realContested: computeRealContestedDefense(r.player.id),
         sentence: describeDefensiveLoad(r.defensiveLoad, oppFgPct, leagueAvgOppFg),
         // Own gate (10+ tagged defended shots, see computeExpectedPointsAgainst), separate from
         // Defensive Load's own (8+ expected tagged possessions) -- a player can clear one without
@@ -6636,7 +6640,13 @@ function computeDefensiveLoadPanelRows() {
 const DEFENSIVE_LOAD_COLUMNS = [
   { key: "player", label: "Player", accessor: r => r.player.name },
   { key: "load", label: "Def Load", accessor: r => r.load, display: r => `${r.load.toFixed(2)}x` },
-  { key: "oppfg", label: "Opp FG%", accessor: r => r.oppFgPct, display: r => formatPct(r.oppFgPct) },
+  {
+    key: "oppfg", label: "Real Contested Opp FG%",
+    accessor: r => r.realContested ? r.realContested.fgPct : null,
+    display: r => r.realContested === null
+      ? `Not enough contested volume yet<br><span class="hint" style="margin:0">was ${formatPct(r.oppFgPct)} any-tag</span>`
+      : `${formatPct(r.realContested.fgPct)}<br><span class="hint" style="margin:0">${r.realContested.made}/${r.realContested.attempts} medium/heavy · was ${formatPct(r.oppFgPct)} any-tag</span>`,
+  },
   { key: "defrtg", label: "Def Rating/20", accessor: r => r.defRtg, display: r => r.defRtg.toFixed(1) },
   {
     key: "xpa", label: "Pts Allowed Under Exp",
@@ -6659,16 +6669,76 @@ function renderDefensiveLoadPanel() {
   }
   const sortCol = DEFENSIVE_LOAD_COLUMNS.find(c => c.key === defensiveLoadPanelSort.key);
   rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), defensiveLoadPanelSort.dir));
+  const oppFgCell = r => r.realContested === null
+    ? `Not enough contested volume yet<br><span class="hint" style="margin:0">was ${formatPct(r.oppFgPct)} any-tag</span>`
+    : `${formatPct(r.realContested.fgPct)}<br><span class="hint" style="margin:0">${r.realContested.made}/${r.realContested.attempts} medium/heavy · was ${formatPct(r.oppFgPct)} any-tag</span>`;
   body.innerHTML = rows.map(r => `<tr>
     <td><button type="button" class="icon-btn defload-player-btn" data-player-id="${r.player.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.player.name)}</button></td>
     <td>${r.load.toFixed(2)}x</td>
-    <td>${formatPct(r.oppFgPct)}</td>
+    <td>${oppFgCell(r)}</td>
     <td>${r.defRtg.toFixed(1)}</td>
     <td>${r.pointsAllowedUnderExpected === null ? "—" : `${r.pointsAllowedUnderExpected >= 0 ? "+" : ""}${r.pointsAllowedUnderExpected.toFixed(1)}`}</td>
     <td>${escapeHtml(r.sentence)}</td>
   </tr>`).join("");
   body.querySelectorAll(".defload-player-btn").forEach(btn => {
     btn.addEventListener("click", () => openPlayerDetail(btn.dataset.playerId));
+  });
+}
+
+// ---------- Contest Level & Defensive Engagement ----------
+// Real Contested Opp FG% (above) answers "how good is this defense when it's actually engaged."
+// Engagement Rate answers the question that number alone can't: how OFTEN it's actually engaged in
+// the first place. The two are meant to always be read together -- a high-quality, low-engagement
+// defender and a high-quality, high-engagement one look identical on Opp FG% alone but represent
+// completely different real value, the same "never display alone" rule already used for Defensive
+// Load and Opp FG%.
+const CONTEST_ENGAGEMENT_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "engagement", label: "Engagement Rate", accessor: r => r.dist.engagementRate, display: r => r.dist.engagementRate === null ? "—" : formatPct(r.dist.engagementRate) },
+  { key: "light", label: "Light", accessor: r => r.dist.counts.light },
+  { key: "medium", label: "Medium", accessor: r => r.dist.counts.medium },
+  { key: "heavy", label: "Heavy", accessor: r => r.dist.counts.heavy },
+  { key: "contested", label: "Real Contested Opp FG%", accessor: r => r.realContested ? r.realContested.fgPct : null, display: r => r.realContested === null ? "—" : formatPct(r.realContested.fgPct) },
+];
+let contestEngagementSort = { key: "engagement", dir: "desc" };
+
+function computeContestEngagementRows() {
+  return state.players.map(player => {
+    const dist = computeContestLevelDistribution(player.id);
+    if (dist.tagged === 0) return null;
+    return { player, dist, realContested: computeRealContestedDefense(player.id) };
+  }).filter(Boolean);
+}
+
+function renderContestEngagementPanel() {
+  const headerRow = document.getElementById("contestEngagementHeaderRow");
+  const body = document.getElementById("contestEngagementBody");
+  const sanityWrap = document.getElementById("contestLevelSanityCheck");
+  if (!body) return;
+  if (sanityWrap) {
+    const split = computeContestLevelFgSplit();
+    sanityWrap.innerHTML = ["none", "light", "medium", "heavy"].map(k =>
+      `<span class="legend-item">${contestLevelLabel(k)}: ${formatPct(split[k].fgPct)}<span class="hint" style="margin:0"> (${split[k].m}/${split[k].a})</span></span>`
+    ).join("");
+  }
+  renderSortableHeader(headerRow, CONTEST_ENGAGEMENT_COLUMNS, contestEngagementSort, renderContestEngagementPanel);
+  const rows = computeContestEngagementRows();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="6" class="empty-state">Nobody has a tagged defensive assignment with a contest level yet.</td></tr>`;
+    return;
+  }
+  const sortCol = CONTEST_ENGAGEMENT_COLUMNS.find(c => c.key === contestEngagementSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), contestEngagementSort.dir));
+  body.innerHTML = rows.map(r => `<tr>
+    <td><button type="button" class="icon-btn" data-contest-eng-player="${r.player.id}" style="padding:0;font-weight:700;color:var(--accent)">${escapeHtml(r.player.name)}</button></td>
+    <td>${r.dist.engagementRate === null ? `—<br><span class="hint" style="margin:0">needs ${CONTEST_ENGAGEMENT_MIN_TAGGED}+ tagged</span>` : formatPct(r.dist.engagementRate)}</td>
+    <td>${r.dist.counts.light}</td>
+    <td>${r.dist.counts.medium}</td>
+    <td>${r.dist.counts.heavy}</td>
+    <td>${r.realContested === null ? "—" : formatPct(r.realContested.fgPct)}</td>
+  </tr>`).join("");
+  body.querySelectorAll("[data-contest-eng-player]").forEach(btn => {
+    btn.addEventListener("click", () => openPlayerDetail(btn.dataset.contestEngPlayer));
   });
 }
 
@@ -9672,6 +9742,69 @@ function computeExpectedPointsAgainst(playerId, zonePpa) {
   return { fga, actualPtsAllowed, expectedPtsAllowed, pointsAllowedUnderExpected: expectedPtsAllowed - actualPtsAllowed };
 }
 
+// ---------- Contest-Quality Adjusted Defense ----------
+// Every defensive stat above (Opp FG%, Defensive Load, Expected Points Against) treats any tagged
+// defenderIds entry the same, whether that defender was draped on the shooter or just nominally on
+// the play. contestLevel is a real, separately-reviewed judgment call on top of the same tagging
+// (see Review Contests & Passers) -- restricting Opp FG% to medium/heavy only answers "how good is
+// this player's defense when it actually engages," a materially different question than the old
+// any-tag number, not just a stricter version of the same one. Deliberately its own function
+// rather than a change to gameDefenseStats()/defensiveRating() -- those still feed Two-Way/20,
+// Win Shares, and every existing award/ranking, and retroactively changing what those mean isn't
+// what this is for.
+const REAL_CONTESTED_MIN_FGA = 5;
+function computeRealContestedDefense(playerId) {
+  let made = 0, attempts = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (!(ev.defenderIds || []).includes(playerId)) return;
+      if (ev.contestLevel !== "medium" && ev.contestLevel !== "heavy") return;
+      attempts++;
+      if (ev.made !== false) made++;
+    });
+  });
+  if (attempts < REAL_CONTESTED_MIN_FGA) return null;
+  return { made, attempts, fgPct: pct(made, attempts) };
+}
+
+// League-wide FG% by contest level -- a permanent sanity check, not just a one-time validation.
+// If this ever stops showing a light < medium < heavy gradient (looser contest -> higher FG%),
+// that's a sign contestLevel is being tagged carelessly, not a real finding about this league.
+function computeContestLevelFgSplit() {
+  const buckets = { none: { m: 0, a: 0 }, light: { m: 0, a: 0 }, medium: { m: 0, a: 0 }, heavy: { m: 0, a: 0 } };
+  state.games.filter(isQualifyingGame).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 && ev.points !== 3) return;
+      const b = buckets[ev.contestLevel];
+      if (!b) return;
+      b.a++;
+      if (ev.made !== false) b.m++;
+    });
+  });
+  return Object.fromEntries(Object.entries(buckets).map(([k, b]) => [k, { ...b, fgPct: pct(b.m, b.a) }]));
+}
+
+// Among a player's own TAGGED (non-"none") defensive assignments, what share are genuinely
+// competitive (medium/heavy) versus just going through the motions (light) -- a workload-QUALITY
+// complement to Defensive Load's workload-QUANTITY. "none" (no defender at all) can never attach
+// to a specific defender by construction, so it never appears in this per-player breakdown; the
+// league-wide split above is where that comparison lives instead.
+const CONTEST_ENGAGEMENT_MIN_TAGGED = 5;
+function computeContestLevelDistribution(playerId) {
+  const counts = { light: 0, medium: 0, heavy: 0 };
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (!(ev.defenderIds || []).includes(playerId)) return;
+      if (counts[ev.contestLevel] !== undefined) counts[ev.contestLevel]++;
+    });
+  });
+  const tagged = counts.light + counts.medium + counts.heavy;
+  const engaged = counts.medium + counts.heavy;
+  return { counts, tagged, engagementRate: tagged >= CONTEST_ENGAGEMENT_MIN_TAGGED ? pct(engaged, tagged) : null };
+}
+
 // ---------- Shot Creation Rate (see poolean-shot-creation-and-mirrors-spec.md) ----------
 // What share of a player's own makes came off a teammate's assist vs. self-created -- reuses
 // assistId, already populated on every made shot, no new tracking. Answers "does this player
@@ -12230,6 +12363,7 @@ function renderLeaderboard() {
   renderPointsOffTakeawaysPanel();
   renderGameWinningBucketsPanel();
   renderDefensiveLoadPanel();
+  renderContestEngagementPanel();
   renderWinSharesModelPanel();
   renderCloseGameShootingPanel();
   renderCloseGameDefensePanel();
@@ -13917,16 +14051,29 @@ function contestLevelButtonsHtml(current, attr) {
   return CONTEST_LEVELS.map(t => `<button type="button" class="secondary-btn${current === t.key ? " selected" : ""}" data-${attr}="${t.key}" title="${escapeHtml(t.about)}">${escapeHtml(t.label)}</button>`).join("");
 }
 
+// How much real defensive resistance a scorer faces, not just how efficient they are in the
+// abstract -- none/light/medium/heavy scored 0-3 and averaged across every one of their own
+// attempts with a contest level reviewed. Two players can look identical on efficiency alone and
+// mean completely different things if one's getting there against real defense and the other
+// isn't (see Ben vs. Zach: same-ish shot volume, very different resistance, and Zach's low
+// efficiency reads very differently once you know he's also facing the least resistance of
+// anyone). Needs its own gate since "reviewed" is a strict subset of "attempted" -- see the
+// Review Contests & Passers backfill queue.
+const RESISTANCE_LEVEL_SCORE = { none: 0, light: 1, medium: 2, heavy: 3 };
+const AVG_RESISTANCE_MIN_FGA = 5;
+
 function computeShotTypeStats() {
-  const blank = () => ({ tagged: 0, fga: 0, types: Object.fromEntries(SHOT_TYPES.map(t => [t.key, { a: 0, m: 0, pts: 0 }])) });
+  const blank = () => ({ tagged: 0, fga: 0, resistSum: 0, resistN: 0, types: Object.fromEntries(SHOT_TYPES.map(t => [t.key, { a: 0, m: 0, pts: 0 }])) });
   const league = blank();
   const byPlayer = {};
   state.games.filter(isQualifyingGame).forEach(game => {
     game.scoringEvents.forEach(ev => {
       if (ev.points !== 2 && ev.points !== 3) return;
       const p = byPlayer[ev.scorerId] = byPlayer[ev.scorerId] || blank();
+      const resistScore = RESISTANCE_LEVEL_SCORE[ev.contestLevel];
       [p, league].forEach(t => {
         t.fga++;
+        if (resistScore !== undefined) { t.resistSum += resistScore; t.resistN++; }
         const b = effShotType(ev) ? t.types[effShotType(ev)] : null;
         if (!b) return;
         t.tagged++;
@@ -13935,11 +14082,12 @@ function computeShotTypeStats() {
       });
     });
   });
+  const withResistance = t => ({ ...t, avgResistance: t.resistN >= AVG_RESISTANCE_MIN_FGA ? t.resistSum / t.resistN : null });
   const rows = Object.entries(byPlayer)
-    .map(([playerId, v]) => ({ player: state.players.find(pl => pl.id === playerId), ...v }))
+    .map(([playerId, v]) => ({ player: state.players.find(pl => pl.id === playerId), ...withResistance(v) }))
     .filter(r => r.player && r.tagged > 0)
     .sort((a, b) => b.tagged - a.tagged);
-  return { rows, league };
+  return { rows, league: withResistance(league) };
 }
 
 function shotTypeCellHtml(b, tagged) {
@@ -13963,13 +14111,14 @@ function renderShotTypePanel() {
       const a = r.types[t.key].a;
       return a === 0 ? "" : `<div class="shot-seg ${t.cssClass}" style="width:${(a / r.tagged) * 100}%" title="${escapeHtml(name)}: ${a} ${escapeHtml(t.label)}"></div>`;
     }).join("");
-    return `<tr><td>${escapeHtml(name)}</td>${SHOT_TYPES.map(t => shotTypeCellHtml(r.types[t.key], r.tagged)).join("")}<td>${r.tagged} of ${r.fga}</td><td><div class="shot-selection-bar">${mix}</div></td></tr>`;
+    const resistCell = r.avgResistance === null ? "—" : `${r.avgResistance.toFixed(2)}<br><span class="hint" style="margin:0">${r.resistN} shots</span>`;
+    return `<tr><td>${escapeHtml(name)}</td>${SHOT_TYPES.map(t => shotTypeCellHtml(r.types[t.key], r.tagged)).join("")}<td>${r.tagged} of ${r.fga}</td><td><div class="shot-selection-bar">${mix}</div></td><td>${resistCell}</td></tr>`;
   };
   wrap.innerHTML = `
     <div class="shot-selection-legend">${legend}</div>
     <div class="table-scroll">
       <table class="matchup-table">
-        <thead><tr><th>Player</th>${SHOT_TYPES.map(t => `<th>${escapeHtml(t.label)}</th>`).join("")}<th>Tagged</th><th>Mix</th></tr></thead>
+        <thead><tr><th>Player</th>${SHOT_TYPES.map(t => `<th>${escapeHtml(t.label)}</th>`).join("")}<th>Tagged</th><th>Mix</th><th title="How much real defensive resistance this player faces when they score, scored none=0 / light=1 / medium=2 / heavy=3 and averaged across every attempt with a contest level reviewed.">Avg Resistance Faced</th></tr></thead>
         <tbody>${rowHtml("League", league)}${rows.map(r => rowHtml(r.player.name, r)).join("")}</tbody>
       </table>
     </div>`;

@@ -921,11 +921,22 @@
     </div>
     <div class="panel">
       <h2>Defensive Load</h2>
-      <p class="hint">How much of their team's defending each player does: 1.0 is an even share, and above is more. Read it with Opp FG% and Pts Allowed Under Exp (how they did against what they faced), not on its own.</p>
+      <p class="hint">How much of their team's defending each player does: 1.0 is an even share, and above is more. Opp FG% is now Real Contested Opp FG% -- restricted to shots with a medium or heavy contest level, since a nominally-tagged defender and one who actually challenged the shot aren't the same thing. The old any-tag number is shown alongside it for comparison this first time it ships. Read it with Pts Allowed Under Exp (how they did against what they faced), not on its own.</p>
       <div class="table-scroll">
         <table class="matchup-table" id="defensiveLoadPanelTable">
           <thead><tr id="defensiveLoadPanelHeaderRow"></tr></thead>
           <tbody id="defensiveLoadPanelBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Contest Level &amp; Defensive Engagement</h2>
+      <p class="hint">Real Contested Opp FG% (quality) and Engagement Rate (how often that quality is even brought to bear) should always be read side by side -- a high-quality, low-engagement defender and a high-quality, high-engagement one look identical on Opp FG% alone but mean completely different things. Engagement Rate is the share of a player's own tagged assignments that are genuinely competitive (medium/heavy) rather than just going through the motions (light). "None" (no defender at all) can't attach to a specific player, so the league-wide FG% by contest level below is the permanent sanity check that contestLevel is being tagged meaningfully: looser contest should mean higher FG%.</p>
+      <div class="shot-selection-legend" id="contestLevelSanityCheck" style="margin-bottom:10px"></div>
+      <div class="table-scroll">
+        <table class="matchup-table" id="contestEngagementTable">
+          <thead><tr id="contestEngagementHeaderRow"></tr></thead>
+          <tbody id="contestEngagementBody"></tbody>
         </table>
       </div>
     </div>
