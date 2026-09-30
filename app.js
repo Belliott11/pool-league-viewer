@@ -10170,10 +10170,15 @@ function computeTrueSelfCreationRate(playerId) {
 // old raw-assist count only ever saw the makes, silently undercounting anyone whose real passing
 // volume includes a lot of good looks that just didn't go in. Replaces raw assist count as the
 // primary passing-volume stat; raw assists stay visible as a secondary detail underneath it.
+// Season totals alone would favor whoever's played the most games, same reason every other rate
+// on this page is per-20-combined-points rather than a raw count -- shotsCreatedPer20 is the one
+// to actually compare players by; the raw totals stay on the object for the "X of Y attempts"
+// framing.
 const REAL_PLAYMAKING_MIN = 3;
 function computeRealPlaymakingVolume(playerId) {
-  let shotsCreated = 0, pointsGenerated = 0, oldAssists = 0;
+  let shotsCreated = 0, pointsGenerated = 0, oldAssists = 0, combinedPoints = 0;
   qualifyingGamesForPlayer(playerId).forEach(game => {
+    combinedPoints += gameTotalPoints(game);
     game.scoringEvents.forEach(ev => {
       if (ev.points !== 2 && ev.points !== 3) return;
       if (ev.assistId === playerId && ev.made !== false) oldAssists++;
@@ -10182,8 +10187,12 @@ function computeRealPlaymakingVolume(playerId) {
       if (ev.made !== false) pointsGenerated += ev.points;
     });
   });
+  const per20 = value => combinedPoints > 0 ? (value / combinedPoints) * 20 : 0;
   if (shotsCreated < REAL_PLAYMAKING_MIN) return null;
-  return { shotsCreated, pointsGenerated, oldAssists };
+  return {
+    shotsCreated, pointsGenerated, oldAssists,
+    shotsCreatedPer20: per20(shotsCreated), pointsGeneratedPer20: per20(pointsGenerated), oldAssistsPer20: per20(oldAssists),
+  };
 }
 
 // ---------- Weighted Pass Quality (see poolean-shot-creation-and-mirrors-spec.md) ----------
@@ -12513,10 +12522,10 @@ const LEADERBOARD_COLUMNS = [
       return `${formatPct(r.shotCreation.noHeaves.selfCreatedPct)}${raw !== null ? ` (${formatPct(raw)} incl. heaves)` : ""}`;
     },
     tooltip: `Share of this player's own ATTEMPTS (makes and misses, 2s and 3s) with no passer credited, deep heaves excluded from both sides of the rate entirely (a grabbed rebound immediately heaved up reflects no real shot-creation skill, so it's dropped rather than counted as a failure to self-create). The raw rate including heaves is shown underneath for reference. Needs ${SHOT_CREATION_MIN_FGA}+ qualifying attempts before showing.` },
-  { key: "realplaymaking", label: "Real Playmaking Volume", advanced: true,
-    accessor: r => r.realPlaymaking ? r.realPlaymaking.shotsCreated : null,
-    display: r => r.realPlaymaking ? `${r.realPlaymaking.shotsCreated} shots (${r.realPlaymaking.pointsGenerated} pts, ${r.realPlaymaking.oldAssists} old assists)` : "—",
-    tooltip: `Every pass that led to ANY attempt, make or miss (passerId), plus the points those makes actually generated -- replaces raw assist count as the primary passing-volume stat, since assists alone silently hide every good pass that led to a miss. The old assist count is shown underneath for comparison. Needs ${REAL_PLAYMAKING_MIN}+ shots created before showing.` },
+  { key: "realplaymaking", label: "Real Playmaking Volume/20", advanced: true,
+    accessor: r => r.realPlaymaking ? r.realPlaymaking.shotsCreatedPer20 : null,
+    display: r => r.realPlaymaking ? `${r.realPlaymaking.shotsCreatedPer20.toFixed(1)} (${r.realPlaymaking.shotsCreated} shots, ${r.realPlaymaking.pointsGenerated} pts, ${r.realPlaymaking.oldAssists} old assists)` : "—",
+    tooltip: `Every pass that led to ANY attempt, make or miss (passerId), per 20 combined points -- same rate convention as every other /20 column here, so this compares fairly across different games-played totals instead of just rewarding volume. Replaces raw assist count as the primary passing-volume stat, since assists alone silently hide every good pass that led to a miss. Season totals and the old assist count are shown underneath for reference. Needs ${REAL_PLAYMAKING_MIN}+ shots created before showing.` },
   { key: "passquality", label: "Weighted Pass Quality", advanced: true,
     accessor: r => r.passQuality ? r.passQuality.avgQuality : null,
     display: r => r.passQuality ? `${r.passQuality.avgQuality.toFixed(2)} (${r.passQuality.volume} passes)` : "—",
