@@ -2607,6 +2607,20 @@ button:disabled {
 .player-rank-pill-down { color: var(--danger, #e0555a); font-weight: 700; }
 .player-rank-pill-attendance { color: var(--muted); font-size: 0.85rem; }
 
+/* Player Profile Additions -- two stats shown side by side, never one alone (Contest Quality +
+   Engagement, Resistance Faced + Shot-Making Added, raw/no-heave Self-Creation, Pass Volume +
+   Quality), plus a plain-language read and (where relevant) a Watch These Clips button. */
+.profile-stat-pair { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.profile-stat-tile {
+  flex: 1 1 140px;
+  background: var(--surface-tint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+}
+.profile-stat-label { font-size: 0.78rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 2px; }
+.profile-stat-value { font-family: var(--font-display); font-size: 1.4rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+
 /* Trophy Case grid */
 .trophy-case-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 14px; }
 .trophy-case-tile { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; font-size: 0.78rem; }

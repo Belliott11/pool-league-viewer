@@ -11884,9 +11884,17 @@ const AREA_CLIP_CATEGORY_LABELS = Object.fromEntries([
   ["wideopen", "Wide-open shooting"],
   ["tov", "Turnovers"],
   ["defense", "Defense"],
+  ["contest_heavy", "Heavy-contest defensive reps"],
+  ["selfcreated_drive", "Self-created drives"],
+  ["tov_losthandle", "Lost-handle turnovers"],
+  ["pass_openlook", "Passes that generated a wide-open look"],
 ]);
 
 const CLIP_CURATION_PAD_SECONDS = 5;
+// Generalized per the Player Profile spec's "Watch These Clips" tie-in: one mechanism, reused
+// against any filter the new precision fields (contestLevel, passerId, turnoverType) support,
+// rather than a one-off per stat. New keys below (contest_heavy, selfcreated_drive,
+// tov_losthandle, pass_openlook) follow the exact same shape as the original four.
 function computeCategoryClipGroups(playerId, categoryKey) {
   const bandKey = categoryKey.startsWith("zone_") ? categoryKey.slice(5) : null;
   const matchScoringEvent = ev => {
@@ -11906,13 +11914,28 @@ function computeCategoryClipGroups(playerId, categoryKey) {
       // one place, and splitting later is just a second, narrower filter on the same mechanism.
       return (ev.defenderIds || []).includes(playerId);
     }
+    if (categoryKey === "contest_heavy") {
+      return (ev.defenderIds || []).includes(playerId) && (ev.points === 2 || ev.points === 3) && ev.contestLevel === "heavy";
+    }
+    if (categoryKey === "selfcreated_drive") {
+      return ev.scorerId === playerId && (ev.points === 2 || ev.points === 3) && ev.passerId === "none" && effShotType(ev) === "drive";
+    }
+    if (categoryKey === "pass_openlook") {
+      return ev.passerId === playerId && (ev.points === 2 || ev.points === 3) && (ev.contestLevel === "none" || ev.contestLevel === "light");
+    }
+    return false;
+  };
+  const matchTurnoverEvent = ev => {
+    if (ev.playerId !== playerId) return false;
+    if (categoryKey === "tov") return true;
+    if (categoryKey === "tov_losthandle") return ev.turnoverType === "lostHandle";
     return false;
   };
 
   const grouped = [];
   state.games.filter(isQualifyingGame).forEach(game => {
-    const events = categoryKey === "tov"
-      ? game.turnoverEvents.filter(ev => ev.playerId === playerId)
+    const events = categoryKey.startsWith("tov")
+      ? game.turnoverEvents.filter(matchTurnoverEvent)
       : game.scoringEvents.filter(matchScoringEvent);
     const clips = events
       .filter(ev => ev.videoTime !== null && ev.videoTime !== undefined)
@@ -11937,6 +11960,214 @@ function startAreaClipExport(playerId, categoryKey, categoryLabel) {
   if (statusEl) statusEl.textContent = `Compiling clips for "${categoryLabel}"…`;
   const safeName = categoryLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
   runClipExportFromGroups(grouped, `${safeName || "clips"}-clips`);
+}
+
+// Same button/wiring shape as Areas to Work On's own clip buttons, generalized for the new
+// profile panels below -- one mechanism, reused against any filter computeCategoryClipGroups()
+// understands, per the Player Profile spec's "Watch These Clips" connective feature.
+function watchClipsButtonHtml(playerId, categoryKey) {
+  const label = AREA_CLIP_CATEGORY_LABELS[categoryKey] || categoryKey;
+  return `<button type="button" class="icon-btn watch-clips-btn" data-player-id="${playerId}" data-category-key="${categoryKey}" data-category-label="${escapeHtml(label)}">${icon("film")} Watch these clips</button>`;
+}
+function wireWatchClipsButtons(root) {
+  root.querySelectorAll(".watch-clips-btn").forEach(btn => {
+    btn.addEventListener("click", () => startAreaClipExport(btn.dataset.playerId, btn.dataset.categoryKey, btn.dataset.categoryLabel));
+  });
+}
+
+// ---------- Player Profile Additions (see poolean-player-profile-additions-spec.md) ----------
+// A player's own page describes their own pattern and gives them tools to investigate it further
+// -- it does not rank them against teammates, that's what the league tables already do. Every
+// panel below pairs two numbers that were explicitly speced to never be shown alone (contest
+// quality/engagement, resistance/shot-making, raw/no-heave self-creation, pass volume/quality),
+// with a plain-language read generated from the ACTUAL combination this specific player shows,
+// not a generic template, plus a "Watch these clips" button tied to whatever's being described.
+
+function computePlayerContestQualityEngagement(playerId) {
+  const realContested = computeRealContestedDefense(playerId);
+  const dist = computeContestLevelDistribution(playerId);
+  if (!realContested && dist.tagged === 0) return null;
+  const split = computeContestLevelFgSplit();
+  const leagueMediumHeavyFg = pct(split.medium.m + split.heavy.m, split.medium.a + split.heavy.a);
+  let read;
+  if (realContested && dist.engagementRate !== null) {
+    const highQuality = leagueMediumHeavyFg !== null && realContested.fgPct < leagueMediumHeavyFg;
+    const highEngagement = dist.engagementRate >= 50;
+    if (highQuality && highEngagement) read = "Engages hard on most of your defensive assignments, and shoots down real contests well -- a complete, reliable defensive profile.";
+    else if (highQuality && !highEngagement) read = "Rarely engages hard when tagged, but very effective the few times you do -- the quality is real, it just doesn't show up often enough to carry a full workload.";
+    else if (!highQuality && highEngagement) read = "Engages hard on most of your assignments, but the shots you allow on those real contests are going in more than the league average -- real effort, room to improve the results.";
+    else read = "Rarely engages hard when tagged, and the results on the contests you do bring aren't ahead of the league average either -- worth a closer look at defensive engagement specifically.";
+  } else if (realContested) {
+    read = "Not enough tagged assignments yet to read engagement alongside contest quality.";
+  } else {
+    read = "Not enough real-contested volume yet to read quality alongside engagement.";
+  }
+  return { realContested, dist, leagueMediumHeavyFg, read };
+}
+
+function renderPlayerContestQualityEngagement(playerId) {
+  const wrap = document.getElementById("playerContestQualityEngagement");
+  if (!wrap) return;
+  const d = computePlayerContestQualityEngagement(playerId);
+  if (!d) { wrap.innerHTML = '<p class="empty-state">Not enough tagged defensive volume yet.</p>'; return; }
+  wrap.innerHTML = `
+    <div class="profile-stat-pair">
+      <div class="profile-stat-tile"><div class="profile-stat-label">Real Contested Opp FG%</div><div class="profile-stat-value">${d.realContested ? formatPct(d.realContested.fgPct) : "—"}</div></div>
+      <div class="profile-stat-tile"><div class="profile-stat-label">Engagement Rate</div><div class="profile-stat-value">${d.dist.engagementRate === null ? "—" : formatPct(d.dist.engagementRate)}</div></div>
+    </div>
+    <p class="hint">${escapeHtml(d.read)}</p>
+    ${watchClipsButtonHtml(playerId, "contest_heavy")}
+  `;
+  wireWatchClipsButtons(wrap);
+}
+
+function computePlayerResistanceShotMaking(playerId) {
+  const shotTypeRow = computeShotTypeStats().rows.find(r => r.player.id === playerId);
+  const avgResistance = shotTypeRow ? shotTypeRow.avgResistance : null;
+  const zonePpa = computeLeagueZonePointsPerAttempt();
+  const combos = computeXptsCombos();
+  const sma = computeShotMakingAdded(playerId, combos, zonePpa);
+  if (avgResistance === null && !sma) return null;
+  let read;
+  if (avgResistance !== null && sma) {
+    const highResistance = avgResistance >= 1.5;
+    const positiveAdded = sma.added > 0;
+    if (highResistance && positiveAdded) read = "Faces real defensive resistance and still beats the difficulty of those shots -- efficient against real defense, not just in the abstract.";
+    else if (highResistance && !positiveAdded) read = "Faces real defensive resistance, and the shot difficulty isn't being beaten yet -- a tougher diet than most, worth tracking whether Shot-Making Added trends up.";
+    else if (!highResistance && positiveAdded) read = "Beats the difficulty of the shots taken, but those shots tend to come against lighter resistance than average -- worth checking how that holds up against tougher looks.";
+    else read = "Faces relatively light resistance and isn't beating the difficulty of those shots either -- the easiest version of this diet isn't outperforming its own difficulty yet.";
+  } else {
+    read = "Not enough volume yet to read resistance faced alongside Shot-Making Added.";
+  }
+  return { avgResistance, sma, read };
+}
+
+function renderPlayerResistanceShotMaking(playerId) {
+  const wrap = document.getElementById("playerResistanceShotMaking");
+  if (!wrap) return;
+  const d = computePlayerResistanceShotMaking(playerId);
+  if (!d) { wrap.innerHTML = '<p class="empty-state">Not enough shot volume yet.</p>'; return; }
+  wrap.innerHTML = `
+    <div class="profile-stat-pair">
+      <div class="profile-stat-tile"><div class="profile-stat-label">Average Resistance Faced</div><div class="profile-stat-value">${d.avgResistance === null ? "—" : d.avgResistance.toFixed(2)}</div></div>
+      <div class="profile-stat-tile"><div class="profile-stat-label">Shot-Making Added</div><div class="profile-stat-value">${d.sma ? `${d.sma.added >= 0 ? "+" : ""}${d.sma.added.toFixed(1)}` : "—"}</div></div>
+    </div>
+    <p class="hint">${escapeHtml(d.read)}</p>
+  `;
+}
+
+function computePlayerSelfCreationPanel(playerId) {
+  const rate = computeTrueSelfCreationRate(playerId);
+  if (!rate || rate.selfCreatedPct === null) return null;
+  let gapNote;
+  if (rate.noHeaves.selfCreatedPct !== null) {
+    const gap = rate.selfCreatedPct - rate.noHeaves.selfCreatedPct;
+    if (gap >= 10) {
+      const heaveShare = rate.selfCreated > 0 ? pct(rate.selfCreated - rate.noHeaves.selfCreated, rate.selfCreated) : 0;
+      gapNote = `${formatPct(heaveShare)} of your self-created shots are deep heaves -- a real gap between the raw number and what's actually created offense.`;
+    } else {
+      gapNote = "Little difference once deep heaves are excluded -- the raw number already reflects real self-creation.";
+    }
+  } else {
+    gapNote = "Not enough non-heave attempts yet to check the gap.";
+  }
+  return { rate, gapNote };
+}
+
+function renderPlayerSelfCreationPanel(playerId) {
+  const wrap = document.getElementById("playerSelfCreationPanel");
+  if (!wrap) return;
+  const d = computePlayerSelfCreationPanel(playerId);
+  if (!d) { wrap.innerHTML = '<p class="empty-state">Not enough attempts yet.</p>'; return; }
+  wrap.innerHTML = `
+    <div class="profile-stat-pair">
+      <div class="profile-stat-tile"><div class="profile-stat-label">Self-Created % (raw)</div><div class="profile-stat-value">${formatPct(d.rate.selfCreatedPct)}</div></div>
+      <div class="profile-stat-tile"><div class="profile-stat-label">Self-Created % (no heaves)</div><div class="profile-stat-value">${d.rate.noHeaves.selfCreatedPct === null ? "—" : formatPct(d.rate.noHeaves.selfCreatedPct)}</div></div>
+    </div>
+    <p class="hint">${escapeHtml(d.gapNote)}</p>
+    ${watchClipsButtonHtml(playerId, "selfcreated_drive")}
+  `;
+  wireWatchClipsButtons(wrap);
+}
+
+function computePlayerPassingPanel(playerId) {
+  const zonePpa = computeLeagueZonePointsPerAttempt();
+  const volume = computeRealPlaymakingVolume(playerId);
+  const quality = computeWeightedPassQuality(playerId, zonePpa);
+  if (!volume && !quality) return null;
+  let read;
+  if (volume && quality) {
+    const leagueQualities = state.players.map(p => computeWeightedPassQuality(p.id, zonePpa)).filter(Boolean).map(q => q.avgQuality);
+    const medQuality = median(leagueQualities);
+    const leagueVolumes = state.players.map(p => computeRealPlaymakingVolume(p.id)).filter(Boolean).map(v => v.shotsCreatedPer20);
+    const medVolume = median(leagueVolumes);
+    const highVolume = medVolume !== null && volume.shotsCreatedPer20 >= medVolume;
+    const highQuality = medQuality !== null && quality.avgQuality >= medQuality;
+    if (highVolume && highQuality) read = "Passes often, and the shots those passes create are genuinely good -- real, high-value playmaking volume.";
+    else if (highVolume && !highQuality) read = "Passes often, but the shots created tend to be lower-value or more contested than average -- volume is there, the shot quality created isn't yet.";
+    else if (!highVolume && highQuality) read = "Doesn't create a lot of shots, but the ones created tend to be genuinely good looks -- quality over quantity so far.";
+    else read = "Below the league median on both playmaking volume and the quality of shots created -- passing isn't yet a real part of this player's offensive contribution.";
+  } else {
+    read = "Not enough passing volume yet to read quality alongside volume.";
+  }
+  return { volume, quality, read };
+}
+
+function renderPlayerPassingPanel(playerId) {
+  const wrap = document.getElementById("playerPassingPanel");
+  if (!wrap) return;
+  const d = computePlayerPassingPanel(playerId);
+  if (!d) { wrap.innerHTML = '<p class="empty-state">Not enough passing volume yet.</p>'; return; }
+  wrap.innerHTML = `
+    <div class="profile-stat-pair">
+      <div class="profile-stat-tile"><div class="profile-stat-label">Real Playmaking Volume/20</div><div class="profile-stat-value">${d.volume ? d.volume.shotsCreatedPer20.toFixed(1) : "—"}</div></div>
+      <div class="profile-stat-tile"><div class="profile-stat-label">Weighted Pass Quality</div><div class="profile-stat-value">${d.quality ? d.quality.avgQuality.toFixed(2) : "—"}</div></div>
+    </div>
+    <p class="hint">${escapeHtml(d.read)}</p>
+    ${watchClipsButtonHtml(playerId, "pass_openlook")}
+  `;
+  wireWatchClipsButtons(wrap);
+}
+
+function computePlayerTurnoverMixPanel(playerId) {
+  const breakdown = computeTurnoverTypeBreakdown(playerId);
+  if (breakdown.tagged < TURNOVER_TYPE_MIN_TAGGED) return null;
+  const leagueRates = state.players
+    .filter(p => p.id !== playerId)
+    .map(p => computeTurnoverTypeBreakdown(p.id))
+    .filter(b => b.tagged >= TURNOVER_TYPE_MIN_TAGGED)
+    .map(b => b.selfInflictedPct);
+  const leagueMedian = median(leagueRates);
+  const topEntry = ["badPass", "lostHandle", "stripped", "decisionError"]
+    .map(key => [key, breakdown.counts[key]])
+    .sort((a, b) => b[1] - a[1])[0];
+  let read = "No clear pattern yet.";
+  if (topEntry && topEntry[1] > 0) {
+    const label = turnoverTypeLabel(topEntry[0]).toLowerCase();
+    read = topEntry[0] === "stripped"
+      ? "Most of your tagged turnovers are genuine strips by good defense, not self-inflicted mistakes."
+      : `Most of your turnovers are ${label}, not the other categories.`;
+  }
+  return { breakdown, leagueMedian, read };
+}
+
+function renderPlayerTurnoverMixPanel(playerId) {
+  const wrap = document.getElementById("playerTurnoverMixPanel");
+  if (!wrap) return;
+  const d = computePlayerTurnoverMixPanel(playerId);
+  if (!d) { wrap.innerHTML = `<p class="empty-state">Needs ${TURNOVER_TYPE_MIN_TAGGED}+ tagged live-ball turnovers.</p>`; return; }
+  const b = d.breakdown;
+  const mix = TURNOVER_TYPES.map(t => {
+    const n = b.counts[t.key];
+    return n === 0 ? "" : `<div class="shot-seg ${TURNOVER_TYPE_CSS_CLASS[t.key] || ""}" style="width:${(n / b.tagged) * 100}%" title="${n} ${escapeHtml(t.label)}"></div>`;
+  }).join("");
+  wrap.innerHTML = `
+    <div class="shot-selection-bar" style="margin-bottom:8px">${mix}</div>
+    <p class="hint">${escapeHtml(d.read)}</p>
+    <p class="hint">Self-Inflicted %: <strong>${formatPct(b.selfInflictedPct)}</strong>${d.leagueMedian === null ? "" : ` vs. league median ${formatPct(d.leagueMedian)}`}</p>
+    ${watchClipsButtonHtml(playerId, "tov_losthandle")}
+  `;
+  wireWatchClipsButtons(wrap);
 }
 
 function computeAreasToWorkOn(playerId) {
@@ -12320,6 +12551,69 @@ const PLAYER_TREND_STATS = [
       if (!games.length) return { value: null, n: 0 };
       const r = computeRateSummaryForGames(pid, games);
       return { value: r.twoWayPer20 - r.offRatingPer20, n: games.length };
+    } },
+  { key: "realContestedOppFg", label: "Real Contested Opp FG%", unit: "%", decimals: 0, minN: 2, lowerIsBetter: true,
+    about: "Opp FG% restricted to shots with a medium or heavy contest level -- a nominally-tagged defender and one who actually challenged the shot aren't the same thing. Needs at least 2 real-contested shots defended in a game.",
+    compute: (pid, games) => {
+      let made = 0, attempts = 0;
+      games.forEach(g => g.scoringEvents.forEach(ev => {
+        if (ev.points !== 2 && ev.points !== 3) return;
+        if (!(ev.defenderIds || []).includes(pid)) return;
+        if (ev.contestLevel !== "medium" && ev.contestLevel !== "heavy") return;
+        attempts++; if (ev.made !== false) made++;
+      }));
+      return { value: pctOrNull(made, attempts), n: attempts };
+    } },
+  { key: "engagementRate", label: "Engagement Rate", unit: "%", decimals: 0, minN: 2,
+    about: "Share of this player's own tagged defensive assignments that are genuinely competitive (medium/heavy) rather than just going through the motions (light). Needs at least 2 tagged assignments in a game.",
+    compute: (pid, games) => {
+      let engaged = 0, tagged = 0;
+      games.forEach(g => g.scoringEvents.forEach(ev => {
+        if (ev.points !== 2 && ev.points !== 3) return;
+        if (!(ev.defenderIds || []).includes(pid)) return;
+        if (ev.contestLevel === "medium" || ev.contestLevel === "heavy") { engaged++; tagged++; }
+        else if (ev.contestLevel === "light") tagged++;
+      }));
+      return { value: pctOrNull(engaged, tagged), n: tagged };
+    } },
+  { key: "avgResistance", label: "Average Resistance Faced", unit: "", decimals: 2, minN: 2,
+    about: "How much real defensive resistance this player faces when they score: none=0/light=1/medium=2/heavy=3, averaged across their own attempts with a contest level reviewed. Needs at least 2 such attempts in a game.",
+    compute: (pid, games) => {
+      let sum = 0, n = 0;
+      games.forEach(g => g.scoringEvents.forEach(ev => {
+        if (ev.scorerId !== pid) return;
+        if (ev.points !== 2 && ev.points !== 3) return;
+        const score = RESISTANCE_LEVEL_SCORE[ev.contestLevel];
+        if (score === undefined) return;
+        sum += score; n++;
+      }));
+      return { value: n > 0 ? sum / n : null, n };
+    } },
+  { key: "shotMakingAdded", label: "Shot-Making Added per Attempt", unit: "pts", decimals: 2, minN: 3,
+    about: "Actual points minus xPTS (league average points-per-attempt for that shot's exact zone x shot type x contest level combo), averaged per attempt -- separates scoring a lot because the shots are easy from scoring efficiently on hard shots. Needs at least 3 attempts in a game.",
+    compute: (pid, games, ctx) => {
+      let attempts = 0, added = 0;
+      games.forEach(g => g.scoringEvents.forEach(ev => {
+        if (ev.scorerId !== pid) return;
+        const x = xptsForShot(ev, ctx.combos, ctx.zonePpa);
+        if (x === null) return;
+        attempts++;
+        added += (ev.made !== false ? ev.points : 0) - x;
+      }));
+      return { value: attempts > 0 ? added / attempts : null, n: attempts };
+    } },
+  { key: "selfInflictedTovPct", label: "Self-Inflicted Turnover %", unit: "%", decimals: 0, minN: 2, lowerIsBetter: true,
+    about: "Share of this player's own tagged live-ball turnovers that were self-inflicted (Bad Pass, Lost Handle, Possession/Decision Error, Drive/Finish Error) rather than a genuine Stripped forced by the defense. Needs at least 2 tagged turnovers in a game.",
+    compute: (pid, games) => {
+      let selfInflicted = 0, tagged = 0;
+      games.forEach(g => g.turnoverEvents.forEach(ev => {
+        if (ev.playerId !== pid) return;
+        if (ev.missEventId) return;
+        if (!ev.turnoverType) return;
+        tagged++;
+        if (SELF_INFLICTED_TURNOVER_TYPES.has(ev.turnoverType)) selfInflicted++;
+      }));
+      return { value: pctOrNull(selfInflicted, tagged), n: tagged };
     } }
 ];
 let playerStatTrendKey = "tovPct";
@@ -12356,7 +12650,7 @@ function renderPlayerStatTrend(playerId) {
   }
   select.value = playerStatTrendKey;
   const stat = PLAYER_TREND_STATS.find(s => s.key === playerStatTrendKey) || PLAYER_TREND_STATS[0];
-  const ctx = { zonePpa: computeLeagueZonePointsPerAttempt() };
+  const ctx = { zonePpa: computeLeagueZonePointsPerAttempt(), combos: computeXptsCombos() };
   const { points, seasonAvg, excluded } = computePlayerStatTrend(playerId, stat, ctx);
   const leagueAvg = leagueAvgOfPlayerTrend(pid => ({ seasonAvg: computePlayerStatTrend(pid, stat, ctx).seasonAvg }));
   const faded = points.length < TREND_MIN_POINTS;
@@ -13218,6 +13512,11 @@ function renderPlayerDetail() {
   renderPlayerDefensiveLoadPanel(player.id);
   renderPlayerReel(player.id);
   renderAreasToWorkOn(player.id);
+  renderPlayerContestQualityEngagement(player.id);
+  renderPlayerResistanceShotMaking(player.id);
+  renderPlayerSelfCreationPanel(player.id);
+  renderPlayerPassingPanel(player.id);
+  renderPlayerTurnoverMixPanel(player.id);
   renderShootingByDirection(player.id);
   renderPlayerSectionTeasers(player.id);
 }
@@ -13774,6 +14073,7 @@ const PLAYER_GAME_LOG_COLUMNS = [
   { key: "stl", label: "STL", accessor: r => r.s.stl },
   { key: "blk", label: "BLK", accessor: r => r.s.blk },
   { key: "tov", label: "TOV", accessor: r => r.s.tov },
+  { key: "tovdetail", label: "TOV Detail", accessor: r => r.s.tov },
   { key: "atov", label: "A/TO", accessor: r => r.s.tov === 0 ? (r.s.ast === 0 ? 0 : Infinity) : r.s.ast / r.s.tov },
   { key: "pf", label: "PF", accessor: r => r.s.pf },
   { key: "ptsAllowed", label: "Pts Allowed", accessor: r => r.def.ptsAllowed },
@@ -13785,6 +14085,26 @@ const PLAYER_GAME_LOG_COLUMNS = [
 ];
 let playerGameLogSort = { key: "date", dir: "desc" };
 
+// "3 TOV: 2 lost handle, 1 bad pass" -- makes a specific bad game legible at a glance in the Game
+// Log without cross-referencing Turnover Type Breakdown separately. A turnover auto-created from a
+// missed shot going out of bounds (missEventId set) never gets a type (see Review Turnover Types),
+// so it's called out as "OOB" rather than silently vanishing from the total this row already shows.
+function turnoverTypeDetailForGame(game, playerId) {
+  const evs = game.turnoverEvents.filter(ev => ev.playerId === playerId);
+  if (evs.length === 0) return "—";
+  const counts = {};
+  let oob = 0, untagged = 0;
+  evs.forEach(ev => {
+    if (ev.missEventId) { oob++; return; }
+    if (!ev.turnoverType) { untagged++; return; }
+    counts[ev.turnoverType] = (counts[ev.turnoverType] || 0) + 1;
+  });
+  const parts = Object.entries(counts).map(([key, n]) => `${n} ${turnoverTypeLabel(key).toLowerCase()}`);
+  if (oob > 0) parts.push(`${oob} OOB`);
+  if (untagged > 0) parts.push(`${untagged} untagged`);
+  return `${evs.length} TOV${parts.length > 0 ? `: ${parts.join(", ")}` : ""}`;
+}
+
 function renderPlayerGameLog(playerId) {
   const headerRow = document.getElementById("playerGameLogHeaderRow");
   const body = document.getElementById("playerGameLogBody");
@@ -13792,7 +14112,7 @@ function renderPlayerGameLog(playerId) {
   body.innerHTML = "";
   const games = state.games.filter(g => g.teamA.includes(playerId) || g.teamB.includes(playerId));
   if (games.length === 0) {
-    body.innerHTML = '<tr><td colspan="22" class="empty-state">No games recorded for this player yet.</td></tr>';
+    body.innerHTML = '<tr><td colspan="23" class="empty-state">No games recorded for this player yet.</td></tr>';
     return;
   }
   const rows = games.map(game => {
@@ -13839,6 +14159,7 @@ function renderPlayerGameLog(playerId) {
       <td>${r.s.stl}</td>
       <td>${r.s.blk}</td>
       <td>${r.s.tov}</td>
+      <td>${escapeHtml(turnoverTypeDetailForGame(r.game, playerId))}</td>
       <td>${formatAstTov(r.s.ast, r.s.tov)}</td>
       <td>${foulCellHtml(r.s.pf)}</td>
       <td>${r.def.ptsAllowed}</td>

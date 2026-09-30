@@ -1243,6 +1243,16 @@
       <p id="playerStatTrendNote" class="hint" style="margin:6px 0 10px"></p>
       <div id="playerStatTrend"></div>
     </details>
+    <details class="panel" open>
+      <summary><h2>Resistance Faced &amp; Shot-Making Added</h2></summary>
+      <p class="hint">How hard the shots were (Average Resistance Faced) and whether that difficulty got beaten (Shot-Making Added) -- two different questions, always shown together. A player facing high resistance with a modest Shot-Making Added number is a different story than one facing low resistance with the same number.</p>
+      <div id="playerResistanceShotMaking"></div>
+    </details>
+    <details class="panel">
+      <summary><h2>Self-Creation</h2></summary>
+      <p class="hint">Raw self-created % and the version excluding deep heaves, shown together -- grabbing a loose ball and immediately heaving it up isn't the same skill as creating a real shot, and collapsing these into one number hides that gap.</p>
+      <div id="playerSelfCreationPanel"></div>
+    </details>
     <details class="panel">
       <summary><h2>Shot Types</h2></summary>
       <p class="hint">How this player's field goals were created and how each type has gone. Efficiency only shows once a type has at least 5 tagged attempts.</p>
@@ -1279,12 +1289,27 @@
       <p class="hint">How many of this player's made shots were set up by someone else, and how good those passers are. Free throws aren't counted.</p>
       <div id="playerAssistedBy"></div>
     </details>
+    <details class="panel" open>
+      <summary><h2>Passing Quality &amp; Volume</h2></summary>
+      <p class="hint">Real Playmaking Volume and Weighted Pass Quality, shown together -- volume alone (like the old assist count) and quality alone each tell an incomplete story. A player can be high on one and unremarkable on the other.</p>
+      <div id="playerPassingPanel"></div>
+    </details>
+    <details class="panel" open>
+      <summary><h2>Turnover Mix</h2></summary>
+      <p class="hint">What kind of turnover this player tends to commit, with Self-Inflicted % read against the league median (not league-best, same convention as Areas to Work On).</p>
+      <div id="playerTurnoverMixPanel"></div>
+    </details>
       </div>
     </details>
 
     <details class="player-section" id="section-defense">
       <summary><h3>Defense</h3><span class="player-section-teaser" id="teaser-defense"></span></summary>
       <div class="player-section-body">
+    <details class="panel" open>
+      <summary><h2>Contest Quality &amp; Engagement</h2></summary>
+      <p class="hint">Real Contested Opp FG% (quality) and Engagement Rate (how often that quality is even brought to bear), shown together -- never one without the other. A high-quality, low-engagement defender and a high-quality, high-engagement one look identical on Opp FG% alone but mean completely different things.</p>
+      <div id="playerContestQualityEngagement"></div>
+    </details>
     <details class="panel" open>
       <summary><h2>Defensive Heatmap</h2></summary>
       <p class="hint">Shots this player defended, by court zone. Color is opponents' FG% (green is good defense). Shows whether their defense holds up at every distance.</p>
