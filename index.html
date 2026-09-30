@@ -745,6 +745,21 @@
         </table>
       </div>
     </div>
+    <div class="panel">
+      <h2>Shot-Making Added (xPTS)</h2>
+      <p class="hint">A shot's real difficulty depends on zone, shot type, AND contest level together -- a heavily-contested drive to the rim and a wide-open catch-and-shoot from the same zone aren't equally hard, but zone alone (Points Over Expected, in the advanced columns above) gives them the same expected value. xPTS is the league average points-per-attempt for that shot's exact zone x shot type x contest level combination, falling back to the zone-only average whenever a specific combination has too few logged shots to trust on its own. Shot-Making Added is actual points minus xPTS, summed across attempts -- separates "scores a lot because the shots are easy" from "scores efficiently on hard shots." Sorted by Added per Attempt.</p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="shotMakingAddedTable">
+          <thead><tr id="shotMakingAddedHeaderRow"></tr></thead>
+          <tbody id="shotMakingAddedBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Shot-Making Added, Cumulative Over the Season</h2>
+      <p class="hint">Same shape as the Two-Way/20 Rank Over the Season chart -- running Shot-Making Added by date, one line per player, showing who's trending toward outperforming their shot difficulty versus drifting the other way.</p>
+      <div id="shotMakingAddedChart"></div>
+    </div>
       </div>
     </details>
 
@@ -772,12 +787,37 @@
       <div id="matchupGrid"></div>
     </div>
     <div class="panel">
+      <h2>Passing Chemistry: Pair Detail</h2>
+      <p class="hint">What actually happens when one specific player passes to another -- shots created, real difficulty-adjusted value (xPTS/Shot-Making Added), how open the resulting looks tend to be, and the shot type it usually leads to. Shown for both directions of a pair side by side (A passing to B, and B passing to A), since -- same convention as the Teammate Lift Matrix -- these are two different facts, not mirror images.</p>
+      <div class="compare-controls">
+        <select id="chemistryPlayer1Select"></select>
+        <span>&amp;</span>
+        <select id="chemistryPlayer2Select"></select>
+      </div>
+      <div id="passingChemistryPairResult" class="table-scroll"></div>
+    </div>
+    <div class="panel">
+      <h2>League Passing Chemistry Grid</h2>
+      <p class="hint">Same shape as the Head-to-Head Matchup Grid above -- passer down one axis, scorer across the other, cell is xPTS created per pass for that pair (how good the shots this passer sets this scorer up with tend to be), color-scaled, opacity by sample size. Blank means that pairing has never happened.</p>
+      <div id="passingChemistryGrid"></div>
+    </div>
+    <div class="panel">
       <h2>Rebound Battle Record</h2>
       <p class="hint">Who wins contested rebounds. A win is grabbing it while someone fights you for it; a loss is fighting for it and not getting it. Contest Rate is how many of their rebounds were contested. Needs 5+ contests.</p>
       <div class="table-scroll">
         <table class="matchup-table" id="reboundBattleRecordTable">
           <thead><tr id="reboundBattleRecordHeaderRow"></tr></thead>
           <tbody id="reboundBattleRecordBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Opportunity-Adjusted Rebounding</h2>
+      <p class="hint">OREB/DREB are raw counts with no denominator -- a player who's played fewer games will always show fewer rebounds regardless of real rebounding ability. Rebound Opportunities is every missed shot (by either team) in games this player appears in, using game participation as a stand-in for playing time (Poolean has no substitutions, so anyone rostered for a game is on the floor for the whole thing). Approximation, not a precise rate -- still a real improvement over an unadjusted raw count. Raw RPG shown alongside for comparison.</p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="oppAdjReboundTable">
+          <thead><tr id="oppAdjReboundHeaderRow"></tr></thead>
+          <tbody id="oppAdjReboundBody"></tbody>
         </table>
       </div>
     </div>
@@ -848,6 +888,27 @@
             <tbody id="pointsOffTakeawaysBody"></tbody>
           </table>
         </div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Turnover Type Breakdown</h2>
+      <p class="hint" id="turnoverTypeBreakdownCaveat">Every turnover currently counts the same toward TOV/20, whether it was a careless bad pass or a genuinely forced strip by good defense. Bad Pass, Lost Handle, and Possession/Decision Error are self-inflicted; Stripped is defense-forced. Only live-ball turnovers with a type tagged count here (Export, Review Turnover Types) -- a turnover that's really just a missed shot going out of bounds is excluded entirely, not counted as either. Needs 5+ tagged turnovers to show a rate; below that it's flagged too thin to read.</p>
+      <div class="shot-selection-legend" id="turnoverTypeLegend" style="margin-bottom:10px"></div>
+      <div class="table-scroll">
+        <table class="matchup-table" id="turnoverTypeBreakdownTable">
+          <thead><tr id="turnoverTypeBreakdownHeaderRow"></tr></thead>
+          <tbody id="turnoverTypeBreakdownBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Self-Creation Full Accounting</h2>
+      <p class="hint">True Self-Creation Rate (Leaderboard, advanced columns) only counts self-created possessions that ended in a shot attempt -- a self-creation attempt that instead ends in a lost handle or bad pass just vanishes from that rate's denominator, silently flattering anyone whose creation attempts frequently end in a turnover instead of a shot. This adds every self-inflicted turnover (Bad Pass, Lost Handle, Possession/Decision Error, Drive/Finish Error) back into the denominator as a failed self-creation possession -- a stricter, more honest number worth reading alongside the shots-only rate, not instead of it, since they answer slightly different questions.</p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="selfCreationFullTable">
+          <thead><tr id="selfCreationFullHeaderRow"></tr></thead>
+          <tbody id="selfCreationFullBody"></tbody>
+        </table>
       </div>
     </div>
     <div class="panel-row">

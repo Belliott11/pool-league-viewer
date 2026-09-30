@@ -6476,7 +6476,9 @@ function computeLeaderboardUncached() {
       defensiveLoad: computeDefensiveLoad(p.id),
       expectedPoints: computeExpectedPoints(p.id, zonePpa),
       expectedPointsAgainst: computeExpectedPointsAgainst(p.id, zonePpa),
-      shotCreation: computeShotCreationRate(p.id),
+      shotCreation: computeTrueSelfCreationRate(p.id),
+      realPlaymaking: computeRealPlaymakingVolume(p.id),
+      passQuality: computeWeightedPassQuality(p.id, zonePpa),
       pointsOffTakeaways: computePointsOffTakeaways(p.id),
       turnoverCredit: computeTurnoverCreditRate(p.id),
       shotAttemptDiff: computeShotAttemptDifferential(p.id),
@@ -9178,6 +9180,143 @@ function renderMatchupGrid() {
   `;
 }
 
+// ---------- Directional Passing Chemistry ----------
+// Assist Connections is league-wide and ungrouped by pair -- there's no current way to see,
+// specifically, what happens when one player passes to another. Uses the same unified passerId
+// field as Real Playmaking Volume/Weighted Pass Quality, cross-referenced with xPTS for a real
+// difficulty-adjusted value per pair instead of just a raw count.
+function computePassingChemistryPair(passerId, scorerId, combos, zonePpa) {
+  let shots = 0, actualPts = 0, xpts = 0, openCount = 0;
+  const typeCounts = {};
+  state.games.filter(isQualifyingGame).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (ev.passerId !== passerId || ev.scorerId !== scorerId) return;
+      const x = xptsForShot(ev, combos, zonePpa);
+      if (x === null) return;
+      shots++;
+      actualPts += ev.made !== false ? ev.points : 0;
+      xpts += x;
+      if (ev.contestLevel === "none" || ev.contestLevel === "light") openCount++;
+      const type = effShotType(ev);
+      if (type) typeCounts[type] = (typeCounts[type] || 0) + 1;
+    });
+  });
+  if (shots === 0) return null;
+  const mostCommon = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
+  return {
+    shots, actualPts, xpts, added: actualPts - xpts,
+    openRate: pct(openCount, shots),
+    mostCommonType: mostCommon ? shotTypeLabel(mostCommon[0]) : "—",
+  };
+}
+
+const PASSING_CHEMISTRY_ROWS = [
+  { label: "Shots Created", accessor: d => d.shots },
+  { label: "xPTS Created", accessor: d => d.xpts.toFixed(1) },
+  { label: "Actual Points", accessor: d => d.actualPts },
+  { label: "Shot-Making Added", accessor: d => `${d.added >= 0 ? "+" : ""}${d.added.toFixed(1)}` },
+  { label: "Open-Shot Rate", accessor: d => formatPct(d.openRate) },
+  { label: "Most Common Shot Type", accessor: d => d.mostCommonType },
+];
+
+function renderPassingChemistrySelects() {
+  const sel1 = document.getElementById("chemistryPlayer1Select");
+  const sel2 = document.getElementById("chemistryPlayer2Select");
+  if (!sel1 || !sel2) return;
+  const options = ['<option value="">Select a player…</option>']
+    .concat([...state.players].sort((a, b) => a.name.localeCompare(b.name)).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`))
+    .join("");
+  const prev1 = sel1.value, prev2 = sel2.value;
+  sel1.innerHTML = options;
+  sel2.innerHTML = options;
+  sel1.value = prev1;
+  sel2.value = prev2;
+}
+
+function renderPassingChemistryPair() {
+  const wrap = document.getElementById("passingChemistryPairResult");
+  if (!wrap) return;
+  const id1 = document.getElementById("chemistryPlayer1Select")?.value;
+  const id2 = document.getElementById("chemistryPlayer2Select")?.value;
+  if (!id1 || !id2) { wrap.innerHTML = '<p class="empty-state">Pick two players above.</p>'; return; }
+  if (id1 === id2) { wrap.innerHTML = '<p class="empty-state">Pick two different players.</p>'; return; }
+  const p1 = state.players.find(p => p.id === id1), p2 = state.players.find(p => p.id === id2);
+  if (!p1 || !p2) { wrap.innerHTML = ""; return; }
+  const zonePpa = computeLeagueZonePointsPerAttempt();
+  const combos = computeXptsCombos();
+  const forward = computePassingChemistryPair(id1, id2, combos, zonePpa);
+  const backward = computePassingChemistryPair(id2, id1, combos, zonePpa);
+  const colHtml = d => d ? PASSING_CHEMISTRY_ROWS.map(r => `<tr><td>${escapeHtml(r.label)}</td><td>${r.accessor(d)}</td></tr>`).join("")
+    : `<tr><td colspan="2" class="empty-state">No shots yet.</td></tr>`;
+  wrap.innerHTML = `
+    <table class="matchup-table compare-table">
+      <thead><tr><th></th><th>${escapeHtml(p1.name)} &#8594; ${escapeHtml(p2.name)}</th><th>${escapeHtml(p2.name)} &#8594; ${escapeHtml(p1.name)}</th></tr></thead>
+      <tbody>${PASSING_CHEMISTRY_ROWS.map((r, i) => `<tr><td class="compare-stat-label">${escapeHtml(r.label)}</td><td>${forward ? r.accessor(forward) : "—"}</td><td>${backward ? r.accessor(backward) : "—"}</td></tr>`).join("")}</tbody>
+    </table>
+  `;
+}
+
+// Same shape as computeMatchupGrid()/renderMatchupGrid() above -- passer down one axis, scorer
+// across the other, cell is xPTS created per pass (average shot value this passer sets this
+// scorer up with, not raw volume alone).
+function computePassingChemistryGrid(combos, zonePpa) {
+  const cellTotals = {}; // "passerId|scorerId" -> { shots, xptsSum }
+  const passerTotals = {}, scorerTotals = {};
+  state.games.filter(isQualifyingGame).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (!ev.passerId || ev.passerId === "none") return;
+      const x = xptsForShot(ev, combos, zonePpa);
+      if (x === null) return;
+      const key = `${ev.passerId}|${ev.scorerId}`;
+      const cell = cellTotals[key] = cellTotals[key] || { shots: 0, xptsSum: 0 };
+      cell.shots++;
+      cell.xptsSum += x;
+      passerTotals[ev.passerId] = (passerTotals[ev.passerId] || 0) + 1;
+      scorerTotals[ev.scorerId] = (scorerTotals[ev.scorerId] || 0) + 1;
+    });
+  });
+  const passers = Object.keys(passerTotals).map(id => state.players.find(p => p.id === id)).filter(Boolean).sort((a, b) => passerTotals[b.id] - passerTotals[a.id]);
+  const scorers = Object.keys(scorerTotals).map(id => state.players.find(p => p.id === id)).filter(Boolean).sort((a, b) => scorerTotals[b.id] - scorerTotals[a.id]);
+  return { passers, scorers, cellFor: (passerId, scorerId) => cellTotals[`${passerId}|${scorerId}`] || null };
+}
+
+// A typical single-shot value in this system runs from a rough deep-heave floor to a near-dunk
+// ceiling -- used only to spread the color scale usefully, not as a claimed real bound.
+const PASSING_CHEMISTRY_GRID_SCALE_MAX = 1.6;
+function renderPassingChemistryGrid() {
+  const wrap = document.getElementById("passingChemistryGrid");
+  if (!wrap) return;
+  const zonePpa = computeLeagueZonePointsPerAttempt();
+  const combos = computeXptsCombos();
+  const { passers, scorers, cellFor } = computePassingChemistryGrid(combos, zonePpa);
+  if (passers.length === 0 || scorers.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">No shots with a passer credited yet.</p>';
+    return;
+  }
+  const headerHtml = scorers.map(s => `<th>${playerLink(s.id, s.name)}</th>`).join("");
+  const rowsHtml = passers.map(passer => {
+    const cellsHtml = scorers.map(scorer => {
+      const cell = cellFor(passer.id, scorer.id);
+      if (!cell) return `<td class="matchup-grid-cell matchup-grid-empty">&#8212;</td>`;
+      const avgXpts = cell.xptsSum / cell.shots;
+      const hue = Math.max(0, Math.min(1, avgXpts / PASSING_CHEMISTRY_GRID_SCALE_MAX)) * 120;
+      const opacity = Math.min(0.85, 0.32 + cell.shots * 0.08);
+      return `<td class="matchup-grid-cell" style="background: hsla(${hue}, 85%, 42%, ${opacity})" title="${escapeHtml(passer.name)} &#8594; ${escapeHtml(scorer.name)}: ${avgXpts.toFixed(2)} xPTS/pass over ${cell.shots} shot${cell.shots === 1 ? "" : "s"}">${avgXpts.toFixed(2)}</td>`;
+    }).join("");
+    return `<tr><td class="sticky-col">${playerLink(passer.id, passer.name)}</td>${cellsHtml}</tr>`;
+  }).join("");
+  wrap.innerHTML = `
+    <div class="table-scroll">
+      <table class="matchup-table matchup-grid-table">
+        <thead><tr><th class="sticky-col">Passer &#8595; / Scorer &#8594;</th>${headerHtml}</tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+  `;
+}
+
 // Wide-Open Shooting — every field goal attempt with NO tagged defender at all, as opposed to
 // contested. Pure analysis off data already captured: a shot's defenderIds is empty exactly when
 // nobody tagged a defender on it, no new logging required. Free throws are excluded entirely (not
@@ -9805,25 +9944,275 @@ function computeContestLevelDistribution(playerId) {
   return { counts, tagged, engagementRate: tagged >= CONTEST_ENGAGEMENT_MIN_TAGGED ? pct(engaged, tagged) : null };
 }
 
-// ---------- Shot Creation Rate (see poolean-shot-creation-and-mirrors-spec.md) ----------
-// What share of a player's own makes came off a teammate's assist vs. self-created -- reuses
-// assistId, already populated on every made shot, no new tracking. Answers "does this player
-// create their own offense or get set up" directly instead of inferring it from assists-received
-// volume. Not the same idea as grading a pass's own quality (declined separately): this only
-// counts something that already exists in the data, no new judgment calls.
-const SHOT_CREATION_MIN_FGM = 5;
-function computeShotCreationRate(playerId) {
-  let assisted = 0, unassisted = 0;
-  qualifyingGamesForPlayer(playerId).forEach(game => {
+// ---------- Multi-Dimensional Expected Points (xPTS) ----------
+// Expected Points (computeExpectedPoints above) uses zone alone. A shot's real difficulty depends
+// on zone, shot type, AND contest level together -- a heavily-contested drive to the rim and a
+// wide-open catch-and-shoot from the same zone aren't equally hard, but they get the same expected
+// value under zone alone. xPTS is the league average points-per-attempt for that shot's exact
+// zone x shotType x contestLevel combination, with the same "don't trust three shots" smoothing
+// used everywhere else in this system: fall back to the zone-only average whenever a specific
+// combination has too few logged shots to trust on its own.
+const XPTS_MIN_COMBO_FGA = 5;
+function computeXptsCombos() {
+  const combos = {}; // "zone|shotType|contestLevel" -> { pts, fga }
+  state.games.filter(isQualifyingGame).forEach(game => {
     game.scoringEvents.forEach(ev => {
-      if (ev.scorerId !== playerId || ev.made === false) return;
       if (ev.points !== 2 && ev.points !== 3) return;
-      if (ev.assistId) assisted++; else unassisted++;
+      if (!ev.shotLocation) return;
+      const key = `${shotBand(ev.shotLocation, ev.points)}|${effShotType(ev) || "untyped"}|${ev.contestLevel || "unreviewed"}`;
+      const b = combos[key] = combos[key] || { pts: 0, fga: 0 };
+      b.fga++;
+      if (ev.made !== false) b.pts += ev.points;
     });
   });
-  const total = assisted + unassisted;
-  if (total < SHOT_CREATION_MIN_FGM) return null;
-  return { assisted, unassisted, total, selfCreatedPct: pct(unassisted, total) };
+  return combos;
+}
+
+function xptsForShot(ev, combos, zonePpa) {
+  if (ev.points !== 2 && ev.points !== 3) return null;
+  if (!ev.shotLocation) return zonePpa.overall;
+  const zone = shotBand(ev.shotLocation, ev.points);
+  const key = `${zone}|${effShotType(ev) || "untyped"}|${ev.contestLevel || "unreviewed"}`;
+  const combo = combos[key];
+  if (combo && combo.fga >= XPTS_MIN_COMBO_FGA) return combo.pts / combo.fga;
+  const zoneVal = zonePpa.byZone[zone];
+  return zoneVal !== null && zoneVal !== undefined ? zoneVal : zonePpa.overall;
+}
+
+// Shot-Making Added = actual points - xPTS, summable per shot, per game, or for the season.
+// Separates "scores a lot because the shots are easy" from "scores efficiently on hard shots" --
+// the precise version of what Average Resistance Faced gets at more roughly, once volume supports
+// the finer-grained combinations above.
+const SHOT_MAKING_ADDED_MIN_FGA = 5;
+function computeShotMakingAdded(playerId, combos, zonePpa) {
+  let attempts = 0, actualPts = 0, xpts = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.scorerId !== playerId) return;
+      const x = xptsForShot(ev, combos, zonePpa);
+      if (x === null) return;
+      attempts++;
+      actualPts += ev.made !== false ? ev.points : 0;
+      xpts += x;
+    });
+  });
+  if (attempts < SHOT_MAKING_ADDED_MIN_FGA) return null;
+  return { attempts, actualPts, xpts, added: actualPts - xpts, addedPerAttempt: (actualPts - xpts) / attempts };
+}
+
+const SHOT_MAKING_ADDED_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "attempts", label: "Attempts", accessor: r => r.sma.attempts },
+  { key: "actual", label: "Actual Pts", accessor: r => r.sma.actualPts },
+  { key: "xpts", label: "xPTS", accessor: r => r.sma.xpts, display: r => r.sma.xpts.toFixed(1) },
+  { key: "added", label: "Shot-Making Added", accessor: r => r.sma.added, display: r => `${r.sma.added >= 0 ? "+" : ""}${r.sma.added.toFixed(1)}` },
+  { key: "addedper", label: "Added per Attempt", accessor: r => r.sma.addedPerAttempt, display: r => `${r.sma.addedPerAttempt >= 0 ? "+" : ""}${r.sma.addedPerAttempt.toFixed(2)}` },
+];
+let shotMakingAddedSort = { key: "addedper", dir: "desc" };
+
+function computeShotMakingAddedRows() {
+  const zonePpa = computeLeagueZonePointsPerAttempt();
+  const combos = computeXptsCombos();
+  return state.players.map(player => {
+    const sma = computeShotMakingAdded(player.id, combos, zonePpa);
+    return sma ? { player, sma } : null;
+  }).filter(Boolean);
+}
+
+function renderShotMakingAddedPanel() {
+  const headerRow = document.getElementById("shotMakingAddedHeaderRow");
+  const body = document.getElementById("shotMakingAddedBody");
+  if (!body) return;
+  renderSortableHeader(headerRow, SHOT_MAKING_ADDED_COLUMNS, shotMakingAddedSort, renderShotMakingAddedPanel);
+  const rows = computeShotMakingAddedRows();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="6" class="empty-state">Nobody has ${SHOT_MAKING_ADDED_MIN_FGA}+ qualifying field goal attempts yet.</td></tr>`;
+    return;
+  }
+  const sortCol = SHOT_MAKING_ADDED_COLUMNS.find(c => c.key === shotMakingAddedSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), shotMakingAddedSort.dir));
+  body.innerHTML = rows.map(r => `<tr>
+    <td>${playerLink(r.player.id, r.player.name)}</td>
+    <td>${r.sma.attempts}</td>
+    <td>${r.sma.actualPts}</td>
+    <td>${r.sma.xpts.toFixed(1)}</td>
+    <td>${r.sma.added >= 0 ? "+" : ""}${r.sma.added.toFixed(1)}</td>
+    <td>${r.sma.addedPerAttempt >= 0 ? "+" : ""}${r.sma.addedPerAttempt.toFixed(2)}</td>
+  </tr>`).join("");
+}
+
+// Cumulative Shot-Making Added by date, one line per player -- same shape as
+// computeTwoWayRankOverSeason()/renderTwoWayRankChart(), plotting a running total instead of a
+// rank. Uses the SAME whole-season xPTS combos/zonePpa as the table above (a fixed reference, not
+// refit fresh at each date) -- the same simplification computeLeagueZonePointsPerAttempt() already
+// makes for Expected Points Against, reasonable at this sample size.
+function computeShotMakingAddedOverSeason(combos, zonePpa) {
+  const qualifyingGames = [...state.games].filter(isQualifyingGame).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const dates = [...new Set(qualifyingGames.map(g => g.date).filter(Boolean))].sort();
+  const running = {};
+  const series = {};
+  dates.forEach(date => {
+    qualifyingGames.filter(g => g.date === date).forEach(game => {
+      game.scoringEvents.forEach(ev => {
+        const x = xptsForShot(ev, combos, zonePpa);
+        if (x === null) return;
+        const added = (ev.made !== false ? ev.points : 0) - x;
+        running[ev.scorerId] = (running[ev.scorerId] || 0) + added;
+      });
+    });
+    state.players.forEach(p => {
+      if (running[p.id] === undefined) return;
+      (series[p.id] = series[p.id] || []).push({ date, added: running[p.id] });
+    });
+  });
+  return { dates, series };
+}
+
+function renderShotMakingAddedChart() {
+  const wrap = document.getElementById("shotMakingAddedChart");
+  if (!wrap) return;
+  const zonePpa = computeLeagueZonePointsPerAttempt();
+  const combos = computeXptsCombos();
+  const { dates, series } = computeShotMakingAddedOverSeason(combos, zonePpa);
+  const playerIds = Object.keys(series);
+  if (dates.length === 0 || playerIds.length === 0) {
+    wrap.innerHTML = '<p class="empty-state">No games logged yet.</p>';
+    return;
+  }
+  const W = 680, H = 460, PAD_L = 44, PAD_R = 96, PAD_T = 16, PAD_B = 34;
+  const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
+  const allAdded = playerIds.flatMap(pid => series[pid].map(p => p.added));
+  const minAdded = Math.min(0, ...allAdded), maxAdded = Math.max(0, ...allAdded);
+  const range = Math.max(1, maxAdded - minAdded);
+  const xScale = i => dates.length === 1 ? PAD_L + plotW / 2 : PAD_L + (i / (dates.length - 1)) * plotW;
+  const yScale = added => PAD_T + (1 - (added - minAdded) / range) * plotH;
+  const dateIndex = {};
+  dates.forEach((d, i) => dateIndex[d] = i);
+
+  const linesSvg = playerIds.map(pid => {
+    const player = state.players.find(p => p.id === pid);
+    if (!player) return "";
+    const points = series[pid];
+    const hue = avatarHueForPlayer(pid);
+    const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"}${xScale(dateIndex[p.date])},${yScale(p.added)}`).join(" ");
+    const dotsSvg = points.map(p => `
+      <g>
+        <title>${escapeHtml(player.name)}: ${p.added >= 0 ? "+" : ""}${p.added.toFixed(1)} as of ${escapeHtml(formatDateDisplay(p.date))}</title>
+        ${svgAvatarDot(player, xScale(dateIndex[p.date]), yScale(p.added), 8, null)}
+      </g>
+    `).join("");
+    const last = points[points.length - 1];
+    const labelSvg = `<text x="${xScale(dateIndex[last.date]) + 12}" y="${yScale(last.added)}" dominant-baseline="central" class="rank-line-label" style="fill:hsl(${hue}, 70%, 62%)">${escapeHtml(player.name)}</text>`;
+    return `<path d="${pathD}" style="stroke:hsl(${hue}, 70%, 62%)" class="rank-line-path" />${dotsSvg}${labelSvg}`;
+  }).join("");
+
+  const labelEvery = Math.max(1, Math.ceil(dates.length / 6));
+  const xLabelsSvg = dates.map((d, i) => (i % labelEvery !== 0 && i !== dates.length - 1) ? "" : `
+    <text x="${xScale(i)}" y="${H - PAD_B + 16}" text-anchor="middle" class="quadrant-axis-label">${escapeHtml(formatDateDisplay(d))}</text>
+  `).join("");
+  const zeroY = yScale(0);
+
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" class="quadrant-svg">
+      <line x1="${PAD_L}" y1="${PAD_T}" x2="${PAD_L}" y2="${H - PAD_B}" class="quadrant-axis" />
+      <line x1="${PAD_L}" y1="${H - PAD_B}" x2="${W - PAD_R}" y2="${H - PAD_B}" class="quadrant-axis" />
+      <line x1="${PAD_L}" y1="${zeroY}" x2="${W - PAD_R}" y2="${zeroY}" class="quadrant-axis" stroke-dasharray="4 4" />
+      ${linesSvg}
+      ${xLabelsSvg}
+      <text x="${PAD_L - 10}" y="${PAD_T - 4}" text-anchor="end" class="quadrant-axis-label">Added</text>
+    </svg>
+  `;
+}
+
+// ---------- True Self-Creation Rate (see poolean-shot-creation-and-mirrors-spec.md) ----------
+// What share of a player's own ATTEMPTS -- makes and misses alike -- had no passer credited,
+// using passerId (now populated on every 2/3pt attempt, not just assistId's makes-only version).
+// A great pass that led to a good, missed shot used to leave zero trace anywhere; passerId closes
+// that gap, so this is now computed against real shot creation, not just the makes that happened
+// to go in.
+//
+// The raw version below has a real flaw the "noHeaves" version fixes: grabbing a loose ball and
+// immediately heaving a deep, low-value shot counts identically to a real drive or move, even
+// though it reflects no individual shot-creation skill at all. noHeaves excludes deep heaves from
+// BOTH sides of the rate (not just the self-created numerator) -- they're not a fair test of
+// shot-creation in either direction, so they're dropped from the question entirely rather than
+// counted as a "failure" to self-create. noHeaves.selfCreatedPct is the one that should be
+// DISPLAYED; the raw rate is kept on the object for reference, not as an equally-weighted
+// alternative.
+const SHOT_CREATION_MIN_FGA = 5;
+function computeTrueSelfCreationRate(playerId) {
+  let selfCreated = 0, assisted = 0;
+  let selfCreatedNoHeave = 0, assistedNoHeave = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.scorerId !== playerId) return;
+      if (ev.points !== 2 && ev.points !== 3) return;
+      const isSelf = ev.passerId === "none";
+      if (isSelf) selfCreated++; else if (ev.passerId) assisted++;
+      if (effShotType(ev) === "deepHeave") return;
+      if (isSelf) selfCreatedNoHeave++; else if (ev.passerId) assistedNoHeave++;
+    });
+  });
+  const total = selfCreated + assisted;
+  const totalNoHeave = selfCreatedNoHeave + assistedNoHeave;
+  return {
+    total, selfCreated, assisted,
+    selfCreatedPct: total >= SHOT_CREATION_MIN_FGA ? pct(selfCreated, total) : null,
+    noHeaves: {
+      total: totalNoHeave, selfCreated: selfCreatedNoHeave, assisted: assistedNoHeave,
+      selfCreatedPct: totalNoHeave >= SHOT_CREATION_MIN_FGA ? pct(selfCreatedNoHeave, totalNoHeave) : null,
+    },
+  };
+}
+
+// ---------- Real Playmaking Volume (see poolean-shot-creation-and-mirrors-spec.md) ----------
+// Every pass that led to ANY attempt, make or miss, using the same unified passerId field -- the
+// old raw-assist count only ever saw the makes, silently undercounting anyone whose real passing
+// volume includes a lot of good looks that just didn't go in. Replaces raw assist count as the
+// primary passing-volume stat; raw assists stay visible as a secondary detail underneath it.
+const REAL_PLAYMAKING_MIN = 3;
+function computeRealPlaymakingVolume(playerId) {
+  let shotsCreated = 0, pointsGenerated = 0, oldAssists = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (ev.assistId === playerId && ev.made !== false) oldAssists++;
+      if (ev.passerId !== playerId) return;
+      shotsCreated++;
+      if (ev.made !== false) pointsGenerated += ev.points;
+    });
+  });
+  if (shotsCreated < REAL_PLAYMAKING_MIN) return null;
+  return { shotsCreated, pointsGenerated, oldAssists };
+}
+
+// ---------- Weighted Pass Quality (see poolean-shot-creation-and-mirrors-spec.md) ----------
+// pass_quality = zone_value x openness_weight, for every shot a player passed into (passerId).
+// zone_value reuses the same league zone PPA rates Expected Points Against and xPTS use.
+// openness_weight rewards a pass that gets the shooter more separation -- a looser contest means
+// the passer created more real advantage, not just that the shooter got lucky. Honest caveat, same
+// as every other hand-picked weighting in this app: these multipliers are a reasonable starting
+// point, not a validated formula -- trust the resulting ranking direction, not the exact numbers,
+// until it's checked against real outcomes the way Win Shares' weights were.
+const PASS_OPENNESS_WEIGHT = { none: 1.3, light: 1.1, medium: 0.9, heavy: 0.7 };
+const PASS_QUALITY_MIN_VOLUME = 3;
+function computeWeightedPassQuality(playerId, zonePpa) {
+  let volume = 0, qualitySum = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (ev.passerId !== playerId) return;
+      const zoneValue = ev.shotLocation && zonePpa.byZone[shotBand(ev.shotLocation, ev.points)] !== null
+        ? zonePpa.byZone[shotBand(ev.shotLocation, ev.points)]
+        : zonePpa.overall;
+      const openness = PASS_OPENNESS_WEIGHT[ev.contestLevel];
+      if (zoneValue === null || zoneValue === undefined || openness === undefined) return;
+      volume++;
+      qualitySum += zoneValue * openness;
+    });
+  });
+  if (volume < PASS_QUALITY_MIN_VOLUME) return null;
+  return { volume, avgQuality: qualitySum / volume };
 }
 
 // ---------- Points off Takeaways (see poolean-shot-creation-and-mirrors-spec.md) ----------
@@ -12117,9 +12506,21 @@ const LEADERBOARD_COLUMNS = [
   { key: "dunks", label: "Dunks", advanced: true, accessor: r => r.dunks, tooltip: "Made dunks, season total (not per-20: a counting stat, not a rate). Only counts shots tagged as a dunk in Stat Entry; games logged before that field existed need a manual pass (Export, Review Possible Dunks) before they count here." },
   { key: "dunkpct", label: "Dunk%", advanced: true, accessor: r => r.dunkPct, display: r => formatPct(r.dunkPct), tooltip: "Share of this player's own field goal attempts (2s and 3s combined) that were tagged as a dunk, make or miss: how much of their offense is above the rim. Same Review Possible Dunks caveat as Dunks: undercounts until older games are backfilled." },
   { key: "selfcreated", label: "Self-Created %", advanced: true,
-    accessor: r => r.shotCreation ? r.shotCreation.selfCreatedPct : null,
-    display: r => r.shotCreation ? formatPct(r.shotCreation.selfCreatedPct) : "—",
-    tooltip: `Share of this player's own makes (2s and 3s) with no assist tagged, vs. set up by a teammate: real shot creation, not an eyeballed inference from how many assists they receive. Needs ${SHOT_CREATION_MIN_FGM}+ makes before showing.` },
+    accessor: r => r.shotCreation ? r.shotCreation.noHeaves.selfCreatedPct : null,
+    display: r => {
+      if (!r.shotCreation || r.shotCreation.noHeaves.selfCreatedPct === null) return "—";
+      const raw = r.shotCreation.selfCreatedPct;
+      return `${formatPct(r.shotCreation.noHeaves.selfCreatedPct)}${raw !== null ? ` (${formatPct(raw)} incl. heaves)` : ""}`;
+    },
+    tooltip: `Share of this player's own ATTEMPTS (makes and misses, 2s and 3s) with no passer credited, deep heaves excluded from both sides of the rate entirely (a grabbed rebound immediately heaved up reflects no real shot-creation skill, so it's dropped rather than counted as a failure to self-create). The raw rate including heaves is shown underneath for reference. Needs ${SHOT_CREATION_MIN_FGA}+ qualifying attempts before showing.` },
+  { key: "realplaymaking", label: "Real Playmaking Volume", advanced: true,
+    accessor: r => r.realPlaymaking ? r.realPlaymaking.shotsCreated : null,
+    display: r => r.realPlaymaking ? `${r.realPlaymaking.shotsCreated} shots (${r.realPlaymaking.pointsGenerated} pts, ${r.realPlaymaking.oldAssists} old assists)` : "—",
+    tooltip: `Every pass that led to ANY attempt, make or miss (passerId), plus the points those makes actually generated -- replaces raw assist count as the primary passing-volume stat, since assists alone silently hide every good pass that led to a miss. The old assist count is shown underneath for comparison. Needs ${REAL_PLAYMAKING_MIN}+ shots created before showing.` },
+  { key: "passquality", label: "Weighted Pass Quality", advanced: true,
+    accessor: r => r.passQuality ? r.passQuality.avgQuality : null,
+    display: r => r.passQuality ? `${r.passQuality.avgQuality.toFixed(2)} (${r.passQuality.volume} passes)` : "—",
+    tooltip: `Average zone value x openness weight across every shot this player passed into: separates "passes often" from "creates good shots when they do." Openness rewards a looser contest (the passer created more real separation) -- weights are a reasonable starting guess, not a validated formula yet. Needs ${PASS_QUALITY_MIN_VOLUME}+ passes before showing.` },
   { key: "moneyzone", label: "Money Zone %", advanced: true,
     accessor: r => {
       const money = r.shooting.closeA + r.shooting.tpArcA;
@@ -12350,8 +12751,14 @@ function renderLeaderboard() {
   renderLeagueDirectionSplits();
   renderLeagueTsByZoneChart();
   renderWideOpenShootingPanel();
+  renderShotMakingAddedPanel();
+  renderShotMakingAddedChart();
   renderLeagueTsChart();
   renderMatchupGrid();
+  renderPassingChemistrySelects();
+  renderPassingChemistryPair();
+  renderPassingChemistryGrid();
+  renderOppAdjReboundPanel();
   renderReboundBattleRecordPanel();
   renderReboundBattleGridPanel();
   renderTeammateLiftMatrix();
@@ -12361,6 +12768,8 @@ function renderLeaderboard() {
   renderSecondChancePanel();
   renderSecondChanceAllowedPanel();
   renderPointsOffTakeawaysPanel();
+  renderTurnoverTypeBreakdownPanel();
+  renderSelfCreationFullPanel();
   renderGameWinningBucketsPanel();
   renderDefensiveLoadPanel();
   renderContestEngagementPanel();
@@ -12525,6 +12934,8 @@ function renderPlayerComparison() {
 }
 document.getElementById("comparePlayer1Select").addEventListener("change", renderPlayerComparison);
 document.getElementById("comparePlayer2Select").addEventListener("change", renderPlayerComparison);
+document.getElementById("chemistryPlayer1Select").addEventListener("change", renderPassingChemistryPair);
+document.getElementById("chemistryPlayer2Select").addEventListener("change", renderPassingChemistryPair);
 
 // ---------- Player Detail ----------
 let currentPlayerId = null;
@@ -14033,6 +14444,230 @@ function turnoverTypeLabel(key) {
 }
 function turnoverTypeButtonsHtml(current, attr) {
   return TURNOVER_TYPES.map(t => `<button type="button" class="secondary-btn${current === t.key ? " selected" : ""}" data-${attr}="${t.key}" title="${escapeHtml(t.about)}">${escapeHtml(t.label)}</button>`).join("");
+}
+
+// ---------- Turnover Type Breakdown ----------
+// Every turnover currently counts the same toward TOV/20, whether it was a careless bad pass or a
+// genuinely forced strip by good defense. badPass/lostHandle/decisionError/driveError are all
+// self-inflicted (none involve a defender causing the loss); stripped is the one genuinely
+// defense-forced category. "other" is left out of the self-inflicted/forced split entirely -- it's
+// an explicit catch-all, so its character isn't knowable from the category alone. Only counts
+// LIVE-BALL turnovers with a type tagged: a turnover auto-created from a missed shot going out of
+// bounds (missEventId set) never gets a type at all (see Review Turnover Types), so it's excluded
+// here rather than silently miscounted as either kind. Still a real, ongoing backfill (see the
+// caveat text in index.html) -- treat any season this shows well under 100% tagged as early.
+const TURNOVER_TYPE_MIN_TAGGED = 5;
+const SELF_INFLICTED_TURNOVER_TYPES = new Set(["badPass", "lostHandle", "decisionError", "driveError"]);
+const FORCED_TURNOVER_TYPES = new Set(["stripped"]);
+function computeTurnoverTypeBreakdown(playerId) {
+  const counts = Object.fromEntries(TURNOVER_TYPES.map(t => [t.key, 0]));
+  let tagged = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.turnoverEvents.forEach(ev => {
+      if (ev.playerId !== playerId) return;
+      if (ev.missEventId) return;
+      if (!ev.turnoverType || counts[ev.turnoverType] === undefined) return;
+      counts[ev.turnoverType]++;
+      tagged++;
+    });
+  });
+  let selfInflicted = 0, forced = 0;
+  Object.entries(counts).forEach(([key, n]) => {
+    if (SELF_INFLICTED_TURNOVER_TYPES.has(key)) selfInflicted += n;
+    else if (FORCED_TURNOVER_TYPES.has(key)) forced += n;
+  });
+  return {
+    counts, tagged, selfInflicted, forced,
+    selfInflictedPct: tagged >= TURNOVER_TYPE_MIN_TAGGED ? pct(selfInflicted, tagged) : null,
+    forcedPct: tagged >= TURNOVER_TYPE_MIN_TAGGED ? pct(forced, tagged) : null,
+  };
+}
+
+const TURNOVER_TYPE_CSS_CLASS = { badPass: "tov-seg-badpass", lostHandle: "tov-seg-losthandle", decisionError: "tov-seg-decisionerror", stripped: "tov-seg-stripped" };
+const TURNOVER_TYPE_BREAKDOWN_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "tagged", label: "Tagged", accessor: r => r.breakdown.tagged },
+  { key: "selfinflicted", label: "Self-Inflicted", accessor: r => r.breakdown.selfInflictedPct, display: r => r.breakdown.selfInflictedPct === null ? "—" : formatPct(r.breakdown.selfInflictedPct) },
+  { key: "forced", label: "Forced (Stripped)", accessor: r => r.breakdown.forcedPct, display: r => r.breakdown.forcedPct === null ? "—" : formatPct(r.breakdown.forcedPct) },
+  { key: "mix", label: "Mix", accessor: r => r.breakdown.tagged },
+];
+let turnoverTypeBreakdownSort = { key: "tagged", dir: "desc" };
+
+function computeTurnoverTypeBreakdownRows() {
+  return state.players.map(player => {
+    const breakdown = computeTurnoverTypeBreakdown(player.id);
+    if (breakdown.tagged === 0) return null;
+    return { player, breakdown };
+  }).filter(Boolean);
+}
+
+function renderTurnoverTypeBreakdownPanel() {
+  const headerRow = document.getElementById("turnoverTypeBreakdownHeaderRow");
+  const body = document.getElementById("turnoverTypeBreakdownBody");
+  const legendWrap = document.getElementById("turnoverTypeLegend");
+  if (!body) return;
+  if (legendWrap) {
+    legendWrap.innerHTML = TURNOVER_TYPES.filter(t => t.key !== "other").map(t =>
+      `<span class="legend-item"><span class="legend-swatch ${TURNOVER_TYPE_CSS_CLASS[t.key] || ""}"></span>${escapeHtml(t.label)}</span>`
+    ).join("");
+  }
+  renderSortableHeader(headerRow, TURNOVER_TYPE_BREAKDOWN_COLUMNS, turnoverTypeBreakdownSort, renderTurnoverTypeBreakdownPanel);
+  const rows = computeTurnoverTypeBreakdownRows();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">No live-ball turnovers with a type tagged yet (Export, Review Turnover Types).</td></tr>`;
+    return;
+  }
+  const sortCol = TURNOVER_TYPE_BREAKDOWN_COLUMNS.find(c => c.key === turnoverTypeBreakdownSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), turnoverTypeBreakdownSort.dir));
+  body.innerHTML = rows.map(r => {
+    const b = r.breakdown;
+    const mix = TURNOVER_TYPES.map(t => {
+      const n = b.counts[t.key];
+      return n === 0 ? "" : `<div class="shot-seg ${TURNOVER_TYPE_CSS_CLASS[t.key] || ""}" style="width:${(n / b.tagged) * 100}%" title="${escapeHtml(r.player.name)}: ${n} ${escapeHtml(t.label)}"></div>`;
+    }).join("");
+    const thin = b.tagged < TURNOVER_TYPE_MIN_TAGGED ? ' <span class="hint" style="margin:0">too few tagged</span>' : "";
+    return `<tr>
+      <td>${playerLink(r.player.id, r.player.name)}</td>
+      <td>${b.tagged}${thin}</td>
+      <td>${b.selfInflictedPct === null ? "—" : `${formatPct(b.selfInflictedPct)} (${b.selfInflicted})`}</td>
+      <td>${b.forcedPct === null ? "—" : `${formatPct(b.forcedPct)} (${b.forced})`}</td>
+      <td><div class="shot-selection-bar">${mix}</div></td>
+    </tr>`;
+  }).join("");
+}
+
+// ---------- Self-Creation Including Turnover Cost ----------
+// True Self-Creation Rate only counts self-created possessions that resulted in a shot attempt --
+// a self-creation attempt that ends in a lost handle or bad pass instead just vanishes from the
+// denominator, silently flattering anyone whose creation attempts frequently end in a turnover
+// instead of a shot. A stricter, more honest number alongside it (not a replacement -- the two
+// answer slightly different questions: how good is the shot when I get one, vs. how often does
+// trying to create one actually work out at all). "Self-created turnover" here means the same
+// self-inflicted categories as Turnover Type Breakdown (badPass/lostHandle/decisionError/
+// driveError), on a LIVE-BALL turnover only (missEventId null, same exclusion as everywhere else
+// turnoverType is used) -- a strip is the defense's doing, not a failed self-creation attempt.
+const SELF_CREATION_FULL_MIN = 5;
+function computeSelfCreationFullAccounting(playerId) {
+  let selfCreatedFga = 0, selfCreatedPts = 0, selfCreatedTov = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.scorerId !== playerId) return;
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (ev.passerId !== "none") return;
+      selfCreatedFga++;
+      if (ev.made !== false) selfCreatedPts += ev.points;
+    });
+    game.turnoverEvents.forEach(ev => {
+      if (ev.playerId !== playerId) return;
+      if (ev.missEventId) return;
+      if (!ev.turnoverType || !SELF_INFLICTED_TURNOVER_TYPES.has(ev.turnoverType)) return;
+      selfCreatedTov++;
+    });
+  });
+  const possessions = selfCreatedFga + selfCreatedTov;
+  if (possessions < SELF_CREATION_FULL_MIN) return null;
+  return {
+    selfCreatedFga, selfCreatedTov, selfCreatedPts, possessions,
+    successRate: pct(selfCreatedFga, possessions),
+    ptsPerPossession: selfCreatedPts / possessions,
+  };
+}
+
+const SELF_CREATION_FULL_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "fga", label: "Self-Created FGA", accessor: r => r.full.selfCreatedFga },
+  { key: "tov", label: "Self-Created TOV", accessor: r => r.full.selfCreatedTov },
+  { key: "poss", label: "Total Possessions", accessor: r => r.full.possessions },
+  { key: "success", label: "Success Rate", accessor: r => r.full.successRate, display: r => formatPct(r.full.successRate) },
+  { key: "ppp", label: "Pts per Possession", accessor: r => r.full.ptsPerPossession, display: r => r.full.ptsPerPossession.toFixed(2) },
+];
+let selfCreationFullSort = { key: "poss", dir: "desc" };
+
+function computeSelfCreationFullRows() {
+  return state.players.map(player => {
+    const full = computeSelfCreationFullAccounting(player.id);
+    return full ? { player, full } : null;
+  }).filter(Boolean);
+}
+
+function renderSelfCreationFullPanel() {
+  const headerRow = document.getElementById("selfCreationFullHeaderRow");
+  const body = document.getElementById("selfCreationFullBody");
+  if (!body) return;
+  renderSortableHeader(headerRow, SELF_CREATION_FULL_COLUMNS, selfCreationFullSort, renderSelfCreationFullPanel);
+  const rows = computeSelfCreationFullRows();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="6" class="empty-state">Nobody has ${SELF_CREATION_FULL_MIN}+ self-creation possessions yet.</td></tr>`;
+    return;
+  }
+  const sortCol = SELF_CREATION_FULL_COLUMNS.find(c => c.key === selfCreationFullSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), selfCreationFullSort.dir));
+  body.innerHTML = rows.map(r => `<tr>
+    <td>${playerLink(r.player.id, r.player.name)}</td>
+    <td>${r.full.selfCreatedFga}</td>
+    <td>${r.full.selfCreatedTov}</td>
+    <td>${r.full.possessions}</td>
+    <td>${formatPct(r.full.successRate)}</td>
+    <td>${r.full.ptsPerPossession.toFixed(2)}</td>
+  </tr>`).join("");
+}
+
+// ---------- Opportunity-Adjusted Rebounding ----------
+// OREB/DREB are raw counts with no denominator -- a player who logged fewer games will always show
+// fewer rebounds regardless of real rebounding ability. Rebound Opportunities approximates "on the
+// floor for" as "played in this game" (Poolean has no substitutions, so anyone rostered for a game
+// is on the floor for the whole thing) -- a real improvement over a completely unadjusted raw
+// count, but still an approximation, not a precise rate, since it can't account for a player
+// sitting out stretches of a game (which doesn't happen here, but the framing matters if that ever
+// changes).
+const OPP_ADJ_REBOUND_MIN = 5;
+function computeOpportunityAdjustedRebounding(playerId) {
+  let totalReb = 0, opportunities = 0;
+  const games = qualifyingGamesForPlayer(playerId);
+  games.forEach(game => {
+    const s = game.stats.find(st => st.playerId === playerId);
+    if (s) totalReb += s.oreb + s.dreb;
+    opportunities += game.scoringEvents.filter(ev => (ev.points === 2 || ev.points === 3) && ev.made === false).length;
+  });
+  if (opportunities < OPP_ADJ_REBOUND_MIN) return null;
+  return { totalReb, opportunities, rate: pct(totalReb, opportunities), rawRpg: games.length > 0 ? totalReb / games.length : 0 };
+}
+
+const OPP_ADJ_REBOUND_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "reb", label: "OREB+DREB", accessor: r => r.adj.totalReb },
+  { key: "opp", label: "Rebound Opportunities", accessor: r => r.adj.opportunities },
+  { key: "rate", label: "Adjusted Rate", accessor: r => r.adj.rate, display: r => formatPct(r.adj.rate) },
+  { key: "rawrpg", label: "Raw RPG", accessor: r => r.adj.rawRpg, display: r => r.adj.rawRpg.toFixed(1) },
+];
+let oppAdjReboundSort = { key: "rate", dir: "desc" };
+
+function computeOppAdjReboundRows() {
+  return state.players.map(player => {
+    const adj = computeOpportunityAdjustedRebounding(player.id);
+    return adj ? { player, adj } : null;
+  }).filter(Boolean);
+}
+
+function renderOppAdjReboundPanel() {
+  const headerRow = document.getElementById("oppAdjReboundHeaderRow");
+  const body = document.getElementById("oppAdjReboundBody");
+  if (!body) return;
+  renderSortableHeader(headerRow, OPP_ADJ_REBOUND_COLUMNS, oppAdjReboundSort, renderOppAdjReboundPanel);
+  const rows = computeOppAdjReboundRows();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">Nobody has ${OPP_ADJ_REBOUND_MIN}+ rebound opportunities yet.</td></tr>`;
+    return;
+  }
+  const sortCol = OPP_ADJ_REBOUND_COLUMNS.find(c => c.key === oppAdjReboundSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), oppAdjReboundSort.dir));
+  body.innerHTML = rows.map(r => `<tr>
+    <td>${playerLink(r.player.id, r.player.name)}</td>
+    <td>${r.adj.totalReb}</td>
+    <td>${r.adj.opportunities}</td>
+    <td>${formatPct(r.adj.rate)}</td>
+    <td>${r.adj.rawRpg.toFixed(1)}</td>
+  </tr>`).join("");
 }
 
 // How hard a tagged defender actually challenged the shot -- defenderIds itself only says whether
