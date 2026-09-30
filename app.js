@@ -538,13 +538,20 @@ function normalizeGame(game) {
     }
     if (ev.assistId === undefined) ev.assistId = null;
     // contestLevel: how hard the tagged defender(s) actually challenged the shot -- null until
-    // reviewed (see Review Contest Levels backfill), only meaningful once defenderIds isn't empty.
+    // reviewed (see Review Contests & Passers backfill), only ever a real judgment call
+    // (light/medium/heavy) once defenderIds isn't empty. A shot with no defender tagged at all
+    // needs no judgment call -- "none" (no contest) is already the known, correct answer, so it's
+    // auto-assigned here instead of sitting in the review queue forever.
     if (ev.contestLevel === undefined) ev.contestLevel = null;
-    // passerId: who passed to the shooter on a MISS (assistId only ever gets set on makes, by
-    // design -- see the isMiss check where assistId is written during live entry). "none" is a
-    // real reviewed answer (confirmed no clear passer), distinct from null (not reviewed yet), so
-    // Review Passers on Misses knows which misses still need a look.
+    if (ev.contestLevel === null && (ev.defenderIds || []).length === 0) ev.contestLevel = "none";
+    // passerId: who passed to the shooter, mirroring assistId (which only ever gets set on a MAKE,
+    // by design -- see the isMiss check where assistId is written during live entry) for misses
+    // too. "none" is a real reviewed answer (confirmed no clear passer), distinct from null (not
+    // reviewed yet), so Review Contests & Passers knows which misses still need a look. A make's
+    // passer is never a separate judgment call -- it's exactly whoever Stat Entry's own "Assisted
+    // by?" step already credited (or confirmed nobody), so it's auto-copied from assistId here.
     if (ev.passerId === undefined) ev.passerId = null;
+    if (ev.passerId === null && ev.made !== false) ev.passerId = ev.assistId || "none";
     if (ev.blockerId === undefined) ev.blockerId = null;
     if (ev.turnoverEventId === undefined) ev.turnoverEventId = null;
     if (ev.rebounderId === undefined) ev.rebounderId = null;
@@ -13902,6 +13909,7 @@ const CONTEST_LEVELS = [
   { key: "heavy", label: "Heavy Contest", about: "A hand in their face, verticality, or real physical pressure that could plausibly alter the shot." }
 ];
 function contestLevelLabel(key) {
+  if (key === "none") return "No Contest";
   const t = CONTEST_LEVELS.find(x => x.key === key);
   return t ? t.label : "No level yet";
 }
@@ -14722,6 +14730,10 @@ const SHOT_REVIEW_PAGE = 20;
 let shotReviewLimit = SHOT_REVIEW_PAGE;
 let shotReviewPlayer = "";
 const shotReviewSkipped = new Set();
+// Skip only hides a row for the rest of this visit (a reload already brings it back, same as
+// every other backfill queue) -- this additionally lets it back in on demand, without reloading
+// the whole app, whenever there's actually something skipped to look at again.
+let shotReviewShowSkipped = false;
 
 function shotReviewNeeds(ev) {
   if (ev.points !== 2 && ev.points !== 3) return { contest: false, passer: false };
@@ -14738,7 +14750,7 @@ function computeShotReviewRows() {
       const needs = shotReviewNeeds(ev);
       if (!needs.contest && !needs.passer) return;
       if (shotReviewPlayer && ev.scorerId !== shotReviewPlayer) return;
-      if (shotReviewSkipped.has(ev.id)) return;
+      if (!shotReviewShowSkipped && shotReviewSkipped.has(ev.id)) return;
       rows.push({ game, ev });
     });
   });
@@ -14762,6 +14774,19 @@ function shotReviewNeedsHtml(game, ev) {
       </div>` : ""}`;
 }
 
+function countSkippedShotReviewRows() {
+  let n = 0;
+  state.games.forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      const needs = shotReviewNeeds(ev);
+      if (!needs.contest && !needs.passer) return;
+      if (shotReviewPlayer && ev.scorerId !== shotReviewPlayer) return;
+      if (shotReviewSkipped.has(ev.id)) n++;
+    });
+  });
+  return n;
+}
+
 function renderShotReview() {
   const wrap = document.getElementById("shotReview");
   if (!wrap) return;
@@ -14770,12 +14795,14 @@ function renderShotReview() {
   const inMode = new Set();
   state.games.forEach(g => g.scoringEvents.forEach(ev => {
     const needs = shotReviewNeeds(ev);
-    if ((needs.contest || needs.passer) && !shotReviewSkipped.has(ev.id)) inMode.add(ev.scorerId);
+    if ((needs.contest || needs.passer) && (shotReviewShowSkipped || !shotReviewSkipped.has(ev.id))) inMode.add(ev.scorerId);
   }));
   const playerOptions = state.players.filter(p => inMode.has(p.id) || p.id === shotReviewPlayer)
     .map(p => `<option value="${p.id}"${p.id === shotReviewPlayer ? " selected" : ""}>${escapeHtml(p.name)}</option>`).join("");
-  const controls = `<div class="button-row" style="margin:0 0 8px;gap:10px;align-items:center">
+  const skippedCount = countSkippedShotReviewRows();
+  const controls = `<div class="button-row shot-review-controls" style="margin:0 0 8px;gap:10px;align-items:center">
       <label>Player <select data-shot-review-player><option value="">Everyone</option>${playerOptions}</select></label>
+      ${skippedCount > 0 ? `<button type="button" class="icon-btn" data-toggle-show-skipped>${shotReviewShowSkipped ? "Hide skipped" : `Show skipped (${skippedCount})`}</button>` : ""}
     </div>`;
   wrap.innerHTML = `${controls}
   ${all.length === 0 ? '<p class="empty-state">Every contested shot has a level, and every miss has a passer reviewed.</p>' : `<p class="hint shot-review-summary" style="margin-top:0"></p>
@@ -14784,27 +14811,51 @@ function renderShotReview() {
     const hasTime = ev.videoTime !== null && ev.videoTime !== undefined;
     const watchLinks = watchFilmLinksHtml(hasTime ? [{ id: game.id, date: game.date, videoTime: ev.videoTime }] : []);
     const guarded = (ev.defenderIds || []).length > 0 ? `guarded by ${escapeHtml(defenderNames(ev.defenderIds))}` : "no defender/open";
+    const isSkipped = shotReviewSkipped.has(ev.id);
+    const skipBtn = isSkipped
+      ? `<button type="button" class="icon-btn" data-unskip-shot-review="${ev.id}">Unskip</button>`
+      : `<button type="button" class="icon-btn" data-skip-shot-review="${ev.id}">Skip</button>`;
     return `<li data-event-id="${ev.id}">
-      <span>${scorer ? playerLink(scorer.id, scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt, ${guarded}, ${escapeHtml(formatDateDisplay(game.date))})${watchLinks}</span>
+      <span>${scorer ? playerLink(scorer.id, scorer.name) : "?"}: ${ev.made !== false ? "Make" : "Miss"} (${ev.points}pt, ${guarded}, ${escapeHtml(formatDateDisplay(game.date))})${isSkipped ? " · skipped" : ""}${watchLinks}</span>
       <div class="shot-review-needs">${shotReviewNeedsHtml(game, ev)}</div>
-      <div class="button-row" style="margin-top:4px"><button type="button" class="icon-btn" data-skip-shot-review="${ev.id}">Skip</button></div>
+      <div class="button-row" style="margin-top:4px">${skipBtn}</div>
     </li>`;
   }).join("")}</ul>
   ${all.length > shown.length ? '<button type="button" class="secondary-btn" data-shot-review-more="1">Show more</button>' : ""}`}`;
   wireWatchFilmButtons(wrap);
 
   wrap.querySelector("[data-shot-review-player]").addEventListener("change", e => { shotReviewPlayer = e.target.value; shotReviewLimit = SHOT_REVIEW_PAGE; renderShotReview(); });
+  const toggleSkippedBtn = wrap.querySelector("[data-toggle-show-skipped]");
+  if (toggleSkippedBtn) toggleSkippedBtn.addEventListener("click", () => { shotReviewShowSkipped = !shotReviewShowSkipped; shotReviewLimit = SHOT_REVIEW_PAGE; renderShotReview(); });
   if (all.length === 0) return;
 
   const summaryEl = wrap.querySelector(".shot-review-summary");
   const updateSummary = () => {
     const left = computeShotReviewRows().length;
-    summaryEl.textContent = `${left} shots still need a contest level and/or a passer.`;
+    summaryEl.textContent = shotReviewShowSkipped
+      ? `${left} shots shown, including previously skipped ones.`
+      : `${left} shots still need a contest level and/or a passer.`;
   };
   updateSummary();
+  const updateSkipToggle = () => {
+    const n = countSkippedShotReviewRows();
+    const controlsRow = wrap.querySelector(".shot-review-controls");
+    let btn = controlsRow.querySelector("[data-toggle-show-skipped]");
+    if (n === 0) { btn?.remove(); return; }
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "icon-btn";
+      btn.dataset.toggleShowSkipped = "1";
+      btn.addEventListener("click", () => { shotReviewShowSkipped = !shotReviewShowSkipped; shotReviewLimit = SHOT_REVIEW_PAGE; renderShotReview(); });
+      controlsRow.appendChild(btn);
+    }
+    btn.textContent = shotReviewShowSkipped ? "Hide skipped" : `Show skipped (${n})`;
+  };
   const dropRow = eventId => {
     wrap.querySelector(`li[data-event-id="${eventId}"]`)?.remove();
     updateSummary();
+    updateSkipToggle();
     if (wrap.querySelectorAll("li").length === 0) renderShotReview();
   };
   const wireRowButtons = (li, game, ev) => {
@@ -14835,9 +14886,13 @@ function renderShotReview() {
     const row = shown.find(r => r.ev.id === eventId);
     if (!row) return;
     wireRowButtons(li, row.game, row.ev);
-    li.querySelector("[data-skip-shot-review]").addEventListener("click", () => {
+    li.querySelector("[data-skip-shot-review]")?.addEventListener("click", () => {
       shotReviewSkipped.add(eventId);
       dropRow(eventId);
+    });
+    li.querySelector("[data-unskip-shot-review]")?.addEventListener("click", () => {
+      shotReviewSkipped.delete(eventId);
+      renderShotReview();
     });
   });
   const moreBtn = wrap.querySelector("[data-shot-review-more]");
