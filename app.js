@@ -6744,6 +6744,94 @@ function renderContestEngagementPanel() {
   });
 }
 
+const SHOOTER_QUALITY_DEF_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "n", label: "Shots", accessor: r => r.adj.n },
+  { key: "shooterq", label: "Shooter Quality Faced (TS%)", accessor: r => r.adj.shooterQualityFaced, display: r => formatPct(r.adj.shooterQualityFaced) },
+  { key: "realfg", label: "Real Contested Opp FG%", accessor: r => r.adj.realContestedFgPct, display: r => formatPct(r.adj.realContestedFgPct) },
+  { key: "dae", label: "Defense Above Expected", accessor: r => r.adj.defenseAboveExpected, display: r => `${r.adj.defenseAboveExpected >= 0 ? "+" : ""}${r.adj.defenseAboveExpected.toFixed(1)}` },
+];
+let shooterQualityDefSort = { key: "dae", dir: "desc" };
+
+function computeShooterQualityDefRows() {
+  const qualityMap = {};
+  state.players.forEach(p => { qualityMap[p.id] = computeShooterQualityBaseline(p.id); });
+  return state.players.map(player => {
+    const adj = computeShooterQualityAdjustedDefense(player.id, qualityMap);
+    return adj ? { player, adj } : null;
+  }).filter(Boolean);
+}
+
+function renderShooterQualityDefPanel() {
+  const headerRow = document.getElementById("shooterQualityDefHeaderRow");
+  const body = document.getElementById("shooterQualityDefBody");
+  const gateEl = document.getElementById("shooterQualityGateStatus");
+  if (!body) return;
+  if (gateEl) {
+    const gate = computeShooterQualityGateStatus();
+    gateEl.textContent = `${gate.ready} of ${gate.total} players with any shots logged have the spec's recommended ${SHOOTER_QUALITY_GATE_FGA}+ tagged attempts for a trustworthy quality baseline -- read direction here, not magnitude.`;
+  }
+  renderSortableHeader(headerRow, SHOOTER_QUALITY_DEF_COLUMNS, shooterQualityDefSort, renderShooterQualityDefPanel);
+  const rows = computeShooterQualityDefRows();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">Nobody has enough real-contested defensive volume yet.</td></tr>`;
+    return;
+  }
+  const sortCol = SHOOTER_QUALITY_DEF_COLUMNS.find(c => c.key === shooterQualityDefSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), shooterQualityDefSort.dir));
+  body.innerHTML = rows.map(r => `<tr>
+    <td>${playerLink(r.player.id, r.player.name)}</td>
+    <td>${r.adj.n}</td>
+    <td>${formatPct(r.adj.shooterQualityFaced)}</td>
+    <td>${formatPct(r.adj.realContestedFgPct)}</td>
+    <td>${r.adj.defenseAboveExpected >= 0 ? "+" : ""}${r.adj.defenseAboveExpected.toFixed(1)}</td>
+  </tr>`).join("");
+}
+
+const DEFENDER_QUALITY_OFF_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "n", label: "Shots", accessor: r => r.adj.n },
+  { key: "ownfg", label: "Own Real Contested FG%", accessor: r => r.adj.ownFgPct, display: r => formatPct(r.adj.ownFgPct) },
+  { key: "defq", label: "Defender Quality Faced", accessor: r => r.adj.defenderQualityFaced, display: r => formatPct(r.adj.defenderQualityFaced) },
+  { key: "oae", label: "Offense Above Expected", accessor: r => r.adj.offenseAboveExpected, display: r => `${r.adj.offenseAboveExpected >= 0 ? "+" : ""}${r.adj.offenseAboveExpected.toFixed(1)}` },
+];
+let defenderQualityOffSort = { key: "oae", dir: "desc" };
+
+function computeDefenderQualityOffRows() {
+  const defenseMap = {};
+  state.players.forEach(p => { defenseMap[p.id] = computeRealContestedDefense(p.id); });
+  return state.players.map(player => {
+    const adj = computeDefenderQualityAdjustedOffense(player.id, defenseMap);
+    return adj ? { player, adj } : null;
+  }).filter(Boolean);
+}
+
+function renderDefenderQualityOffPanel() {
+  const headerRow = document.getElementById("defenderQualityOffHeaderRow");
+  const body = document.getElementById("defenderQualityOffBody");
+  const gateEl = document.getElementById("defenderQualityGateStatus");
+  if (!body) return;
+  if (gateEl) {
+    const gate = computeDefenderQualityGateStatus();
+    gateEl.textContent = `${gate.ready} of ${gate.total} defenders with real-contested volume have the spec's recommended ${DEFENDER_QUALITY_GATE_FGA}+ threshold for a trustworthy quality baseline -- read direction here, not magnitude.`;
+  }
+  renderSortableHeader(headerRow, DEFENDER_QUALITY_OFF_COLUMNS, defenderQualityOffSort, renderDefenderQualityOffPanel);
+  const rows = computeDefenderQualityOffRows();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">Nobody has enough real-contested offensive volume yet.</td></tr>`;
+    return;
+  }
+  const sortCol = DEFENDER_QUALITY_OFF_COLUMNS.find(c => c.key === defenderQualityOffSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), defenderQualityOffSort.dir));
+  body.innerHTML = rows.map(r => `<tr>
+    <td>${playerLink(r.player.id, r.player.name)}</td>
+    <td>${r.adj.n}</td>
+    <td>${formatPct(r.adj.ownFgPct)}</td>
+    <td>${formatPct(r.adj.defenderQualityFaced)}</td>
+    <td>${r.adj.offenseAboveExpected >= 0 ? "+" : ""}${r.adj.offenseAboveExpected.toFixed(1)}</td>
+  </tr>`).join("");
+}
+
 // Close-Game Shooting — a margin-aware alternative to Game-Winning Buckets for the Clutch
 // comparison above. GWB is explicitly non-scarce by construction (see the comment on
 // gameWinningShot()): the last basket of every decided game is, by definition, the winner's, so
@@ -9944,6 +10032,114 @@ function computeContestLevelDistribution(playerId) {
   return { counts, tagged, engagementRate: tagged >= CONTEST_ENGAGEMENT_MIN_TAGGED ? pct(engaged, tagged) : null };
 }
 
+// ---------- Shooter-Quality-Adjusted Defense (EARLY -- see the caveat in index.html) ----------
+// Real Contested Opp FG% (above) treats every shooter the same. A defender who mostly ends up
+// guarding the league's best shooters and holds them to a modest FG% is doing more than one who
+// puts up the same number against the league's weakest shooters. This stacks a THIRD adjustment
+// (shooter quality) on top of the two already applied to Real Contested Opp FG% (zone, via xPTS,
+// and contest level itself) -- explicitly flagged in the spec this was built from as long-term,
+// gated on every regular player having 30+ tagged shots of their own to serve as a trustworthy
+// quality baseline. That gate isn't met yet. Shipped anyway, at the user's request, clearly marked
+// early rather than withheld -- SHOOTER_QUALITY_GATE_FGA is the number the spec asks for; the
+// per-row minimum stays the same lighter REAL_CONTESTED_MIN_FGA gate every other real-contested
+// stat on this page already uses, so this doesn't invent a stricter standard just for itself.
+const SHOOTER_QUALITY_GATE_FGA = 30;
+function computeShooterQualityBaseline(playerId) {
+  let pts = 0, fga = 0, fta = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    const sh = shootingStats(game, playerId);
+    fga += sh.fga; fta += sh.fta;
+    const s = game.stats.find(st => st.playerId === playerId);
+    if (s) pts += s.pts;
+  });
+  return { fga, ts: trueShootingPct(pts, fga, fta) };
+}
+
+function computeShooterQualityGateStatus() {
+  const baselines = state.players.map(p => computeShooterQualityBaseline(p.id)).filter(b => b.fga > 0);
+  const ready = baselines.filter(b => b.fga >= SHOOTER_QUALITY_GATE_FGA).length;
+  return { ready, total: baselines.length };
+}
+
+// Defense Above Expected = (average season TS% of the shooters this defender actually faced,
+// weighted by real-contested shot) - (this defender's own Real Contested Opp FG%). Positive means
+// holding shooters below their own normal output -- sign mirrors Points Under Expected from
+// Expected Points Against (positive = good for the defender).
+function computeShooterQualityAdjustedDefense(playerId, qualityMap) {
+  const realContested = computeRealContestedDefense(playerId);
+  if (!realContested) return null;
+  let qualitySum = 0, n = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (!(ev.defenderIds || []).includes(playerId)) return;
+      if (ev.contestLevel !== "medium" && ev.contestLevel !== "heavy") return;
+      const q = qualityMap[ev.scorerId];
+      if (!q || q.ts === null) return;
+      qualitySum += q.ts;
+      n++;
+    });
+  });
+  if (n === 0) return null;
+  const shooterQualityFaced = qualitySum / n;
+  return { n, shooterQualityFaced, realContestedFgPct: realContested.fgPct, defenseAboveExpected: shooterQualityFaced - realContested.fgPct };
+}
+
+// ---------- Defender-Quality-Adjusted Offense (EARLY -- see the caveat in index.html) ----------
+// The direct mirror of the above: a scorer who stays efficient specifically against the league's
+// best defenders is doing more than one whose efficiency comes mostly against weak ones. Same
+// long-term gate in the spec (every regular defender needs real n>=8-10 contested volume to serve
+// as a trustworthy quality baseline), also not met yet, also shipped early at the user's request.
+// The spec says these two should ship together or not at all -- they do.
+const DEFENDER_QUALITY_GATE_FGA = 8;
+function computeDefenderQualityGateStatus() {
+  const withVolume = state.players.map(p => computeRealContestedDefense(p.id)).filter(Boolean);
+  const ready = withVolume.filter(d => d.attempts >= DEFENDER_QUALITY_GATE_FGA).length;
+  return { ready, total: withVolume.length };
+}
+
+// This player's own Real Contested FG% AS A SCORER -- the offensive mirror of
+// computeRealContestedDefense, same medium/heavy filter, just scoped to their own attempts.
+function computeScorerRealContestedFg(playerId) {
+  let made = 0, attempts = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.scorerId !== playerId) return;
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (ev.contestLevel !== "medium" && ev.contestLevel !== "heavy") return;
+      attempts++;
+      if (ev.made !== false) made++;
+    });
+  });
+  if (attempts < REAL_CONTESTED_MIN_FGA) return null;
+  return { made, attempts, fgPct: pct(made, attempts) };
+}
+
+// Offense Above Expected = (this scorer's own Real Contested FG%) - (average Real Contested Opp
+// FG% of the defenders on those same attempts). Positive means staying efficient against
+// real-contested defense specifically, not just efficient in the abstract.
+function computeDefenderQualityAdjustedOffense(playerId, defenseMap) {
+  const own = computeScorerRealContestedFg(playerId);
+  if (!own) return null;
+  let qualitySum = 0, n = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.scoringEvents.forEach(ev => {
+      if (ev.scorerId !== playerId) return;
+      if (ev.points !== 2 && ev.points !== 3) return;
+      if (ev.contestLevel !== "medium" && ev.contestLevel !== "heavy") return;
+      (ev.defenderIds || []).forEach(defId => {
+        const dq = defenseMap[defId];
+        if (!dq) return;
+        qualitySum += dq.fgPct;
+        n++;
+      });
+    });
+  });
+  if (n === 0) return null;
+  const defenderQualityFaced = qualitySum / n;
+  return { n, defenderQualityFaced, ownFgPct: own.fgPct, offenseAboveExpected: own.fgPct - defenderQualityFaced };
+}
+
 // ---------- Multi-Dimensional Expected Points (xPTS) ----------
 // Expected Points (computeExpectedPoints above) uses zone alone. A shot's real difficulty depends
 // on zone, shot type, AND contest level together -- a heavily-contested drive to the rim and a
@@ -12782,6 +12978,8 @@ function renderLeaderboard() {
   renderGameWinningBucketsPanel();
   renderDefensiveLoadPanel();
   renderContestEngagementPanel();
+  renderShooterQualityDefPanel();
+  renderDefenderQualityOffPanel();
   renderWinSharesModelPanel();
   renderCloseGameShootingPanel();
   renderCloseGameDefensePanel();

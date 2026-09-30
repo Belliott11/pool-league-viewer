@@ -1001,6 +1001,28 @@
         </table>
       </div>
     </div>
+    <div class="panel">
+      <h2>Shooter-Quality-Adjusted Defense <span class="real-data-tag">Early / Experimental</span></h2>
+      <p class="hint">A defender who mostly guards the league's best shooters and holds them to a modest FG% is doing more than one who puts up the same number against the league's weakest shooters. Shooter Quality Faced is the season TS% of the shooters a defender actually faced on real-contested (medium/heavy) shots, averaged; Defense Above Expected is that number minus their own Real Contested Opp FG% -- positive means holding shooters below their own normal output. <strong>This stacks a third adjustment on a number that's already a further slice of the data, and the recommended 30+ tagged shots per shooter to trust as a real quality baseline isn't met leaguewide yet</strong> -- shown for the future, not as a settled read. Trust the direction, not the exact numbers.</p>
+      <p class="hint" id="shooterQualityGateStatus" style="margin-top:0"></p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="shooterQualityDefTable">
+          <thead><tr id="shooterQualityDefHeaderRow"></tr></thead>
+          <tbody id="shooterQualityDefBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Defender-Quality-Adjusted Offense <span class="real-data-tag">Early / Experimental</span></h2>
+      <p class="hint">The direct mirror of Shooter-Quality-Adjusted Defense above: a scorer who stays efficient specifically against the league's best defenders is doing more than one whose efficiency comes mostly against weak ones. Defender Quality Faced is the average Real Contested Opp FG% of the defenders on a scorer's own real-contested attempts; Offense Above Expected is the scorer's own Real Contested FG% minus that number. <strong>Same gate as the defensive version above (this one needs ~8-10+ real-contested volume per defender), also not met leaguewide yet</strong> -- these two ship together per the spec, both marked early.</p>
+      <p class="hint" id="defenderQualityGateStatus" style="margin-top:0"></p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="defenderQualityOffTable">
+          <thead><tr id="defenderQualityOffHeaderRow"></tr></thead>
+          <tbody id="defenderQualityOffBody"></tbody>
+        </table>
+      </div>
+    </div>
       </div>
     </details>
 
