@@ -1,4 +1,4 @@
-// Pool League Stat Tracker
+// Poolean Intel
 // All data lives in localStorage under STORAGE_KEY. See README.md for the JSON schema.
 // Teams are picked fresh each game (pickup-style), so the roster is one league-wide list
 // of players, and each game assigns players to "Team A" / "Team B" for that game only.
@@ -259,7 +259,7 @@ document.getElementById("accentPickerBtn")?.addEventListener("click", openAccent
 
 document.getElementById("shareSiteBtn").addEventListener("click", function () {
   shareOrCopy({
-    title: "Pool League Stat Tracker",
+    title: "Poolean Intel",
     text: "Check out this season's stats",
     url: `${location.origin}${location.pathname}`
   }, this);
@@ -1455,7 +1455,7 @@ function buildGameShareText(game) {
 }
 function copyGameShareLink(game, btn) {
   shareOrCopy({
-    title: "Pool League Stat Tracker",
+    title: "Poolean Intel",
     text: buildGameShareText(game),
     url: `${location.origin}${location.pathname}#game=${encodeURIComponent(game.id)}`
   }, btn);
@@ -13500,7 +13500,7 @@ function renderPlayerDetail() {
     : "No games yet";
   const shareBtn = document.getElementById("sharePlayerBtn");
   shareBtn.onclick = () => shareOrCopy({
-    title: "Pool League Stat Tracker",
+    title: "Poolean Intel",
     text: row
       ? `${player.name}: ${row.wins}-${row.losses}${row.ties ? `-${row.ties}` : ""}, ${row.twoWayPer20.toFixed(1)} Two-Way/20`
       : player.name,

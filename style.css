@@ -93,10 +93,10 @@ body {
   font-style: normal;
   color: var(--accent);
 }
-/* At narrow widths "Pool League Stat Tracker" doesn't fit the h1's flex row on one line, so each
-   word-group shrinks and wraps independently instead of the title just wrapping cleanly -- a
-   dedicated short label (not "Poolean", which already means the real external site everywhere
-   else in this app) sidesteps that instead of fighting flex-shrink with more CSS. */
+/* At narrow widths "Poolean Intel" doesn't fit the h1's flex row on one line, so each word-group
+   shrinks and wraps independently instead of the title just wrapping cleanly -- a dedicated short
+   label ("Intel", not "Poolean" alone, which already means the real external site everywhere else
+   in this app) sidesteps that instead of fighting flex-shrink with more CSS. */
 .app-title-short { display: none; white-space: nowrap; }
 @media (max-width: 480px) {
   .app-title-full { display: none; }
