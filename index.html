@@ -903,6 +903,16 @@
       </div>
     </div>
     <div class="panel">
+      <h2>TOV Recomputed</h2>
+      <p class="hint">A missed shot ruled out of bounds isn't a ball-security failure the way giving the ball away live is, so TOV% and A/TO now count only live-ball turnovers (bad pass, lost handle, stripped, decision/drive error, or untyped). The old blended number (which counted both) is kept here alongside the new one so the change is visible, not silent.</p>
+      <div class="table-scroll">
+        <table class="matchup-table" id="tovRecomputedTable">
+          <thead><tr id="tovRecomputedHeaderRow"></tr></thead>
+          <tbody id="tovRecomputedBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
       <h2>Self-Inflicted vs. Forced Turnover Rate</h2>
       <p class="hint">Same self-inflicted/forced split as Turnover Type Breakdown above, as one bar per player instead of a table -- the fastest way to scan the whole roster for whose ball-security problem is really theirs, and whose is partly the defense's doing. Bar length reflects total tagged volume, not just the self-inflicted/forced split, so a player with a handful of turnovers and one with many don't look the same size just because both happen to split the same way. Sorted by total turnovers, most first.</p>
       <p class="hint" id="selfInflictedVsForcedSummary" style="margin-top:0"></p>

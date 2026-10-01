@@ -3924,6 +3924,12 @@ function recomputeDerivedStats(game) {
     s.oreb = rebounded.filter(ev => sameTeam(game, ev.scorerId, pid)).length;
     s.dreb = rebounded.filter(ev => !sameTeam(game, ev.scorerId, pid)).length;
     s.tov = game.turnoverEvents.filter(ev => ev.playerId === pid).length;
+    // Live-ball turnovers only -- excludes a turnover auto-created from a missed shot ruled out
+    // of bounds (missEventId set), which is a different kind of event entirely (a shooting miss,
+    // not a ball-security failure) and was never meant to be charged against the same rate stats
+    // a live-ball giveaway is (see poolean-turnover-type-spec.md Section 0). s.tov above stays the
+    // total box-score count (what actually happened in the game); this is the rate-stat input.
+    s.liveBallTov = game.turnoverEvents.filter(ev => ev.playerId === pid && !ev.missEventId).length;
     s.stl = game.stealEvents.filter(ev => ev.playerId === pid).length;
     s.pf = game.foulEvents.filter(ev => ev.playerId === pid).length;
   });
@@ -4242,6 +4248,23 @@ function trueShootingPct(pts, fga, fta) {
 function turnoverPct(tov, fga, fta) {
   const denom = fga + 0.44 * fta + tov;
   return denom > 0 ? Math.round((tov / denom) * 100) : null;
+}
+
+// Splits a player's season turnover total into live-ball (a real giveaway: bad pass, lost
+// handle, stripped, decision/drive error, or untyped "other") vs. shot-based (a missed shot ruled
+// out of bounds, marked by missEventId -- structurally a shooting miss, not a ball-security
+// failure, and never typed). Per poolean-turnover-type-spec.md Section 0: TOV%, A/TO, and the Win
+// Shares `tov` feature should all be driven by liveBall alone, not the blended total -- a shot
+// clanked out of bounds shouldn't count against those the same way giving the ball away does.
+function computeTovSplit(playerId) {
+  let liveBall = 0, shotBased = 0;
+  qualifyingGamesForPlayer(playerId).forEach(game => {
+    game.turnoverEvents.filter(ev => ev.playerId === playerId).forEach(ev => {
+      if (ev.missEventId) shotBased++;
+      else liveBall++;
+    });
+  });
+  return { liveBall, shotBased, total: liveBall + shotBased };
 }
 
 // Effective FG% — FG% adjusted so a make 3 counts as 1.5x a make 2.
@@ -5554,7 +5577,7 @@ const GAME_STATS_COLUMNS = [
   { key: "stl", label: "STL", accessor: r => r.s.stl },
   { key: "blk", label: "BLK", accessor: r => r.s.blk },
   { key: "tov", label: "TOV", accessor: r => r.s.tov },
-  { key: "atov", label: "A/TO", accessor: r => r.s.tov === 0 ? (r.s.ast === 0 ? 0 : Infinity) : r.s.ast / r.s.tov },
+  { key: "atov", label: "A/TO", accessor: r => r.s.liveBallTov === 0 ? (r.s.ast === 0 ? 0 : Infinity) : r.s.ast / r.s.liveBallTov },
   { key: "pf", label: "PF", accessor: r => r.s.pf },
   { key: "ptsAllowed", label: "Pts Allowed", accessor: r => r.def.ptsAllowed },
   { key: "oppfg", label: "Opp FG%", accessor: r => r.def.oppFgPct },
@@ -5604,7 +5627,7 @@ function renderGameStatsTable(game) {
       <td>${r.s.stl}</td>
       <td>${r.s.blk}</td>
       <td>${r.s.tov}</td>
-      <td>${formatAstTov(r.s.ast, r.s.tov)}</td>
+      <td>${formatAstTov(r.s.ast, r.s.liveBallTov)}</td>
       <td>${foulCellHtml(r.s.pf)}</td>
       <td>${r.def.ptsAllowed}</td>
       <td>${formatPct(r.def.oppFgPct)}</td>
@@ -6460,6 +6483,7 @@ function computeLeaderboardUncached() {
     // ±0.5 counts as flat rather than a real trend — otherwise a 0.1 wobble reads as a signal.
     // "●" for flat, not "-"/"–" — a dash next to a number reads as a minus sign, not "no change."
     const last5Trend = last5Delta === null ? "" : last5Delta > 0.5 ? "▲" : last5Delta < -0.5 ? "▼" : "●";
+    const tovSplit = computeTovSplit(p.id);
     return {
       player: p, gp, totals, shooting, defense, rate, rateShooting, rateDefense,
       wins, losses, ties,
@@ -6490,8 +6514,13 @@ function computeLeaderboardUncached() {
       orebPct: pct(totals.oreb, orebPoolTotal),
       drebPct: pct(totals.dreb, drebPoolTotal),
       trebPct: pct(totals.oreb + totals.dreb, orebPoolTotal + drebPoolTotal),
-      tovPct: turnoverPct(totals.tov, shooting.fga, shooting.fta),
-      astTov: formatAstTov(totals.ast, totals.tov),
+      tovSplit,
+      // Both now driven by live-ball TOV only, not the blended total that includes shot-based
+      // (OOB-miss) turnovers -- see computeTovSplit above and Section 0 of
+      // poolean-turnover-type-spec.md. The raw box-score TOV column elsewhere stays the total,
+      // since that's what actually happened in the game, not a rate stat.
+      tovPct: turnoverPct(tovSplit.liveBall, shooting.fga, shooting.fta),
+      astTov: formatAstTov(totals.ast, tovSplit.liveBall),
       last5Gp: last5.gp, last5OffRatingPer20: last5.offRatingPer20, last5TwoWayPer20: last5.twoWayPer20, last5Trend
     };
   });
@@ -9034,7 +9063,7 @@ function renderPlayStyleClusters() {
         <div class="play-style-cluster">
           <h4>${escapeHtml(c.label)} <span class="hint" style="margin:0">(${c.members.length})</span></h4>
           <p class="hint play-style-explain">${escapeHtml(c.explain)}</p>
-          <ul>${c.members.map(m => `<li>${renderPlayerAvatar(m.player)}${playerLink(m.player.id, m.player.name)}</li>`).join("")}</ul>
+          <ul>${c.members.map(m => `<li>${playerLink(m.player.id, m.player.name)}</li>`).join("")}</ul>
         </div>
       `).join("")}
     </div>
@@ -10825,7 +10854,7 @@ const WIN_SHARES_FEATURES = [
   { key: "oreb", label: "Off Rebounds", sign: 1, extract: (s, sh, def) => s.oreb },
   { key: "dreb", label: "Def Rebounds", sign: 1, extract: (s, sh, def) => s.dreb },
   { key: "ast", label: "Assists", sign: 1, prior: 0.5, extract: (s, sh, def) => s.ast },
-  { key: "tov", label: "Turnovers", sign: -1, extract: (s, sh, def) => s.tov },
+  { key: "tov", label: "Turnovers", sign: -1, extract: (s, sh, def) => s.liveBallTov },
   { key: "stops", label: "Stops", sign: 1, extract: (s, sh, def) => def.stops },
   { key: "ptsAllowed", label: "Pts Allowed", sign: -1, extract: (s, sh, def) => def.ptsAllowed },
 ];
@@ -12203,8 +12232,8 @@ function computeAreasToWorkOn(playerId) {
   // TOV%: min 10 combined FGA+FTA+TOV (a plain count, deliberately not the FTA-weighted
   // denominator turnoverPct() itself uses for the rate).
   {
-    const statFn = (g, pid) => { const s = getOrCreatePlayerStats(g, pid); const sh = shootingStats(g, pid); return { num: s.tov, denom: sh.fga + 0.44 * sh.fta + s.tov }; };
-    const sampleFn = (g, pid) => { const s = getOrCreatePlayerStats(g, pid); const sh = shootingStats(g, pid); return sh.fga + sh.fta + s.tov; };
+    const statFn = (g, pid) => { const s = getOrCreatePlayerStats(g, pid); const sh = shootingStats(g, pid); return { num: s.liveBallTov, denom: sh.fga + 0.44 * sh.fta + s.liveBallTov }; };
+    const sampleFn = (g, pid) => { const s = getOrCreatePlayerStats(g, pid); const sh = shootingStats(g, pid); return sh.fga + sh.fta + s.liveBallTov; };
     const cat = computeAreaCategory(playerId, { statFn, sampleFn, minSample: 10, higherIsBetter: false });
     if (cat) {
       const diff = cat.ownRate - cat.leagueMedian;
@@ -12220,15 +12249,16 @@ function computeAreasToWorkOn(playerId) {
   // edge case (an infinite ratio reads as an automatic, real strength, not a division to skip).
   {
     const totals = row.totals;
-    const sample = totals.ast + totals.tov;
+    const ownTov = row.tovSplit.liveBall;
+    const sample = totals.ast + ownTov;
     if (sample >= 5) {
-      const leagueRatios = board.filter(r => r.player.id !== playerId && (r.totals.ast + r.totals.tov) >= 5 && r.totals.tov > 0).map(r => r.totals.ast / r.totals.tov);
+      const leagueRatios = board.filter(r => r.player.id !== playerId && (r.totals.ast + r.tovSplit.liveBall) >= 5 && r.tovSplit.liveBall > 0).map(r => r.totals.ast / r.tovSplit.liveBall);
       const leagueMedian = median(leagueRatios);
       if (leagueMedian !== null) {
-        if (totals.tov === 0 && totals.ast > 0) {
+        if (ownTov === 0 && totals.ast > 0) {
           results.push({ key: "atoto", isWeak: false, text: `Your assist-to-turnover ratio has no turnovers at all charged against ${totals.ast} assist${totals.ast === 1 ? "" : "s"} this season, an automatic strength beyond what the league median of ${leagueMedian.toFixed(1)} even measures.` });
-        } else if (totals.tov > 0) {
-          const ownRatio = totals.ast / totals.tov;
+        } else if (ownTov > 0) {
+          const ownRatio = totals.ast / ownTov;
           const diff = ownRatio - leagueMedian;
           if (Math.abs(diff) >= 0.5) {
             const isWeak = diff < 0;
@@ -12462,11 +12492,11 @@ const shotPoints = sh => 2 * sh.fgm + sh.tpm + sh.ftm;
 
 const PLAYER_TREND_STATS = [
   { key: "tovPct", label: "TOV%", unit: "%", decimals: 0, minN: 4, lowerIsBetter: true,
-    about: "How often this player turns the ball over relative to their shot attempts: TOV ÷ (FGA + 0.44×FTA + TOV). Lower is better.",
+    about: "How often this player turns the ball over relative to their shot attempts: live-ball TOV ÷ (FGA + 0.44×FTA + live-ball TOV). A missed shot ruled out of bounds isn't counted here. Lower is better.",
     compute: (pid, games) => {
       let tov = 0, fga = 0, fta = 0;
       games.forEach(g => {
-        const s = g.stats.find(st => st.playerId === pid); if (s) tov += s.tov;
+        const s = g.stats.find(st => st.playerId === pid); if (s) tov += s.liveBallTov;
         const sh = shootingStats(g, pid); fga += sh.fga; fta += sh.fta;
       });
       const den = fga + 0.44 * fta + tov;
@@ -13042,7 +13072,7 @@ const LEADERBOARD_COLUMNS = [
     tooltip: `Of every turnover the opponent committed in games this player's own team was on defense (credited or not -- the whole pool a credited one could come from), what share did this player individually get credited for forcing (a real steal, or being named on a standalone turnover)? A turnover with no one credited has no defender tag at all, so it can't honestly be pinned on one specific teammate over another; this only compares against the real, checkable pool. Separates active disruption from benefiting off sloppy opposing possessions without causing them. Needs ${TURNOVER_CREDIT_MIN_POOL}+ team turnovers forced.` },
   { key: "blk", label: "BLK/20", accessor: r => r.rate.blk, display: r => r.rate.blk.toFixed(1), tooltip: "Blocks (credited on a missed shot when this player is tagged as the blocker), per 20 combined points. Feeds Def Rating below, except when the block is already one of this player's own Stops (the usual case); see Def Rating's own tooltip." },
   { key: "tov", label: "TOV/20", accessor: r => r.rate.tov, display: r => r.rate.tov.toFixed(1), tooltip: "Turnovers (including ones forced by a steal, or a miss ruled out of bounds), per 20 combined points." },
-  { key: "atov", label: "A/TO", accessor: r => r.totals.tov === 0 ? (r.totals.ast === 0 ? 0 : Infinity) : r.totals.ast / r.totals.tov, display: r => r.astTov, tooltip: "Assist-to-turnover ratio." },
+  { key: "atov", label: "A/TO", accessor: r => r.tovSplit.liveBall === 0 ? (r.totals.ast === 0 ? 0 : Infinity) : r.totals.ast / r.tovSplit.liveBall, display: r => r.astTov, tooltip: "Assist-to-turnover ratio, counting live-ball turnovers only -- a missed shot ruled out of bounds isn't charged against it (see TOV Recomputed below)." },
   { key: "pf", label: "PF/20", accessor: r => r.rate.pf, display: r => r.rate.pf.toFixed(1), tooltip: "Personal fouls, per 20 combined points." },
   { key: "ptsAllowed", label: "Pts Allowed/20", accessor: r => r.rateDefense.ptsAllowed, display: r => r.rateDefense.ptsAllowed.toFixed(1), tooltip: "Points scored by opponents on shots where this player was the tagged defender, per 20 combined points." },
   { key: "oppfg", label: "Opp FG%", accessor: r => pct(r.defense.timesBeaten, r.defense.timesBeaten + r.defense.stops), display: r => formatPct(pct(r.defense.timesBeaten, r.defense.timesBeaten + r.defense.stops)), tooltip: "Shooting percentage of everyone this player was tagged defending, make or miss: a real 'shooting percentage allowed.'" },
@@ -13268,6 +13298,7 @@ function renderLeaderboard() {
   renderSecondChanceAllowedPanel();
   renderPointsOffTakeawaysPanel();
   renderTurnoverTypeBreakdownPanel();
+  renderTovRecomputedPanel();
   renderSelfInflictedVsForcedChart();
   renderTurnoverTypeMixPanel();
   renderForcedTurnoverCreditPanel();
@@ -14074,7 +14105,7 @@ const PLAYER_GAME_LOG_COLUMNS = [
   { key: "blk", label: "BLK", accessor: r => r.s.blk },
   { key: "tov", label: "TOV", accessor: r => r.s.tov },
   { key: "tovdetail", label: "TOV Detail", accessor: r => r.s.tov },
-  { key: "atov", label: "A/TO", accessor: r => r.s.tov === 0 ? (r.s.ast === 0 ? 0 : Infinity) : r.s.ast / r.s.tov },
+  { key: "atov", label: "A/TO", accessor: r => r.s.liveBallTov === 0 ? (r.s.ast === 0 ? 0 : Infinity) : r.s.ast / r.s.liveBallTov },
   { key: "pf", label: "PF", accessor: r => r.s.pf },
   { key: "ptsAllowed", label: "Pts Allowed", accessor: r => r.def.ptsAllowed },
   { key: "oppfg", label: "Opp FG%", accessor: r => r.def.oppFgPct },
@@ -14160,7 +14191,7 @@ function renderPlayerGameLog(playerId) {
       <td>${r.s.blk}</td>
       <td>${r.s.tov}</td>
       <td>${escapeHtml(turnoverTypeDetailForGame(r.game, playerId))}</td>
-      <td>${formatAstTov(r.s.ast, r.s.tov)}</td>
+      <td>${formatAstTov(r.s.ast, r.s.liveBallTov)}</td>
       <td>${foulCellHtml(r.s.pf)}</td>
       <td>${r.def.ptsAllowed}</td>
       <td>${formatPct(r.def.oppFgPct)}</td>
@@ -14621,7 +14652,7 @@ document.getElementById("exportBoxScoreCsvBtn").addEventListener("click", () => 
         game.id, game.date, teamLabel, player.name, ...STAT_FIELDS.map(f => s[f]),
         sh.fgm, sh.fga, sh.tpm, sh.tpa, sh.closeM, sh.closeA, sh.midM, sh.midA, sh.tpArcM, sh.tpArcA, sh.tpDeepM, sh.tpDeepA, sh.ftm, sh.fta,
         effectiveFgPct(sh.fgm, sh.tpm, sh.fga), trueShootingPct(s.pts, sh.fga, sh.fta),
-        s.stl + s.blk, formatAstTov(s.ast, s.tov),
+        s.stl + s.blk, formatAstTov(s.ast, s.liveBallTov),
         def.ptsAllowed, def.oppFgPct, def.timesBeaten, def.stops, offensiveRating(s, sh).toFixed(1), twoWayScore(s, sh, def).toFixed(1)
       ]);
     });
@@ -15018,9 +15049,10 @@ function computeTurnoverTypeBreakdown(playerId) {
 
 const TURNOVER_TYPE_CSS_CLASS = { badPass: "tov-seg-badpass", lostHandle: "tov-seg-losthandle", decisionError: "tov-seg-decisionerror", stripped: "tov-seg-stripped" };
 
-// Shown on every turnover-type panel, per the spec's own honesty requirement -- the backlog isn't
-// closed yet (see Export, Review Turnover Types), so every table/chart built on this field states
-// its own tagged-sample count directly instead of quietly presenting partial data as complete.
+// Shown on every turnover-type panel, per the spec's own honesty requirement. Excludes
+// missEventId-linked turnovers (a missed shot ruled out of bounds) from the denominator entirely
+// -- those were never meant to be typed, not an untagged backlog -- so every live-ball turnover
+// with a type tagged is counted as complete, not partial, once this reads 100%.
 function computeTurnoverTypeTaggedSummary() {
   let total = 0, tagged = 0;
   state.games.filter(isQualifyingGame).forEach(game => {
@@ -15094,6 +15126,53 @@ function renderTurnoverTypeBreakdownPanel() {
       <td><div class="shot-selection-bar">${mix}</div></td>
     </tr>`;
   }).join("");
+}
+
+// ---------- TOV Recomputed (Live-Ball vs. Shot-Based) ----------
+// Per poolean-turnover-type-spec.md Section 0: TOV% and A/TO switched from the blended total
+// (live-ball + shot-based/OOB-miss) to live-ball turnovers only. This table keeps the old blended
+// number visible alongside the new one the first time this ships, rather than silently swapping
+// a stat under the numbers people already know -- same honesty requirement the rest of the
+// turnover panels follow (see turnoverTypeTaggedSummaryText above).
+const TOV_RECOMPUTED_COLUMNS = [
+  { key: "player", label: "Player", accessor: r => r.player.name },
+  { key: "oldtov", label: "Total TOV (old)", accessor: r => r.totals.tov },
+  { key: "liveball", label: "Live-Ball TOV", accessor: r => r.tovSplit.liveBall },
+  { key: "shotbased", label: "Shot-Based TOV", accessor: r => r.tovSplit.shotBased },
+  { key: "oldpct", label: "TOV% (old)", accessor: r => r.oldTovPct, display: r => r.oldTovPct === null ? "—" : formatPct(r.oldTovPct) },
+  { key: "newpct", label: "TOV% (new)", accessor: r => r.tovPct, display: r => r.tovPct === null ? "—" : formatPct(r.tovPct) },
+];
+let tovRecomputedSort = { key: "newpct", dir: "desc" };
+
+function computeTovRecomputedRows() {
+  return computeLeaderboard()
+    .map(r => ({
+      player: r.player, totals: r.totals, tovSplit: r.tovSplit, tovPct: r.tovPct,
+      oldTovPct: turnoverPct(r.totals.tov, r.shooting.fga, r.shooting.fta),
+    }))
+    .filter(r => r.totals.tov > 0);
+}
+
+function renderTovRecomputedPanel() {
+  const headerRow = document.getElementById("tovRecomputedHeaderRow");
+  const body = document.getElementById("tovRecomputedBody");
+  if (!body) return;
+  renderSortableHeader(headerRow, TOV_RECOMPUTED_COLUMNS, tovRecomputedSort, renderTovRecomputedPanel);
+  const rows = computeTovRecomputedRows();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="6" class="empty-state">No turnovers logged yet.</td></tr>`;
+    return;
+  }
+  const sortCol = TOV_RECOMPUTED_COLUMNS.find(c => c.key === tovRecomputedSort.key);
+  rows.sort((a, b) => compareForSort(sortCol.accessor(a), sortCol.accessor(b), tovRecomputedSort.dir));
+  body.innerHTML = rows.map(r => `<tr>
+      <td>${playerLink(r.player.id, r.player.name)}</td>
+      <td>${r.totals.tov}</td>
+      <td>${r.tovSplit.liveBall}</td>
+      <td>${r.tovSplit.shotBased}</td>
+      <td>${r.oldTovPct === null ? "—" : formatPct(r.oldTovPct)}</td>
+      <td>${r.tovPct === null ? "—" : formatPct(r.tovPct)}</td>
+    </tr>`).join("");
 }
 
 // ---------- Self-Inflicted vs. Forced Turnover Rate (league chart) ----------
